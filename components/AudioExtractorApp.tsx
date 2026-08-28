@@ -10,6 +10,7 @@ import { DropZone } from "./DropZone";
 import { EngineBanner } from "./EngineBanner";
 import { FileCard } from "./FileCard";
 import { FormatPicker } from "./FormatPicker";
+import { TrimPicker } from "./TrimPicker";
 
 /** Files this large rely on the WORKERFS mount path rather than an in-memory copy. */
 const LARGE_FILE_BYTES = 2 * 1024 ** 3;
@@ -20,8 +21,11 @@ export function AudioExtractorApp() {
     engineState,
     selectedFormats,
     setSelectedFormats,
+    trimSettings,
+    setTrimSettings,
     addFiles,
     addFormatToJob,
+    detectSilence,
     cancelJob,
     removeJob,
     retryJob,
@@ -57,8 +61,8 @@ export function AudioExtractorApp() {
         </h1>
         <p className="mt-2 text-muted">
           Drop one or more videos and the audio comes out the other side — MP3, M4A, WAV, FLAC or
-          Opus. Everything runs in your browser through WebAssembly, so nothing is uploaded and
-          there is no file size limit to speak of.
+          Opus, whole or clipped to a range. Everything runs in your browser through WebAssembly,
+          so nothing is uploaded and there is no file size limit to speak of.
         </p>
       </header>
 
@@ -75,13 +79,15 @@ export function AudioExtractorApp() {
             className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
           >
             <span className="text-sm font-medium">
-              Output formats
+              Output formats &amp; trim
               <span className="ml-2 font-normal text-muted">
                 {selectedFormats.length > 0
                   ? selectedFormats.length === 1
-                    ? "1 selected"
-                    : `${selectedFormats.length} selected`
-                  : "none selected"}
+                    ? "1 format"
+                    : `${selectedFormats.length} formats`
+                  : "no format"}
+                {trimSettings.mode === "silence" && " · trim silence"}
+                {trimSettings.mode === "range" && " · clip a range"}
               </span>
             </span>
             <svg
@@ -98,12 +104,13 @@ export function AudioExtractorApp() {
             </svg>
           </button>
           {showSettings && (
-            <div className="border-t border-border-subtle px-4 py-4">
+            <div className="space-y-5 border-t border-border-subtle px-4 py-4">
               <FormatPicker
                 selected={selectedFormats}
                 onChange={setSelectedFormats}
                 capabilities={engineState.capabilities}
               />
+              <TrimPicker settings={trimSettings} onChange={setTrimSettings} />
             </div>
           )}
         </div>
@@ -140,6 +147,7 @@ export function AudioExtractorApp() {
                   onRemove={removeJob}
                   onRetry={retryJob}
                   onAddFormat={addFormatToJob}
+                  onDetectSilence={detectSilence}
                 />
               ))}
             </ul>

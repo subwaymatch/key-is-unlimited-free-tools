@@ -24,17 +24,37 @@ import type { FFmpeg, LogEvent, ProgressEvent as FFmpegProgressEvent } from "@ff
 
 import { getClassWorkerUrl } from "./constants";
 import { loadCoreUrls } from "./coreLoader";
-import { findFormatBlocker, getFormat, type OutputFormatId } from "./formats";
+import {
+  findFormatBlocker,
+  getFormat,
+  SELECT_AUDIO,
+  type OutputFormatId,
+} from "./formats";
 import { parseEncoders, parseProbeOutput, summarizeFailure } from "./probe";
+import {
+  DEFAULT_SILENCE_OPTIONS,
+  isEntirelySilent,
+  isSilenceEventLine,
+  parseSilenceLog,
+  resolveTrim,
+  silenceDetectArgs,
+  suggestTrimFromSilence,
+  trimArgs,
+  trimDuration,
+  trimFileSuffix,
+} from "./trim";
 import {
   ExtractionError,
   type AudioExtractor,
   type EngineCapabilities,
   type EngineLoadProgress,
+  type ExtractOptions,
   type ExtractOutput,
   type ExtractProgress,
   type ExtractSession,
   type ProbeResult,
+  type SilenceScanOptions,
+  type SilenceScanResult,
 } from "./types";
 
 /** Where the input file is mounted inside the core's filesystem. */
@@ -45,6 +65,15 @@ const MAX_LOG_LINES = 400;
 
 /** `ffmpeg -encoders` prints several hundred rows; none of them may be dropped. */
 const MAX_ENCODER_LOG_LINES = 2_000;
+
+/**
+ * Silence events retained per scan.
+ *
+ * A conversation with a pause every few seconds produces thousands of them, and
+ * the ones that matter are at both ends — so this cap is generous and the
+ * capture keeps only silencedetect's own lines rather than the whole log.
+ */
+const MAX_SILENCE_EVENT_LINES = 20_000;
 
 type FFmpegModule = typeof import("@ffmpeg/ffmpeg");
 
@@ -231,11 +260,16 @@ export class FFmpegEngine implements AudioExtractor {
    * Log messages are posted from the worker before that command's own response,
    * so everything captured between calling and awaiting belongs to it.
    */
-  #capture(maxLines = MAX_LOG_LINES): { lines: string[]; release: () => void } {
+  #capture(
+    maxLines = MAX_LOG_LINES,
+    keep?: (message: string) => boolean,
+  ): { lines: string[]; release: () => void } {
     const lines: string[] = [];
     const previous = this.#logSink;
     this.#logSink = (event) => {
-      if (lines.length < maxLines) lines.push(event.message);
+      if (lines.length < maxLines && (!keep || keep(event.message))) {
+        lines.push(event.message);
+      }
       previous?.(event);
     };
     return {
@@ -346,11 +380,17 @@ export class FFmpegEngine implements AudioExtractor {
     file: File,
     formatId: OutputFormatId,
     probe: ProbeResult,
-    onProgress?: (progress: ExtractProgress) => void,
+    options?: ExtractOptions,
   ): Promise<ExtractOutput> {
     const format = getFormat(formatId);
+    const onProgress = options?.onProgress;
 
-    const blocker = findFormatBlocker(formatId, probe);
+    // Clamp the range to the file before anything expensive happens, so an
+    // impossible clip is reported in milliseconds rather than after a long run.
+    const { trim, problem } = resolveTrim(options?.trim, probe.durationSeconds);
+    if (problem) throw new ExtractionError(problem.message, problem.hint);
+
+    const blocker = findFormatBlocker(formatId, probe, trim);
     if (blocker) throw new ExtractionError(blocker.message, blocker.hint);
 
     if (format.requiredEncoder && !this.#capabilities?.encoders.has(format.requiredEncoder)) {
@@ -362,7 +402,10 @@ export class FFmpegEngine implements AudioExtractor {
 
     const plan = format.plan(probe);
     const outputPath = `/out.${plan.extension}`;
-    const duration = probe.durationSeconds;
+    // With input seeking the output timeline restarts at zero, so progress is
+    // measured against the length of the clip, not the length of the file.
+    const duration = trimDuration(trim, probe.durationSeconds);
+    const { input: trimInput, output: trimOutput } = trimArgs(trim);
 
     // ffmpeg's own `progress` ratio is unreliable when it cannot infer the
     // duration, so the ratio is computed from processed media time instead.
@@ -379,7 +422,15 @@ export class FFmpegEngine implements AudioExtractor {
 
     let exitCode: number;
     try {
-      exitCode = await ffmpeg.exec(["-hide_banner", "-i", inputPath, ...plan.args, outputPath]);
+      exitCode = await ffmpeg.exec([
+        "-hide_banner",
+        ...trimInput,
+        "-i",
+        inputPath,
+        ...plan.args,
+        ...trimOutput,
+        outputPath,
+      ]);
     } finally {
       log.release();
       this.#progressSink = null;
@@ -403,14 +454,89 @@ export class FFmpegEngine implements AudioExtractor {
     const blob = new Blob([data as BlobPart], { type: plan.mimeType });
     onProgress?.({ processedSeconds: duration ?? 0, ratio: 1 });
 
+    // A trimmed output carries its range in the filename, so several clips from
+    // one video do not all land in Downloads under the same name.
+    const suffix = trimFileSuffix(trim, probe.durationSeconds);
+
     return {
       blob,
-      fileName: `${baseName(file.name)}.${plan.extension}`,
+      fileName: `${baseName(file.name)}${suffix}.${plan.extension}`,
       extension: plan.extension,
       mimeType: plan.mimeType,
       bytes: blob.size,
       elapsedMs: performance.now() - startedAt,
       mode: plan.mode,
+      trim,
+    };
+  }
+
+  /**
+   * @internal — driven by FFmpegSession.
+   *
+   * Runs the audio through `silencedetect` with the null muxer: a full decode
+   * of the audio stream that writes nothing. Video is never touched, so this
+   * costs far less than the name suggests, but it is still a whole pass — which
+   * is why it happens only when someone asks for automatic trimming.
+   */
+  async runSilenceScan(
+    ffmpeg: FFmpeg,
+    inputPath: string,
+    probe: ProbeResult,
+    options?: Partial<SilenceScanOptions>,
+    onProgress?: (progress: ExtractProgress) => void,
+  ): Promise<SilenceScanResult> {
+    const settings: SilenceScanOptions = { ...DEFAULT_SILENCE_OPTIONS, ...options };
+    const duration = probe.durationSeconds;
+
+    this.#progressSink = ({ time }) => {
+      const processedSeconds = Math.max(0, time / 1_000_000);
+      onProgress?.({
+        processedSeconds,
+        ratio: duration ? Math.min(1, processedSeconds / duration) : null,
+      });
+    };
+
+    // Two nested captures: a bounded tail for a failure message, and a filtered
+    // one that keeps every silence event however chatty the run gets. They must
+    // be released innermost-first or the chain is left pointing at a dead sink.
+    const failureLog = this.#capture();
+    const eventLog = this.#capture(MAX_SILENCE_EVENT_LINES, isSilenceEventLine);
+
+    let exitCode: number;
+    try {
+      exitCode = await ffmpeg.exec([
+        "-hide_banner",
+        "-i",
+        inputPath,
+        ...SELECT_AUDIO,
+        ...silenceDetectArgs(settings),
+        // The null muxer discards every packet and is AVFMT_NOFILE, so "-" is
+        // never actually opened.
+        "-f",
+        "null",
+        "-",
+      ]);
+    } finally {
+      eventLog.release();
+      failureLog.release();
+      this.#progressSink = null;
+    }
+
+    if (exitCode !== 0) {
+      throw new ExtractionError(
+        "Silence detection failed.",
+        summarizeFailure(failureLog.lines) ?? `ffmpeg exited with code ${exitCode}.`,
+      );
+    }
+
+    const intervals = parseSilenceLog(eventLog.lines);
+    onProgress?.({ processedSeconds: duration ?? 0, ratio: 1 });
+
+    return {
+      intervals,
+      suggested: suggestTrimFromSilence(intervals, duration),
+      entirelySilent: isEntirelySilent(intervals, duration),
+      options: settings,
     };
   }
 
@@ -452,10 +578,7 @@ class FFmpegSession implements ExtractSession {
     readonly probe: ProbeResult,
   ) {}
 
-  extract(
-    formatId: string,
-    onProgress?: (progress: ExtractProgress) => void,
-  ): Promise<ExtractOutput> {
+  extract(formatId: string, options?: ExtractOptions): Promise<ExtractOutput> {
     if (this.#closed) {
       return Promise.reject(new ExtractionError("This file is no longer open."));
     }
@@ -465,6 +588,22 @@ class FFmpegSession implements ExtractSession {
       this.file,
       formatId as OutputFormatId,
       this.probe,
+      options,
+    );
+  }
+
+  detectSilence(
+    options?: Partial<SilenceScanOptions>,
+    onProgress?: (progress: ExtractProgress) => void,
+  ): Promise<SilenceScanResult> {
+    if (this.#closed) {
+      return Promise.reject(new ExtractionError("This file is no longer open."));
+    }
+    return this.engine.runSilenceScan(
+      this.ffmpeg,
+      this.inputPath,
+      this.probe,
+      options,
       onProgress,
     );
   }

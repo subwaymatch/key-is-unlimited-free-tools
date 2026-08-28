@@ -71,6 +71,17 @@ function ensureFixtures() {
       "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25",
       "-t", "3", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
     ]),
+    // 2s of silence, 4s of tone, 2s of silence — the shape automatic trimming
+    // is supposed to recognise.
+    padded: build("padded.mp4", [
+      "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25",
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+      "-filter_complex",
+      "[1:a]atrim=0:4,asetpts=PTS-STARTPTS,adelay=2000|2000,apad=whole_dur=8[a]",
+      "-map", "0:v", "-map", "[a]", "-t", "8",
+      "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+      "-c:a", "aac", "-b:a", "128k", "-ac", "2",
+    ]),
     surround: build("surround.mkv", [
       "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25",
       "-f", "lavfi", "-i", "sine=frequency=220:sample_rate=48000",
@@ -242,6 +253,82 @@ async function main() {
     const flacAudio = flac.streams.find((stream) => stream.codec_type === "audio");
     check("FLAC copy stays FLAC with 6 channels", flacAudio?.codec_name === "flac" && flacAudio?.channels === 6);
 
+    // ---- Case 4: clipping a range with the per-file markers ---------------
+    log("\nCase 4 — clipping 1:00–3:00 of the 6s MP4:");
+    await card.getByRole("button", { name: "Trim or clip a range" }).click();
+    const markers = card.getByRole("group", { name: "Clip markers" });
+    await markers.getByLabel("Start", { exact: true }).fill("1");
+    await markers.getByLabel("End", { exact: true }).fill("3");
+    check("shows the length of the clip", /Clip is 0:02 long/.test(await markers.innerText()));
+
+    await markers.getByRole("button", { name: "MP3", exact: true }).click();
+    await card.getByText("Done", { exact: true }).waitFor({ timeout: 120_000 });
+    await card.getByText("0:01–0:03").waitFor({ timeout: 120_000 });
+    check("labels the output with the range it covers", true, "0:01–0:03 badge");
+
+    // Scoped by the range badge: a plain "MP3" match would find the full-audio
+    // row that case 1 produced.
+    const clipRow = card.locator("li").filter({ hasText: "0:01–0:03" });
+    const [clipDownload] = await Promise.all([
+      page.waitForEvent("download"),
+      clipRow.getByText("Download").click(),
+    ]);
+    const clipPath = join(downloadDir, clipDownload.suggestedFilename());
+    await clipDownload.saveAs(clipPath);
+
+    check(
+      "clip filename carries its range",
+      clipDownload.suggestedFilename() === "sample-1s-3s.mp3",
+      clipDownload.suggestedFilename(),
+    );
+    const clip = ffprobeJson(clipPath);
+    check(
+      "clip is exactly the requested two seconds",
+      Math.abs(Number(clip.format.duration) - 2) < 0.3,
+      `${Number(clip.format.duration).toFixed(2)}s`,
+    );
+    check(
+      "clip is a valid MP3",
+      clip.streams.find((stream) => stream.codec_type === "audio")?.codec_name === "mp3",
+    );
+
+    // ---- Case 5: automatic silence trimming -------------------------------
+    log("\nCase 5 — 8s MP4 padded with 2s of silence at each end:");
+    await page.getByRole("button", { name: /Output formats/ }).click();
+    await page.getByLabel(/Trim silence/).check();
+
+    await page.locator('input[type="file"]').setInputFiles(fixtures.padded);
+    const paddedCard = page.locator("li", { hasText: "padded.mp4" }).first();
+    await paddedCard.getByText("Done", { exact: true }).waitFor({ timeout: 180_000 });
+
+    const paddedRow = paddedCard.locator("li").filter({ hasText: /^MP3/ });
+    const [paddedDownload] = await Promise.all([
+      page.waitForEvent("download"),
+      paddedRow.getByText("Download").click(),
+    ]);
+    const paddedPath = join(downloadDir, paddedDownload.suggestedFilename());
+    await paddedDownload.saveAs(paddedPath);
+
+    const padded = ffprobeJson(paddedPath);
+    const paddedDuration = Number(padded.format.duration);
+    // 4s of tone plus the 0.1s of silence deliberately kept at either end.
+    check(
+      "silence detection cuts the 2s head and 2s tail",
+      Math.abs(paddedDuration - 4.2) < 0.5,
+      `${paddedDuration.toFixed(2)}s of 8s`,
+    );
+    check(
+      "trimmed filename carries the detected range",
+      /^padded-\d+s-\d+s\.mp3$/.test(paddedDownload.suggestedFilename()),
+      paddedDownload.suggestedFilename(),
+    );
+    check(
+      "the trimmed output is still labelled with its range",
+      /–/.test(await paddedCard.innerText()),
+    );
+
+    await page.screenshot({ path: join(root, ".fixtures", "verify-trimmed.png"), fullPage: true });
+
     // ---- Engine-level assertions -----------------------------------------
     log("\nEngine:");
     const footer = await page.locator("footer").innerText();
@@ -261,7 +348,7 @@ async function main() {
   if (failed.length > 0) {
     fail(`${failed.length} check(s) failed: ${failed.map((entry) => entry.name).join(", ")}`);
   }
-  log("Screenshot: .fixtures/verify-converted.png");
+  log("Screenshots: .fixtures/verify-converted.png, .fixtures/verify-trimmed.png");
 }
 
 main().catch((error) => {

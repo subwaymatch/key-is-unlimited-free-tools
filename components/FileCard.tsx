@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { OUTPUT_FORMATS, type OutputFormatId } from "@/lib/engine/formats";
-import type { EngineCapabilities } from "@/lib/engine/types";
+import { formatTimecode } from "@/lib/engine/trim";
+import type { EngineCapabilities, TrimRange } from "@/lib/engine/types";
 import {
   describeAudio,
   formatBytes,
@@ -15,6 +16,7 @@ import {
 import type { Job, JobOutput } from "@/lib/useConversionQueue";
 
 import { ProgressBar } from "./ProgressBar";
+import { TrimPanel } from "./TrimPanel";
 
 interface FileCardProps {
   job: Job;
@@ -22,7 +24,8 @@ interface FileCardProps {
   onCancel: (jobId: string) => void;
   onRemove: (jobId: string) => void;
   onRetry: (jobId: string) => void;
-  onAddFormat: (jobId: string, formatId: OutputFormatId) => void;
+  onAddFormat: (jobId: string, formatId: OutputFormatId, trim?: TrimRange | null) => void;
+  onDetectSilence: (jobId: string) => void;
 }
 
 const STATUS_STYLE: Record<Job["status"], string> = {
@@ -43,14 +46,38 @@ const STATUS_LABEL: Record<Job["status"], string> = {
   cancelled: "Cancelled",
 };
 
-function OutputRow({ output }: { output: JobOutput }) {
-  const { result } = output;
+function OutputRow({
+  output,
+  durationSeconds,
+}: {
+  output: JobOutput;
+  durationSeconds: number | null;
+}) {
+  const { result, trim } = output;
+
+  const range = trim
+    ? `${formatTimecode(trim.startSeconds)}–${
+        trim.endSeconds !== null
+          ? formatTimecode(trim.endSeconds)
+          : durationSeconds !== null
+            ? formatTimecode(durationSeconds)
+            : "end"
+      }`
+    : null;
 
   return (
     <div className="rounded-lg border border-border-subtle bg-background px-3 py-2.5">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-sm font-medium">{output.label}</span>
+          {range && (
+            <span
+              title="Clipped to this range of the source"
+              className="rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide tabular-nums text-accent"
+            >
+              {range}
+            </span>
+          )}
           {result?.mode === "copy" && (
             <span
               title="Copied without re-encoding — bit-for-bit identical audio"
@@ -108,8 +135,11 @@ export function FileCard({
   onRemove,
   onRetry,
   onAddFormat,
+  onDetectSilence,
 }: FileCardProps) {
   const [showLogs, setShowLogs] = useState(false);
+  const [showTrim, setShowTrim] = useState(false);
+  const previewRef = useRef<HTMLAudioElement | null>(null);
 
   const isRunning = job.status === "preparing" || job.status === "converting";
   const runningOutput = job.outputs.find((output) => output.status === "running");
@@ -124,13 +154,29 @@ export function FileCard({
     [job.outputs],
   );
 
+  /** Formats with no full-file output yet; clips are offered by the trim panel. */
   const remainingFormats = OUTPUT_FORMATS.filter((format) => {
-    if (job.outputs.some((output) => output.formatId === format.id)) return false;
+    if (job.outputs.some((output) => output.formatId === format.id && output.trim === null)) {
+      return false;
+    }
     if (!capabilities || !format.requiredEncoder) return true;
     return capabilities.encoders.has(format.requiredEncoder);
   });
 
   const totalDuration = job.probe?.durationSeconds ?? null;
+
+  /**
+   * Markers can only be read off the preview when the preview is the whole
+   * track. A clip's timeline starts at its own zero, so its playback position
+   * does not name a point in the source.
+   */
+  const getPreviewPosition =
+    playable && playable.trim === null
+      ? () => {
+          const element = previewRef.current;
+          return element && Number.isFinite(element.currentTime) ? element.currentTime : null;
+        }
+      : null;
 
   return (
     <li className="rounded-xl border border-border-subtle bg-surface p-4">
@@ -200,13 +246,19 @@ export function FileCard({
             <p className="text-sm text-muted">{job.phase}</p>
             {runningOutput && totalDuration !== null && (
               <p className="text-xs tabular-nums text-muted">
-                {formatDuration(runningOutput.processedSeconds)} / {formatDuration(totalDuration)}
+                {formatDuration(runningOutput.processedSeconds)} /{" "}
+                {formatDuration(
+                  runningOutput.trim
+                    ? (runningOutput.trim.endSeconds ?? totalDuration) -
+                        runningOutput.trim.startSeconds
+                    : totalDuration,
+                )}
               </p>
             )}
           </div>
           <div className="mt-1.5">
             <ProgressBar
-              ratio={runningOutput?.ratio ?? null}
+              ratio={runningOutput?.ratio ?? job.phaseRatio}
               label={`${job.file.name} progress`}
             />
           </div>
@@ -226,8 +278,8 @@ export function FileCard({
       {job.outputs.length > 0 && (
         <ul className="mt-3 space-y-2">
           {job.outputs.map((output) => (
-            <li key={output.formatId}>
-              <OutputRow output={output} />
+            <li key={output.id}>
+              <OutputRow output={output} durationSeconds={totalDuration} />
             </li>
           ))}
         </ul>
@@ -235,26 +287,51 @@ export function FileCard({
 
       {playable?.url && (
         <div className="mt-3">
-          <audio controls preload="metadata" src={playable.url} className="w-full">
+          <audio ref={previewRef} controls preload="metadata" src={playable.url} className="w-full">
             Your browser cannot play this audio format.
           </audio>
         </div>
       )}
 
-      {job.status === "done" && remainingFormats.length > 0 && (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="text-xs text-muted">Also convert to:</span>
-          {remainingFormats.map((format) => (
+      {!isRunning && job.probe && (
+        <>
+          {remainingFormats.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs text-muted">Also convert to:</span>
+              {remainingFormats.map((format) => (
+                <button
+                  key={format.id}
+                  type="button"
+                  onClick={() => onAddFormat(job.id, format.id, null)}
+                  className="rounded-md border border-border-strong px-2 py-0.5 text-xs font-medium transition-colors hover:border-accent hover:text-accent"
+                >
+                  {format.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-3">
             <button
-              key={format.id}
               type="button"
-              onClick={() => onAddFormat(job.id, format.id)}
-              className="rounded-md border border-border-strong px-2 py-0.5 text-xs font-medium transition-colors hover:border-accent hover:text-accent"
+              onClick={() => setShowTrim((previous) => !previous)}
+              aria-expanded={showTrim}
+              className="text-xs text-subtle underline-offset-2 hover:text-muted hover:underline"
             >
-              {format.label}
+              {showTrim ? "Hide" : "Trim or clip a range"}
             </button>
-          ))}
-        </div>
+            {showTrim && (
+              <TrimPanel
+                job={job}
+                capabilities={capabilities}
+                onExtract={(formatId, trim) => onAddFormat(job.id, formatId, trim)}
+                onDetectSilence={() => onDetectSilence(job.id)}
+                getPreviewPosition={getPreviewPosition}
+                disabled={isRunning}
+              />
+            )}
+          </div>
+        </>
       )}
 
       {job.logs.length > 0 && (

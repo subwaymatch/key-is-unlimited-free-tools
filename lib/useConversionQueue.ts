@@ -18,12 +18,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getEngine, resetEngine } from "./engine/ffmpegEngine";
 import { DEFAULT_FORMAT_IDS, getFormat, type OutputFormatId } from "./engine/formats";
+import { DEFAULT_SILENCE_OPTIONS, parseTrimInputs, sameTrimRange } from "./engine/trim";
 import { ExtractionError } from "./engine/types";
 import type {
   EngineCapabilities,
   EngineLoadStage,
   ExtractOutput,
   ProbeResult,
+  SilenceScanOptions,
+  SilenceScanResult,
+  TrimRange,
 } from "./engine/types";
 
 export type JobStatus = "queued" | "preparing" | "converting" | "done" | "error" | "cancelled";
@@ -36,8 +40,17 @@ export interface JobFailure {
 }
 
 export interface JobOutput {
+  /**
+   * Identity of this output.
+   *
+   * The format alone is not enough once a file can be clipped: "MP3 of the
+   * whole thing" and "MP3 of 1:30–2:15" are two outputs of the same format.
+   */
+  id: string;
   formatId: OutputFormatId;
   label: string;
+  /** Portion of the source this output covers; null means all of it. */
+  trim: TrimRange | null;
   status: OutputStatus;
   /** 0..1, or null while ffmpeg cannot report a meaningful ratio. */
   ratio: number | null;
@@ -54,13 +67,45 @@ export interface Job {
   status: JobStatus;
   /** Human-readable description of what is happening right now. */
   phase: string;
+  /** Progress of a phase that is not an output conversion, e.g. a silence scan. */
+  phaseRatio: number | null;
   probe?: ProbeResult;
+  /** Range the trim panel currently proposes for new outputs. */
+  trim: TrimRange | null;
+  /** When true, the next run detects silence and derives `trim` from it. */
+  autoTrim: boolean;
+  silenceOptions: SilenceScanOptions;
+  /** Result of the last silence scan, once one has run. */
+  silence?: SilenceScanResult;
   outputs: JobOutput[];
   error?: JobFailure;
   logs: string[];
   startedAt?: number;
   finishedAt?: number;
 }
+
+export type TrimMode = "full" | "silence" | "range";
+
+/**
+ * Trim settings for files added next, alongside the format selection.
+ *
+ * The markers are kept as raw text rather than seconds: the file has not been
+ * probed yet, so "2:30" cannot be validated against a duration, and echoing
+ * back a reformatted number while someone is still typing is hostile.
+ */
+export interface TrimSettings {
+  mode: TrimMode;
+  startText: string;
+  endText: string;
+  silence: SilenceScanOptions;
+}
+
+export const DEFAULT_TRIM_SETTINGS: TrimSettings = {
+  mode: "full",
+  startText: "",
+  endText: "",
+  silence: DEFAULT_SILENCE_OPTIONS,
+};
 
 export interface EngineState {
   stage: EngineLoadStage | "error";
@@ -92,10 +137,18 @@ function toFailure(error: unknown): JobFailure {
   return { message: "Something went wrong." };
 }
 
-function makeOutputs(formatIds: readonly OutputFormatId[]): JobOutput[] {
+let outputCounter = 0;
+const nextOutputId = () => `output-${(outputCounter += 1)}`;
+
+function makeOutputs(
+  formatIds: readonly OutputFormatId[],
+  trim: TrimRange | null,
+): JobOutput[] {
   return formatIds.map((formatId) => ({
+    id: nextOutputId(),
     formatId,
     label: getFormat(formatId).label,
+    trim,
     status: "pending" as const,
     ratio: null,
     processedSeconds: 0,
@@ -109,14 +162,17 @@ export function useConversionQueue() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [engineState, setEngineState] = useState<EngineState>(INITIAL_ENGINE_STATE);
   const [selectedFormats, setSelectedFormats] = useState<OutputFormatId[]>(DEFAULT_FORMAT_IDS);
+  const [trimSettings, setTrimSettings] = useState<TrimSettings>(DEFAULT_TRIM_SETTINGS);
 
   const jobsRef = useRef<Job[]>([]);
   const pumpingRef = useRef(false);
   const activeJobRef = useRef<string | null>(null);
   const cancelledRef = useRef<Set<string>>(new Set());
   const selectedFormatsRef = useRef<OutputFormatId[]>(selectedFormats);
+  const trimSettingsRef = useRef<TrimSettings>(trimSettings);
 
   selectedFormatsRef.current = selectedFormats;
+  trimSettingsRef.current = trimSettings;
 
   const commit = useCallback((next: Job[]) => {
     jobsRef.current = next;
@@ -135,10 +191,10 @@ export function useConversionQueue() {
   );
 
   const patchOutput = useCallback(
-    (jobId: string, formatId: OutputFormatId, patch: Partial<JobOutput>) => {
+    (jobId: string, outputId: string, patch: Partial<JobOutput>) => {
       patchJob(jobId, (job) => ({
         outputs: job.outputs.map((output) =>
-          output.formatId === formatId ? { ...output, ...patch } : output,
+          output.id === outputId ? { ...output, ...patch } : output,
         ),
       }));
     },
@@ -205,6 +261,33 @@ export function useConversionQueue() {
 
         patchJob(jobId, { status: "converting", probe: session.probe });
 
+        // Automatic trimming has to happen here rather than at queue time: the
+        // range is not knowable until the audio has been listened to, and the
+        // outputs waiting behind it inherit whatever the scan finds.
+        if (jobsRef.current.find((entry) => entry.id === jobId)?.autoTrim) {
+          const options = jobsRef.current.find((entry) => entry.id === jobId)!.silenceOptions;
+          patchJob(jobId, { phase: "Listening for silence…", phaseRatio: 0 });
+
+          let lastScanTick = 0;
+          const silence = await session.detectSilence(options, (progress) => {
+            const now = Date.now();
+            if (now - lastScanTick < PROGRESS_THROTTLE_MS) return;
+            lastScanTick = now;
+            patchJob(jobId, { phaseRatio: progress.ratio });
+          });
+          if (isCancelled()) throw new ExtractionError("Cancelled.");
+
+          patchJob(jobId, (current) => ({
+            silence,
+            autoTrim: false,
+            trim: silence.suggested,
+            phaseRatio: null,
+            outputs: current.outputs.map((output) =>
+              output.status === "pending" ? { ...output, trim: silence.suggested } : output,
+            ),
+          }));
+        }
+
         const pending = (jobsRef.current.find((entry) => entry.id === jobId)?.outputs ?? []).filter(
           (output) => output.status === "pending",
         );
@@ -213,30 +296,38 @@ export function useConversionQueue() {
           if (isCancelled()) throw new ExtractionError("Cancelled.");
 
           const format = getFormat(output.formatId);
-          patchJob(jobId, { phase: `Extracting ${format.label}…` });
-          patchOutput(jobId, output.formatId, { status: "running", ratio: 0, processedSeconds: 0 });
+          patchJob(jobId, {
+            phase: output.trim ? `Extracting ${format.label} clip…` : `Extracting ${format.label}…`,
+          });
+          patchOutput(jobId, output.id, { status: "running", ratio: 0, processedSeconds: 0 });
 
           try {
             let lastTick = 0;
-            const result = await session.extract(output.formatId, (progress) => {
-              const now = Date.now();
-              if (now - lastTick < PROGRESS_THROTTLE_MS) return;
-              lastTick = now;
-              patchOutput(jobId, output.formatId, {
-                ratio: progress.ratio,
-                processedSeconds: progress.processedSeconds,
-              });
+            const result = await session.extract(output.formatId, {
+              trim: output.trim,
+              onProgress: (progress) => {
+                const now = Date.now();
+                if (now - lastTick < PROGRESS_THROTTLE_MS) return;
+                lastTick = now;
+                patchOutput(jobId, output.id, {
+                  ratio: progress.ratio,
+                  processedSeconds: progress.processedSeconds,
+                });
+              },
             });
-            patchOutput(jobId, output.formatId, {
+            patchOutput(jobId, output.id, {
               status: "done",
               ratio: 1,
+              // The engine clamps the requested range to the file, so record
+              // what was actually produced rather than what was asked for.
+              trim: result.trim,
               result,
               url: URL.createObjectURL(result.blob),
             });
           } catch (error) {
             if (isCancelled()) throw error;
             // One failed format should not abandon the others.
-            patchOutput(jobId, output.formatId, {
+            patchOutput(jobId, output.id, {
               status: "error",
               ratio: null,
               error: toFailure(error),
@@ -247,23 +338,33 @@ export function useConversionQueue() {
         if (isCancelled()) throw new ExtractionError("Cancelled.");
 
         const finished = jobsRef.current.find((entry) => entry.id === jobId);
-        const anySucceeded = finished?.outputs.some((output) => output.status === "done") ?? false;
+        const anyDone = finished?.outputs.some((output) => output.status === "done") ?? false;
         const firstError = finished?.outputs.find((output) => output.error)?.error;
+        // A run with nothing to convert — a silence scan on its own — succeeds
+        // as long as it did not leave a failed output behind.
+        const succeeded = anyDone || (pending.length === 0 && firstError === undefined);
 
         patchJob(jobId, {
-          status: anySucceeded ? "done" : "error",
-          phase: anySucceeded ? "Done" : "Failed",
-          error: anySucceeded ? undefined : firstError,
+          status: succeeded ? "done" : "error",
+          phase: succeeded ? "Done" : "Failed",
+          phaseRatio: null,
+          error: succeeded ? undefined : firstError,
           finishedAt: Date.now(),
         });
       } catch (error) {
         if (isCancelled()) {
-          patchJob(jobId, { status: "cancelled", phase: "Cancelled", finishedAt: Date.now() });
+          patchJob(jobId, {
+            status: "cancelled",
+            phase: "Cancelled",
+            phaseRatio: null,
+            finishedAt: Date.now(),
+          });
         } else {
           const failure = toFailure(error);
           patchJob(jobId, {
             status: "error",
             phase: "Failed",
+            phaseRatio: null,
             error: failure,
             finishedAt: Date.now(),
           });
@@ -310,12 +411,24 @@ export function useConversionQueue() {
     (files: File[]) => {
       if (files.length === 0) return;
       const formatIds = selectedFormatsRef.current;
+      const settings = trimSettingsRef.current;
+      // In silence mode the range is still unknown; the run fills it in for
+      // every pending output once it has listened to the file.
+      const trim =
+        settings.mode === "range"
+          ? parseTrimInputs(settings.startText, settings.endText).trim
+          : null;
+
       const newJobs: Job[] = files.map((file) => ({
         id: nextJobId(),
         file,
         status: "queued",
         phase: "Waiting…",
-        outputs: makeOutputs(formatIds.length > 0 ? formatIds : DEFAULT_FORMAT_IDS),
+        phaseRatio: null,
+        trim,
+        autoTrim: settings.mode === "silence",
+        silenceOptions: settings.silence,
+        outputs: makeOutputs(formatIds.length > 0 ? formatIds : DEFAULT_FORMAT_IDS, trim),
         logs: [],
       }));
       commit([...jobsRef.current, ...newJobs]);
@@ -324,16 +437,48 @@ export function useConversionQueue() {
     [commit, pump],
   );
 
-  /** Adds another output format to a file that has already been converted. */
+  /**
+   * Queues another output for a file that has already been converted, either
+   * the whole audio or a clip of it.
+   */
   const addFormatToJob = useCallback(
-    (jobId: string, formatId: OutputFormatId) => {
+    (jobId: string, formatId: OutputFormatId, trim: TrimRange | null = null) => {
       const job = jobsRef.current.find((entry) => entry.id === jobId);
-      if (!job || job.outputs.some((output) => output.formatId === formatId)) return;
+      if (!job) return;
+      // Same format over the same range is the output that already exists.
+      const duplicate = job.outputs.some(
+        (output) => output.formatId === formatId && sameTrimRange(output.trim, trim),
+      );
+      if (duplicate) return;
+
       patchJob(jobId, {
         status: "queued",
         phase: "Waiting…",
         error: undefined,
-        outputs: [...job.outputs, ...makeOutputs([formatId])],
+        trim,
+        outputs: [...job.outputs, ...makeOutputs([formatId], trim)],
+      });
+      void pump();
+    },
+    [patchJob, pump],
+  );
+
+  /**
+   * Runs a silence scan over a file that is already in the queue, without
+   * producing any audio — the point is the suggested range it comes back with.
+   */
+  const detectSilence = useCallback(
+    (jobId: string, options?: Partial<SilenceScanOptions>) => {
+      const job = jobsRef.current.find((entry) => entry.id === jobId);
+      if (!job || job.status === "preparing" || job.status === "converting") return;
+
+      patchJob(jobId, {
+        status: "queued",
+        phase: "Waiting…",
+        error: undefined,
+        autoTrim: true,
+        silence: undefined,
+        silenceOptions: { ...job.silenceOptions, ...options },
       });
       void pump();
     },
@@ -437,8 +582,11 @@ export function useConversionQueue() {
     engineState,
     selectedFormats,
     setSelectedFormats,
+    trimSettings,
+    setTrimSettings,
     addFiles,
     addFormatToJob,
+    detectSilence,
     cancelJob,
     removeJob,
     retryJob,
