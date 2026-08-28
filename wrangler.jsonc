@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "extract-audio-from-video",
+  "compatibility_date": "2026-08-28",
+
+  // Assets-only Worker: no "main" entry point, so every request is served
+  // directly from the static asset store. Static asset requests are free and
+  // unlimited on all Workers plans.
+  "assets": {
+    "directory": "./out",
+    "not_found_handling": "404-page"
+  }
+}

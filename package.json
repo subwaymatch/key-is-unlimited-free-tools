@@ -1,0 +1,39 @@
+{
+  "name": "extract-audio-from-video",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "prepare:ffmpeg": "node scripts/copy-ffmpeg-worker.mjs",
+    "dev": "npm run prepare:ffmpeg && next dev",
+    "build": "npm run prepare:ffmpeg && next build",
+    "start": "npx serve out",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "preview": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "dependencies": {
+    "@ffmpeg/ffmpeg": "0.12.15",
+    "@ffmpeg/util": "0.12.2",
+    "next": "15.5.24",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@ffmpeg/core": "0.12.10",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "15.5.24",
+    "playwright-core": "^1.62.1",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^3",
+    "wrangler": "^4"
+  }
+}

@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+/*
+ * Light palette on :root, dark overrides under prefers-color-scheme, so the
+ * page follows the OS setting without a flash of the wrong theme.
+ */
+:root {
+  --background: #f7f7f9;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --border: #e3e3e8;
+  --border-strong: #cdcdd6;
+  --foreground: #17171c;
+  --muted: #61616e;
+  --subtle: #8a8a97;
+  --accent: #5b52e8;
+  --accent-hover: #4b42d8;
+  --accent-contrast: #ffffff;
+  --accent-soft: #ecebff;
+  --success: #12855f;
+  --success-soft: #e2f5ee;
+  --danger: #c0332c;
+  --danger-soft: #fdecea;
+  --warning: #9a6100;
+  --warning-soft: #fdf3e0;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0c0c10;
+    --surface: #131318;
+    --surface-raised: #1a1a21;
+    --border: #26262f;
+    --border-strong: #3a3a46;
+    --foreground: #f0f0f3;
+    --muted: #a1a1af;
+    --subtle: #74747f;
+    --accent: #7d75ff;
+    --accent-hover: #8e87ff;
+    --accent-contrast: #0c0c10;
+    --accent-soft: #1e1b3d;
+    --success: #4ade9f;
+    --success-soft: #10241d;
+    --danger: #ff8a80;
+    --danger-soft: #2c1613;
+    --warning: #f0b45e;
+    --warning-soft: #2a1f0d;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-border-subtle: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-contrast: var(--accent-contrast);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The indeterminate progress bar used while ffmpeg cannot report a ratio. */
+@keyframes indeterminate-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.progress-indeterminate::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  width: 25%;
+  border-radius: inherit;
+  background: var(--accent);
+  animation: indeterminate-slide 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-indeterminate::after {
+    animation-duration: 3s;
+  }
+}

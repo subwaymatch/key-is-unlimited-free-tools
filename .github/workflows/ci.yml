@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+
+      # Also proves the static export still fits Cloudflare's asset limits.
+      - run: npm run build
+
+      - name: Check no asset exceeds Cloudflare's 25 MiB limit
+        run: |
+          oversized=$(find out -type f -size +25M)
+          if [ -n "$oversized" ]; then
+            echo "These files exceed the 25 MiB static asset limit:"
+            echo "$oversized"
+            exit 1
+          fi
+          echo "All static assets are within the 25 MiB limit."
