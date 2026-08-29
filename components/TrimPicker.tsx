@@ -3,6 +3,8 @@
 import { parseTrimInputs } from "@/lib/engine/trim";
 import type { TrimMode, TrimSettings } from "@/lib/useConversionQueue";
 
+import styles from "./Settings.module.css";
+
 interface TrimPickerProps {
   settings: TrimSettings;
   onChange: (settings: TrimSettings) => void;
@@ -58,23 +60,21 @@ export function TrimPicker({ settings, onChange, disabled = false }: TrimPickerP
   );
 
   return (
-    <fieldset disabled={disabled} className="min-w-0">
-      <legend className="text-sm font-medium">Trim</legend>
-      <p className="mt-1 text-sm text-muted">
+    <fieldset disabled={disabled} className={styles.fieldset}>
+      <legend className={styles.legend}>Trim</legend>
+      <p className={styles.intro}>
         Applied to files you add next. Each file can be clipped again afterwards.
       </p>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+      <div className={`${styles.grid} ${styles.gridThree}`}>
         {MODES.map((mode) => {
           const isChecked = settings.mode === mode.id;
           return (
             <label
               key={mode.id}
-              className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${
-                isChecked
-                  ? "border-accent bg-accent-soft"
-                  : "border-border-subtle bg-surface hover:border-border-strong"
-              } ${disabled ? "cursor-not-allowed opacity-55" : ""}`}
+              className={`${styles.option} ${isChecked ? styles.optionChecked : ""} ${
+                disabled ? styles.optionDisabled : ""
+              }`}
             >
               <input
                 type="radio"
@@ -82,11 +82,11 @@ export function TrimPicker({ settings, onChange, disabled = false }: TrimPickerP
                 checked={isChecked}
                 disabled={disabled}
                 onChange={() => onChange({ ...settings, mode: mode.id })}
-                className="mt-0.5 size-4 accent-[var(--accent)]"
+                className={styles.control}
               />
-              <span className="min-w-0">
-                <span className="block text-sm font-medium">{mode.label}</span>
-                <span className="mt-0.5 block text-xs text-muted">{mode.blurb}</span>
+              <span className={styles.optionBody}>
+                <span className={styles.optionLabel}>{mode.label}</span>
+                <span className={styles.optionBlurb}>{mode.blurb}</span>
               </span>
             </label>
           );
@@ -94,43 +94,43 @@ export function TrimPicker({ settings, onChange, disabled = false }: TrimPickerP
       </div>
 
       {settings.mode === "range" && (
-        <div className="mt-3 rounded-xl border border-border-subtle bg-surface p-3">
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="min-w-0">
-              <span className="block text-xs font-medium text-muted">Start</span>
+        <div className={styles.panel}>
+          <div className={styles.row}>
+            <label>
+              <span className={styles.fieldLabel}>Start</span>
               <input
                 type="text"
                 inputMode="decimal"
                 value={settings.startText}
                 placeholder="0:00"
                 onChange={(event) => onChange({ ...settings, startText: event.target.value })}
-                className="mt-1 w-28 rounded-lg border border-border-strong bg-background px-2 py-1 text-sm tabular-nums"
+                className={styles.input}
               />
             </label>
-            <label className="min-w-0">
-              <span className="block text-xs font-medium text-muted">End</span>
+            <label>
+              <span className={styles.fieldLabel}>End</span>
               <input
                 type="text"
                 inputMode="decimal"
                 value={settings.endText}
                 placeholder="end of file"
                 onChange={(event) => onChange({ ...settings, endText: event.target.value })}
-                className="mt-1 w-28 rounded-lg border border-border-strong bg-background px-2 py-1 text-sm tabular-nums"
+                className={styles.input}
               />
             </label>
-            <p className="text-xs text-subtle">
+            <p className={styles.hint}>
               <code>1:30</code>, <code>0:04.5</code> or <code>90</code>. Leave either blank for the
               start or end of the file.
             </p>
           </div>
-          {rangeError && <p className="mt-2 text-xs text-warning">{rangeError}</p>}
+          {rangeError && <p className={styles.warning}>{rangeError}</p>}
         </div>
       )}
 
       {settings.mode === "silence" && (
-        <div className="mt-3 rounded-xl border border-border-subtle bg-surface p-3">
-          <label className="block">
-            <span className="block text-xs font-medium text-muted">What counts as silence</span>
+        <div className={styles.panel}>
+          <label>
+            <span className={styles.fieldLabel}>What counts as silence</span>
             <select
               value={sensitivityIndex === -1 ? 1 : sensitivityIndex}
               onChange={(event) =>
@@ -143,7 +143,7 @@ export function TrimPicker({ settings, onChange, disabled = false }: TrimPickerP
                   },
                 })
               }
-              className="mt-1 rounded-lg border border-border-strong bg-background px-2 py-1 text-sm"
+              className={styles.select}
             >
               {SENSITIVITIES.map((entry, index) => (
                 <option key={entry.label} value={index}>
@@ -152,7 +152,7 @@ export function TrimPicker({ settings, onChange, disabled = false }: TrimPickerP
               ))}
             </select>
           </label>
-          <p className="mt-2 text-xs text-subtle">
+          <p className={styles.panelNote}>
             Only silence at the very beginning and end is removed — pauses in the middle are left
             alone. Detection decodes the audio once first, so a long file takes noticeably longer.
           </p>

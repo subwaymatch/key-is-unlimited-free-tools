@@ -11,6 +11,7 @@ import { EngineBanner } from "./EngineBanner";
 import { FileCard } from "./FileCard";
 import { FormatPicker } from "./FormatPicker";
 import { TrimPicker } from "./TrimPicker";
+import styles from "./AudioExtractorApp.module.css";
 
 /** Files this large rely on the WORKERFS mount path rather than an in-memory copy. */
 const LARGE_FILE_BYTES = 2 * 1024 ** 3;
@@ -56,33 +57,31 @@ export function AudioExtractorApp() {
   );
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-10 sm:py-14">
-      <header className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-          Extract audio from video
-        </h1>
-        <p className="mt-2 text-muted">
+    <main className={styles.page}>
+      <header className={styles.header}>
+        <h1 className={styles.title}>Extract audio from video</h1>
+        <p className={styles.tagline}>
           Drop one or more videos and the audio comes out the other side — MP3, M4A, WAV, FLAC or
           Opus, whole or clipped to a range. Everything runs in your browser through WebAssembly,
           so nothing is uploaded and there is no file size limit to speak of.
         </p>
       </header>
 
-      <div className="space-y-4">
+      <div className={styles.stack}>
         <EngineBanner state={engineState} />
 
         <DropZone onFiles={handleFiles} compact={hasJobs} />
 
-        <div className="rounded-xl border border-border-subtle bg-surface">
+        <div className={styles.settings}>
           <button
             type="button"
             onClick={() => setShowSettings((previous) => !previous)}
             aria-expanded={showSettings}
-            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+            className={styles.settingsToggle}
           >
-            <span className="text-sm font-medium">
+            <span className={styles.settingsTitle}>
               Output formats &amp; trim
-              <span className="ml-2 font-normal text-muted">
+              <span className={styles.settingsSummary}>
                 {selectedFormats.length > 0
                   ? selectedFormats.length === 1
                     ? "1 format"
@@ -96,7 +95,7 @@ export function AudioExtractorApp() {
               aria-hidden="true"
               viewBox="0 0 20 20"
               fill="currentColor"
-              className={`size-4 text-muted transition-transform ${showSettings ? "rotate-180" : ""}`}
+              className={`${styles.chevron} ${showSettings ? styles.chevronOpen : ""}`}
             >
               <path
                 fillRule="evenodd"
@@ -106,7 +105,7 @@ export function AudioExtractorApp() {
             </svg>
           </button>
           {showSettings && (
-            <div className="space-y-5 border-t border-border-subtle px-4 py-4">
+            <div className={styles.settingsBody}>
               <FormatPicker
                 selected={selectedFormats}
                 onChange={setSelectedFormats}
@@ -119,11 +118,11 @@ export function AudioExtractorApp() {
 
         {hasJobs && (
           <section aria-label="Conversion queue">
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <h2 className="text-sm font-medium">
+            <div className={styles.queueHeader}>
+              <h2 className={styles.queueCount}>
                 {jobs.length} {jobs.length === 1 ? "file" : "files"}
                 {activeCount > 0 && (
-                  <span className="ml-2 font-normal text-muted" aria-live="polite">
+                  <span className={styles.queueRemaining} aria-live="polite">
                     {activeCount} remaining
                   </span>
                 )}
@@ -132,14 +131,14 @@ export function AudioExtractorApp() {
                 <button
                   type="button"
                   onClick={clearFinished}
-                  className="text-xs text-subtle underline-offset-2 hover:text-muted hover:underline"
+                  className={styles.clearButton}
                 >
                   Clear finished
                 </button>
               )}
             </div>
 
-            <ul className="space-y-3">
+            <ul className={styles.jobs}>
               {jobs.map((job) => (
                 <FileCard
                   key={job.id}
@@ -157,7 +156,7 @@ export function AudioExtractorApp() {
             </ul>
 
             {completedOutputs.length > 1 && (
-              <p className="mt-3 text-xs text-subtle">
+              <p className={styles.total}>
                 {completedOutputs.length} files ready ·{" "}
                 {formatBytes(
                   completedOutputs.reduce((total, output) => total + (output.result?.bytes ?? 0), 0),
@@ -169,7 +168,7 @@ export function AudioExtractorApp() {
         )}
       </div>
 
-      <footer className="mt-12 space-y-2 border-t border-border-subtle pt-6 text-xs text-subtle">
+      <footer className={styles.footer}>
         <p>
           Your videos never leave this device. Decoding happens locally with ffmpeg compiled to
           WebAssembly (@ffmpeg/ffmpeg {FFMPEG_VERSION}, core {CORE_VERSION}).

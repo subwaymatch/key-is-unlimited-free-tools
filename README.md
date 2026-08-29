@@ -64,6 +64,7 @@ It builds a >2 GiB fixture, drives Chromium through a real conversion, checks th
 
 ```
 components/          UI: drop zone, queue, per-file cards, format + trim pickers
+  *.module.css       plain CSS modules; no utility-class framework
 lib/useConversionQueue.ts   sequential job runner, progress + cancellation
 lib/engine/
   types.ts           AudioExtractor contract (engine-agnostic)
@@ -122,6 +123,26 @@ under the output ceiling that would otherwise push it to FLAC.
 Silence detection is a full decode of the audio stream (via the null muxer, which writes nothing),
 so it costs roughly one re-encode and is only ever run when asked for. It reports progress like any
 other phase.
+
+### Cancelling one format
+
+Each output is a format *and* a range, and each can be cancelled on its own. Cancelling one that is
+merely queued is free. Cancelling one that is already running is not: ffmpeg blocks its worker for
+the whole of a command, so there is no cooperative interrupt and the worker has to be killed.
+
+That is survivable because of where the bytes live. A finished output is a JS `Blob` on the main
+thread that never entered the worker, so the downloads already on the card keep working — a 73 MB
+stream copy that finished a minute ago is untouched. What the termination *does* cost is the mount,
+so any format still queued behind the cancelled one is re-run on a fresh engine, which is why the
+run loop reads the next pending output each pass rather than iterating a list fixed before the
+first one started.
+
+### Styling
+
+Plain CSS modules, one per component, plus `app/globals.css` for the palette and a small reset.
+Colours are CSS custom properties on `:root` with a `prefers-color-scheme` override, so the theme
+follows the OS setting with no flash and no JavaScript. There is no utility-class framework and no
+PostCSS config; the whole stylesheet is about 17 KB.
 
 ### Real-time progress
 
@@ -210,16 +231,18 @@ The `dist/esm` build has a real default export and must be used.
 ```bash
 npm test                                                    # 95 unit tests
 NEXT_PUBLIC_FFMPEG_CORE_BASE_URL=/core npm run build
-node scripts/verify-e2e.mjs                                 # 30 browser checks
+node scripts/verify-e2e.mjs                                 # 41 browser checks
 node scripts/verify-large-file.mjs                          # >2 GiB input
 ```
 
-`verify-e2e.mjs` drives a real Chromium through five cases — an MP4 with AAC, a video with no audio
-track, an MKV with 5.1 FLAC, a hand-set 1s–3s clip, and an 8s file padded with two seconds of
-silence at each end — and validates every downloaded file with `ffprobe`. The last two are what
-prove trimming end to end: the clip comes back 2.04s long, and automatic trimming turns the padded
-file into 4.22s of audio. It serves the core locally so the run is hermetic, which also exercises
-the self-hosted-core configuration.
+`verify-e2e.mjs` drives a real Chromium through seven cases — an MP4 with AAC, a video with no
+audio track, an MKV with 5.1 FLAC, a hand-set 1s–3s clip, an 8s file padded with two seconds of
+silence at each end, an MP3 cancelled mid-conversion, and that same MP3 retried — and validates
+every downloaded file with `ffprobe`. The clip comes back 2.04s long and automatic trimming turns
+the padded file into 4.22s; cancelling MP3 on a 5-minute file leaves the finished stream copy
+downloadable and still converts the M4A queued behind it, over the whole 5 minutes, on a rebuilt
+engine. It serves the core locally so the run is hermetic, which also exercises the
+self-hosted-core configuration.
 
 Not yet verified: Safari. ffmpeg.wasm's WORKERFS pull request reported heavier memory growth there
 during large reads, so a real Safari pass on a multi-gigabyte file is the main open question before
@@ -234,6 +257,7 @@ calling large-file support universal.
   PCM up front — a second full pass, on top of the extraction itself.
 - WAV output is capped near 1.5 GB by the engine's in-memory output buffer (~2.9 hours of 48 kHz
   stereo). FLAC is suggested instead.
-- Cancelling a running conversion terminates the ffmpeg worker, since ffmpeg blocks its worker
-  while running and cannot be interrupted cooperatively. The engine restarts on the next job; the
-  core is already cached, so this costs a WebAssembly instantiation, not a 31 MB download.
+- Cancelling terminates the ffmpeg worker, since ffmpeg blocks its worker while running and cannot
+  be interrupted cooperatively. See [Cancelling one format](#cancelling-one-format) for why that is
+  survivable. The engine restarts on the next job; the core is already cached, so this costs a
+  WebAssembly instantiation, not a 31 MB download.

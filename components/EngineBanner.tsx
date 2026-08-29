@@ -5,6 +5,7 @@ import { formatBytes } from "@/lib/format-utils";
 import type { EngineState } from "@/lib/useConversionQueue";
 
 import { ProgressBar } from "./ProgressBar";
+import styles from "./EngineBanner.module.css";
 
 interface EngineBannerProps {
   state: EngineState;
@@ -21,14 +22,11 @@ export function EngineBanner({ state }: EngineBannerProps) {
 
   if (state.stage === "error") {
     return (
-      <div
-        role="alert"
-        className="rounded-xl border border-danger/40 bg-danger-soft px-4 py-3 text-sm"
-      >
-        <p className="font-medium text-danger">
+      <div role="alert" className={styles.error}>
+        <p className={styles.errorMessage}>
           {state.error?.message ?? "The ffmpeg engine failed to load."}
         </p>
-        {state.error?.hint && <p className="mt-1 text-muted">{state.error.hint}</p>}
+        {state.error?.hint && <p className={styles.errorHint}>{state.error.hint}</p>}
       </div>
     );
   }
@@ -36,26 +34,26 @@ export function EngineBanner({ state }: EngineBannerProps) {
   const isDownloading = state.stage === "downloading-core";
 
   return (
-    <div className="rounded-xl border border-border-subtle bg-surface px-4 py-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-sm font-medium">
+    <div className={styles.banner}>
+      <div className={styles.header}>
+        <p className={styles.title}>
           {isDownloading ? "Downloading the ffmpeg engine…" : "Starting the ffmpeg engine…"}
         </p>
         {isDownloading && state.totalBytes > 0 && (
-          <p className="text-xs tabular-nums text-muted">
+          <p className={styles.bytes}>
             {formatBytes(state.receivedBytes)} / {formatBytes(state.totalBytes)}
           </p>
         )}
       </div>
 
-      <div className="mt-2">
+      <div className={styles.bar}>
         <ProgressBar
           ratio={isDownloading ? state.ratio : null}
           label="ffmpeg engine loading progress"
         />
       </div>
 
-      <p className="mt-2 text-xs text-subtle">
+      <p className={styles.note}>
         {CORE_LABEL} is fetched once and then cached by your browser.
       </p>
     </div>

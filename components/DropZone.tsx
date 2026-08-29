@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import styles from "./DropZone.module.css";
+
 interface DropZoneProps {
   onFiles: (files: File[]) => void;
   /** Rendered inside the zone; lets the page show queue state in the same space. */
@@ -81,18 +83,16 @@ export function DropZone({ onFiles, compact = false }: DropZoneProps) {
 
   return (
     <label
-      className={`relative flex cursor-pointer flex-col items-center gap-3 rounded-2xl border-2 border-dashed text-center transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent ${
-        isDraggingOver
-          ? "border-accent bg-accent-soft"
-          : "border-border-strong bg-surface hover:border-accent"
-      } ${compact ? "px-6 py-8" : "px-6 py-16"}`}
+      className={`${styles.zone} ${compact ? styles.compact : ""} ${
+        isDraggingOver ? styles.dragging : ""
+      }`}
     >
       <input
         type="file"
         multiple
         aria-label="Choose video files"
         accept="video/*,audio/*,.mkv,.mov,.avi,.webm,.m4v,.ts,.mts,.m2ts,.flv,.wmv"
-        className="sr-only"
+        className="visually-hidden"
         onChange={(event) => {
           handleFiles(event.target.files);
           // Allow re-selecting the same file after removing it from the queue.
@@ -106,7 +106,7 @@ export function DropZone({ onFiles, compact = false }: DropZoneProps) {
         fill="none"
         strokeWidth={1.5}
         stroke="currentColor"
-        className={`${compact ? "size-8" : "size-12"} text-subtle`}
+        className={styles.icon}
       >
         <path
           strokeLinecap="round"
@@ -115,20 +115,18 @@ export function DropZone({ onFiles, compact = false }: DropZoneProps) {
         />
       </svg>
 
-      <span className="block">
-        <span className={`block font-medium ${compact ? "text-base" : "text-lg"}`}>
+      <span>
+        <span className={styles.headline}>
           {isDraggingOver ? "Drop to start converting" : "Drop video files here"}
         </span>
-        <span className="mt-1 block text-sm text-muted">
+        <span className={styles.subhead}>
           Conversion starts automatically · multi-gigabyte files supported
         </span>
       </span>
 
-      <span className="mt-1 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-contrast">
-        Choose files
-      </span>
+      <span className={styles.button}>Choose files</span>
 
-      <span className="block text-xs text-subtle">
+      <span className={styles.privacy}>
         Everything runs on your device — nothing is uploaded.
       </span>
     </label>

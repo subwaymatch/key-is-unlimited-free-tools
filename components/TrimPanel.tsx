@@ -8,6 +8,8 @@ import type { EngineCapabilities, TrimRange } from "@/lib/engine/types";
 import { formatDuration } from "@/lib/format-utils";
 import type { Job } from "@/lib/useConversionQueue";
 
+import styles from "./TrimPanel.module.css";
+
 interface TrimPanelProps {
   job: Job;
   capabilities: EngineCapabilities | null;
@@ -77,14 +79,10 @@ export function TrimPanel({
   };
 
   return (
-    <div
-      role="group"
-      aria-label="Clip markers"
-      className="mt-3 rounded-lg border border-border-subtle bg-background px-3 py-3"
-    >
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="min-w-0">
-          <span className="block text-xs font-medium text-muted">Start</span>
+    <div role="group" aria-label="Clip markers" className={styles.panel}>
+      <div className={styles.row}>
+        <label>
+          <span className={styles.fieldLabel}>Start</span>
           <input
             type="text"
             inputMode="decimal"
@@ -92,12 +90,12 @@ export function TrimPanel({
             placeholder="0:00"
             disabled={disabled}
             onChange={(event) => setStartText(event.target.value)}
-            className="mt-1 w-28 rounded-lg border border-border-strong bg-surface px-2 py-1 text-sm tabular-nums"
+            className={styles.input}
           />
         </label>
 
-        <label className="min-w-0">
-          <span className="block text-xs font-medium text-muted">End</span>
+        <label>
+          <span className={styles.fieldLabel}>End</span>
           <input
             type="text"
             inputMode="decimal"
@@ -105,18 +103,18 @@ export function TrimPanel({
             placeholder={duration !== null ? formatTimecode(duration) : "end"}
             disabled={disabled}
             onChange={(event) => setEndText(event.target.value)}
-            className="mt-1 w-28 rounded-lg border border-border-strong bg-surface px-2 py-1 text-sm tabular-nums"
+            className={styles.input}
           />
         </label>
 
         {getPreviewPosition && (
-          <div className="flex items-center gap-1.5">
+          <div className={styles.markerButtons}>
             <button
               type="button"
               disabled={disabled}
               onClick={() => setFromPreview(setStartText)}
               title="Set the start marker to the preview's playback position"
-              className="rounded-md border border-border-strong px-2 py-1 text-xs font-medium transition-colors hover:border-accent hover:text-accent disabled:opacity-55"
+              className={styles.button}
             >
               ⇱ Start here
             </button>
@@ -125,7 +123,7 @@ export function TrimPanel({
               disabled={disabled}
               onClick={() => setFromPreview(setEndText)}
               title="Set the end marker to the preview's playback position"
-              className="rounded-md border border-border-strong px-2 py-1 text-xs font-medium transition-colors hover:border-accent hover:text-accent disabled:opacity-55"
+              className={styles.button}
             >
               ⇲ End here
             </button>
@@ -137,7 +135,7 @@ export function TrimPanel({
           disabled={disabled}
           onClick={onDetectSilence}
           title="Decode the audio once to find leading and trailing silence"
-          className="rounded-md border border-border-strong px-2 py-1 text-xs font-medium transition-colors hover:border-accent hover:text-accent disabled:opacity-55"
+          className={styles.button}
         >
           Detect silence
         </button>
@@ -150,7 +148,7 @@ export function TrimPanel({
               setStartText("");
               setEndText("");
             }}
-            className="text-xs text-subtle underline-offset-2 hover:text-muted hover:underline disabled:opacity-55"
+            className={styles.clear}
           >
             Clear
           </button>
@@ -158,9 +156,9 @@ export function TrimPanel({
       </div>
 
       {problem ? (
-        <p className="mt-2 text-xs text-warning">{problem}</p>
+        <p className={styles.problem}>{problem}</p>
       ) : (
-        <p className="mt-2 text-xs text-subtle">
+        <p className={styles.note}>
           {trim === null
             ? "The whole track. Set a marker to clip it."
             : `Clip is ${formatDuration(clipLength)} long.`}
@@ -168,7 +166,7 @@ export function TrimPanel({
       )}
 
       {job.silence && (
-        <p className="mt-1 text-xs text-subtle">
+        <p className={styles.detail}>
           {job.silence.entirelySilent
             ? "The audio is silent throughout — nothing to trim."
             : suggested
@@ -180,8 +178,8 @@ export function TrimPanel({
       )}
 
       {!problem && (
-        <div className="mt-2.5 flex flex-wrap items-center gap-2">
-          <span className="text-xs text-muted">
+        <div className={styles.extract}>
+          <span className={styles.extractLabel}>
             {trim === null ? "Extract as:" : "Extract this clip as:"}
           </span>
           {formats.map((format) => {
@@ -198,7 +196,7 @@ export function TrimPanel({
                 disabled={disabled || exists}
                 title={exists ? "Already extracted for this range" : undefined}
                 onClick={() => onExtract(format.id, trim)}
-                className="rounded-md border border-border-strong px-2 py-0.5 text-xs font-medium transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-border-strong disabled:hover:text-inherit"
+                className={styles.chip}
               >
                 {format.label}
               </button>

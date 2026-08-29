@@ -1,5 +1,7 @@
 "use client";
 
+import styles from "./ProgressBar.module.css";
+
 interface ProgressBarProps {
   /** 0..1, or null to show an indeterminate bar. */
   ratio: number | null;
@@ -9,9 +11,9 @@ interface ProgressBarProps {
 }
 
 const TONE_CLASS = {
-  accent: "bg-accent",
-  success: "bg-success",
-  danger: "bg-danger",
+  accent: styles.accent,
+  success: styles.success,
+  danger: styles.danger,
 } as const;
 
 /**
@@ -30,15 +32,13 @@ export function ProgressBar({ ratio, label, tone = "accent" }: ProgressBarProps)
       aria-valuemax={100}
       aria-valuenow={isIndeterminate ? undefined : percent}
       aria-valuetext={isIndeterminate ? "Working…" : `${percent}%`}
-      className={`relative h-1.5 w-full overflow-hidden rounded-full bg-border-subtle ${
-        isIndeterminate ? "progress-indeterminate" : ""
+      className={`${styles.track} ${
+        // The keyframes are global, so the reduced-motion rule can reach them.
+        isIndeterminate ? `${styles.indeterminate} progress-indeterminate` : ""
       }`}
     >
       {!isIndeterminate && (
-        <div
-          className={`h-full rounded-full transition-[width] duration-200 ease-out ${TONE_CLASS[tone]}`}
-          style={{ width: `${percent}%` }}
-        />
+        <div className={`${styles.fill} ${TONE_CLASS[tone]}`} style={{ width: `${percent}%` }} />
       )}
     </div>
   );
