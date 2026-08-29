@@ -143,6 +143,15 @@ async function main() {
     const elapsedSeconds = (Date.now() - startedAt) / 1000;
     await sampleHeap();
 
+    // The session is closed by the time the card says Done, so the WORKERFS
+    // mount holding the File is gone. Sampled after a forced collection: if any
+    // part of the input were retained — by the mount, or by a copy — it would
+    // still be resident here, and the input is larger than the heap allows.
+    const settledHeapBytes = await page.evaluate(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      return performance.memory?.usedJSHeapSize ?? 0;
+    });
+
     const cardText = await card.innerText();
     console.log(`\nFinished in ${elapsedSeconds.toFixed(1)}s`);
     console.log(cardText.split("\n").slice(0, 3).join("\n"));
@@ -176,6 +185,8 @@ async function main() {
         `${mib(outputBytes)} from ${gib(inputBytes)}`],
       ["browser heap stayed far below the file size", peakHeapBytes < 600 * 1024 ** 2,
         `peak ≈ ${mib(peakHeapBytes)}`],
+      ["nothing is retained once the input is unmounted", settledHeapBytes < 300 * 1024 ** 2,
+        `${mib(settledHeapBytes)} after the session closed, from ${gib(inputBytes)} of input`],
     ];
 
     console.log("");

@@ -347,6 +347,42 @@ export class FFmpegEngine implements AudioExtractor {
     }
   }
 
+  /**
+   * Unmounts the input and confirms it is really gone.
+   *
+   * WORKERFS never copies the video — a mounted entry is a node holding a
+   * reference to the `File`, read through `Blob.slice` on demand — so releasing
+   * it is exactly this unmount. But that also means a silently failed unmount
+   * would pin the user's file inside the worker for the life of the page, and
+   * `unmount` has to stay best-effort because it is called speculatively before
+   * every mount. Hence the check here, where a mount is known to exist.
+   */
+  async #releaseInput(ffmpeg: FFmpeg): Promise<void> {
+    await this.#safeUnmount(ffmpeg);
+
+    try {
+      const entries = (await ffmpeg.listDir(MOUNT_POINT)).filter(
+        (node) => node.name !== "." && node.name !== "..",
+      );
+      if (entries.length === 0) return;
+
+      await this.#safeUnmount(ffmpeg);
+      const stillThere = (await ffmpeg.listDir(MOUNT_POINT)).filter(
+        (node) => node.name !== "." && node.name !== "..",
+      );
+      if (stillThere.length > 0) {
+        console.warn(
+          `[ffmpeg] ${MOUNT_POINT} still holds ${stillThere
+            .map((node) => node.name)
+            .join(", ")} after unmount; the input file stays referenced until the worker restarts.`,
+        );
+      }
+    } catch {
+      // The worker is gone, or the directory with it. Either way the mount
+      // cannot be holding anything.
+    }
+  }
+
   async #probe(ffmpeg: FFmpeg, inputPath: string): Promise<ProbeResult> {
     const log = this.#capture();
     // No output file is given, so ffmpeg prints the stream table and exits
@@ -542,7 +578,7 @@ export class FFmpegEngine implements AudioExtractor {
 
   /** @internal — driven by FFmpegSession. */
   async closeSession(ffmpeg: FFmpeg): Promise<void> {
-    await this.#safeUnmount(ffmpeg);
+    await this.#releaseInput(ffmpeg);
     this.#progressSink = null;
     this.#busy = false;
   }

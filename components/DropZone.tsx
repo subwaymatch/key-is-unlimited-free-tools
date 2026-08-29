@@ -14,10 +14,18 @@ interface DropZoneProps {
  * Dropping onto a small rectangle is a needless aim test when the whole window
  * is available, but the visible zone stays as the affordance and the
  * click-to-browse fallback.
+ *
+ * The zone is a `<label>` wrapping the file input, so the entire box opens the
+ * picker rather than only the button inside it — that is the browser's own
+ * behaviour, with no click forwarding to keep in sync. It also means the input
+ * stays a real focusable control: tabbing to it rings the whole box through
+ * `focus-within`, and Space opens the picker. Everything else inside is
+ * therefore markup a label may legally contain, which is why the text is in
+ * spans rather than paragraphs, and why the button is a span — a real button
+ * would swallow the click instead of activating the input.
  */
 export function DropZone({ onFiles, compact = false }: DropZoneProps) {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
   // dragenter/dragleave fire for every child element, so nesting is counted
   // rather than treating the first dragleave as "the pointer left".
   const dragDepth = useRef(0);
@@ -72,17 +80,17 @@ export function DropZone({ onFiles, compact = false }: DropZoneProps) {
   }, [handleFiles]);
 
   return (
-    <div
-      className={`relative rounded-2xl border-2 border-dashed text-center transition-colors ${
+    <label
+      className={`relative flex cursor-pointer flex-col items-center gap-3 rounded-2xl border-2 border-dashed text-center transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent ${
         isDraggingOver
           ? "border-accent bg-accent-soft"
           : "border-border-strong bg-surface hover:border-accent"
       } ${compact ? "px-6 py-8" : "px-6 py-16"}`}
     >
       <input
-        ref={inputRef}
         type="file"
         multiple
+        aria-label="Choose video files"
         accept="video/*,audio/*,.mkv,.mov,.avi,.webm,.m4v,.ts,.mts,.m2ts,.flv,.wmv"
         className="sr-only"
         onChange={(event) => {
@@ -92,43 +100,37 @@ export function DropZone({ onFiles, compact = false }: DropZoneProps) {
         }}
       />
 
-      <div className="flex flex-col items-center gap-3">
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 24 24"
-          fill="none"
-          strokeWidth={1.5}
-          stroke="currentColor"
-          className={`${compact ? "size-8" : "size-12"} text-subtle`}
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M12 16.5V9m0 0-3 3m3-3 3 3M6.75 19.5a4.5 4.5 0 0 1-.41-8.98 6 6 0 0 1 11.64-2.02A4.5 4.5 0 0 1 17.25 19.5H6.75Z"
-          />
-        </svg>
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        fill="none"
+        strokeWidth={1.5}
+        stroke="currentColor"
+        className={`${compact ? "size-8" : "size-12"} text-subtle`}
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M12 16.5V9m0 0-3 3m3-3 3 3M6.75 19.5a4.5 4.5 0 0 1-.41-8.98 6 6 0 0 1 11.64-2.02A4.5 4.5 0 0 1 17.25 19.5H6.75Z"
+        />
+      </svg>
 
-        <div>
-          <p className={`font-medium ${compact ? "text-base" : "text-lg"}`}>
-            {isDraggingOver ? "Drop to start converting" : "Drop video files here"}
-          </p>
-          <p className="mt-1 text-sm text-muted">
-            Conversion starts automatically · multi-gigabyte files supported
-          </p>
-        </div>
+      <span className="block">
+        <span className={`block font-medium ${compact ? "text-base" : "text-lg"}`}>
+          {isDraggingOver ? "Drop to start converting" : "Drop video files here"}
+        </span>
+        <span className="mt-1 block text-sm text-muted">
+          Conversion starts automatically · multi-gigabyte files supported
+        </span>
+      </span>
 
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          className="mt-1 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-contrast transition-colors hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-        >
-          Choose files
-        </button>
+      <span className="mt-1 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-contrast">
+        Choose files
+      </span>
 
-        <p className="text-xs text-subtle">
-          Everything runs on your device — nothing is uploaded.
-        </p>
-      </div>
-    </div>
+      <span className="block text-xs text-subtle">
+        Everything runs on your device — nothing is uploaded.
+      </span>
+    </label>
   );
 }

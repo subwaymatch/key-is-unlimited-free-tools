@@ -82,6 +82,15 @@ function ensureFixtures() {
       "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
       "-c:a", "aac", "-b:a", "128k", "-ac", "2",
     ]),
+    // Long enough that an MP3 conversion is still running when the test clicks
+    // cancel: ffmpeg.wasm encodes at roughly 30x realtime, so 5 minutes of
+    // audio takes about ten seconds.
+    long: build("long.mp4", [
+      "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=5",
+      "-f", "lavfi", "-i", "sine=frequency=330:sample_rate=48000",
+      "-t", "300", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+      "-c:a", "aac", "-b:a", "128k", "-ac", "2",
+    ]),
     surround: build("surround.mkv", [
       "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25",
       "-f", "lavfi", "-i", "sine=frequency=220:sample_rate=48000",
@@ -165,6 +174,18 @@ async function main() {
   try {
     await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "networkidle" });
     check("page renders the drop zone", await page.getByText("Drop video files here").isVisible());
+
+    // The whole dashed box opens the picker, not just the button inside it.
+    for (const [where, target] of [
+      ["its explanatory text", page.getByText("Conversion starts automatically", { exact: false })],
+      ["the icon", page.locator("label svg").first()],
+      ["the Choose files button", page.getByText("Choose files")],
+    ]) {
+      const [chooser] = await Promise.all([page.waitForEvent("filechooser"), target.click()]);
+      // Dismiss without queueing anything; an empty selection is ignored.
+      await chooser.setFiles([]);
+      check(`clicking ${where} opens the file picker`, Boolean(chooser));
+    }
 
     // ---- Case 1: ordinary MP4 with an AAC track --------------------------
     log("\nCase 1 — 6s MP4 (H.264 + AAC):");
@@ -329,6 +350,81 @@ async function main() {
 
     await page.screenshot({ path: join(root, ".fixtures", "verify-trimmed.png"), fullPage: true });
 
+    // ---- Case 6: cancelling one format, leaving the others alone ----------
+    log("\nCase 6 — cancelling MP3 mid-conversion on a 5min MP4:");
+    await page.getByRole("button", { name: /Output formats/ }).click();
+    await page.getByLabel(/Full audio/).check();
+    await page.getByLabel(/M4A \(AAC\)/).check();
+    await page.locator('input[type="file"]').setInputFiles(fixtures.long);
+
+    const longCard = page.locator("li", { hasText: "long.mp4" }).first();
+    const longOriginal = longCard.locator("li").filter({ hasText: /^Original/ });
+    const longMp3 = longCard.locator("li").filter({ hasText: /^MP3/ });
+    const longM4a = longCard.locator("li").filter({ hasText: /^M4A/ });
+
+    // Wait until MP3 is genuinely running, not merely queued behind Original.
+    await longCard.getByText("Extracting MP3…").waitFor({ timeout: 180_000 });
+    check(
+      "the stream copy finished before MP3 started",
+      (await longOriginal.getByText("Download").count()) === 1,
+    );
+
+    await longCard.getByRole("button", { name: "Cancel MP3" }).click();
+    await longMp3.getByText("Cancelled").waitFor({ timeout: 30_000 });
+    check("cancels the running format on its own", true, "MP3 marked cancelled");
+    check(
+      "the finished stream copy survives the worker being killed",
+      (await longOriginal.getByText("Download").count()) === 1,
+      "its bytes are a JS Blob, not worker memory",
+    );
+    check(
+      "the file itself is not cancelled",
+      (await longCard.getByText("Cancelled", { exact: true }).count()) === 1,
+      "only the MP3 row",
+    );
+
+    // M4A was queued behind MP3, so it has to survive on a rebuilt engine.
+    await longM4a.getByText("Download").waitFor({ timeout: 240_000 });
+    check("the format queued behind it still runs, on a fresh engine", true);
+
+    const [m4aResume] = await Promise.all([
+      page.waitForEvent("download"),
+      longM4a.getByText("Download").click(),
+    ]);
+    const m4aResumePath = join(downloadDir, m4aResume.suggestedFilename());
+    await m4aResume.saveAs(m4aResumePath);
+    const resumed = ffprobeJson(m4aResumePath);
+    check(
+      "that format covers the whole file, not the part before the cancel",
+      Math.abs(Number(resumed.format.duration) - 300) < 2,
+      `${Number(resumed.format.duration).toFixed(1)}s`,
+    );
+
+    // ---- Case 7: retrying just the cancelled format -----------------------
+    log("\nCase 7 — retrying the cancelled MP3:");
+    await longCard.getByRole("button", { name: "Retry MP3" }).click();
+    await longMp3.getByText("Download").waitFor({ timeout: 240_000 });
+
+    const [mp3Retry] = await Promise.all([
+      page.waitForEvent("download"),
+      longMp3.getByText("Download").click(),
+    ]);
+    const mp3RetryPath = join(downloadDir, mp3Retry.suggestedFilename());
+    await mp3Retry.saveAs(mp3RetryPath);
+    const retried = ffprobeJson(mp3RetryPath);
+    check(
+      "the retried format converts from the start",
+      Math.abs(Number(retried.format.duration) - 300) < 2,
+      `${Number(retried.format.duration).toFixed(1)}s`,
+    );
+    check(
+      "retrying one format does not re-run the others",
+      (await longCard.getByText("Download").count()) === 3,
+      "Original, M4A and MP3 all present exactly once",
+    );
+
+    await page.screenshot({ path: join(root, ".fixtures", "verify-cancelled.png"), fullPage: true });
+
     // ---- Engine-level assertions -----------------------------------------
     log("\nEngine:");
     const footer = await page.locator("footer").innerText();
@@ -348,7 +444,10 @@ async function main() {
   if (failed.length > 0) {
     fail(`${failed.length} check(s) failed: ${failed.map((entry) => entry.name).join(", ")}`);
   }
-  log("Screenshots: .fixtures/verify-converted.png, .fixtures/verify-trimmed.png");
+  log(
+    "Screenshots: .fixtures/verify-converted.png, .fixtures/verify-trimmed.png, " +
+      ".fixtures/verify-cancelled.png",
+  );
 }
 
 main().catch((error) => {

@@ -32,7 +32,7 @@ import type {
 
 export type JobStatus = "queued" | "preparing" | "converting" | "done" | "error" | "cancelled";
 
-export type OutputStatus = "pending" | "running" | "done" | "error";
+export type OutputStatus = "pending" | "running" | "done" | "error" | "cancelled";
 
 export interface JobFailure {
   message: string;
@@ -168,6 +168,11 @@ export function useConversionQueue() {
   const pumpingRef = useRef(false);
   const activeJobRef = useRef<string | null>(null);
   const cancelledRef = useRef<Set<string>>(new Set());
+  /**
+   * Jobs whose worker was killed to stop one output rather than the whole file.
+   * The engine has to be rebuilt, and any formats still pending re-run on it.
+   */
+  const partialCancelRef = useRef<Set<string>>(new Set());
   const selectedFormatsRef = useRef<OutputFormatId[]>(selectedFormats);
   const trimSettingsRef = useRef<TrimSettings>(trimSettings);
 
@@ -288,12 +293,16 @@ export function useConversionQueue() {
           }));
         }
 
-        const pending = (jobsRef.current.find((entry) => entry.id === jobId)?.outputs ?? []).filter(
-          (output) => output.status === "pending",
-        );
-
-        for (const output of pending) {
+        // Re-read the pending output each pass rather than iterating a snapshot:
+        // an output can be cancelled, or retried back into the queue, while the
+        // job it belongs to is still running.
+        for (;;) {
           if (isCancelled()) throw new ExtractionError("Cancelled.");
+
+          const output = jobsRef.current
+            .find((entry) => entry.id === jobId)
+            ?.outputs.find((entry) => entry.status === "pending");
+          if (!output) break;
 
           const format = getFormat(output.formatId);
           patchJob(jobId, {
@@ -326,6 +335,16 @@ export function useConversionQueue() {
             });
           } catch (error) {
             if (isCancelled()) throw error;
+
+            // cancelOutput marks the output before killing the worker, so this
+            // is how a per-format cancel is told apart from a real failure.
+            // Outputs already finished are JS Blobs and are untouched by the
+            // termination; whatever is still pending re-runs below.
+            const current = jobsRef.current
+              .find((entry) => entry.id === jobId)
+              ?.outputs.find((entry) => entry.id === output.id);
+            if (current?.status === "cancelled") break;
+
             // One failed format should not abandon the others.
             patchOutput(jobId, output.id, {
               status: "error",
@@ -337,20 +356,29 @@ export function useConversionQueue() {
 
         if (isCancelled()) throw new ExtractionError("Cancelled.");
 
-        const finished = jobsRef.current.find((entry) => entry.id === jobId);
-        const anyDone = finished?.outputs.some((output) => output.status === "done") ?? false;
-        const firstError = finished?.outputs.find((output) => output.error)?.error;
-        // A run with nothing to convert — a silence scan on its own — succeeds
-        // as long as it did not leave a failed output behind.
-        const succeeded = anyDone || (pending.length === 0 && firstError === undefined);
+        const outputs = jobsRef.current.find((entry) => entry.id === jobId)?.outputs ?? [];
 
-        patchJob(jobId, {
-          status: succeeded ? "done" : "error",
-          phase: succeeded ? "Done" : "Failed",
-          phaseRatio: null,
-          error: succeeded ? undefined : firstError,
-          finishedAt: Date.now(),
-        });
+        // The mount died with the worker, so formats that never got their turn
+        // need a fresh session. Re-queueing hands the job straight back to the
+        // pump, which is already looping.
+        if (partialCancelRef.current.has(jobId) && outputs.some((o) => o.status === "pending")) {
+          patchJob(jobId, { status: "queued", phase: "Waiting…", phaseRatio: null });
+        } else {
+          const anyDone = outputs.some((output) => output.status === "done");
+          const firstError = outputs.find((output) => output.error)?.error;
+          const failed = !anyDone && firstError !== undefined;
+          // Nothing produced and nothing broken: the formats were cancelled.
+          const cancelled =
+            !anyDone && !failed && outputs.some((output) => output.status === "cancelled");
+
+          patchJob(jobId, {
+            status: failed ? "error" : cancelled ? "cancelled" : "done",
+            phase: failed ? "Failed" : cancelled ? "Cancelled" : "Done",
+            phaseRatio: null,
+            error: failed ? firstError : undefined,
+            finishedAt: Date.now(),
+          });
+        }
       } catch (error) {
         if (isCancelled()) {
           patchJob(jobId, {
@@ -379,9 +407,13 @@ export function useConversionQueue() {
         flushLogs();
         activeJobRef.current = null;
 
-        if (cancelledRef.current.has(jobId)) {
+        // Both deletes must run: a file can be cancelled outright while one of
+        // its formats is already being cancelled on its own.
+        const wasCancelled = cancelledRef.current.delete(jobId);
+        const hadOutputCancelled = partialCancelRef.current.delete(jobId);
+
+        if (wasCancelled || hadOutputCancelled) {
           // The worker was killed mid-command; the next job needs a fresh one.
-          cancelledRef.current.delete(jobId);
           resetEngine();
           setEngineState((previous) => ({ ...previous, stage: "idle", capabilities: null }));
         } else if (session) {
@@ -445,9 +477,13 @@ export function useConversionQueue() {
     (jobId: string, formatId: OutputFormatId, trim: TrimRange | null = null) => {
       const job = jobsRef.current.find((entry) => entry.id === jobId);
       if (!job) return;
-      // Same format over the same range is the output that already exists.
+      // Same format over the same range is the output that already exists — but
+      // a cancelled one has no audio behind it, so it does not block a re-add.
       const duplicate = job.outputs.some(
-        (output) => output.formatId === formatId && sameTrimRange(output.trim, trim),
+        (output) =>
+          output.formatId === formatId &&
+          output.status !== "cancelled" &&
+          sameTrimRange(output.trim, trim),
       );
       if (duplicate) return;
 
@@ -505,6 +541,71 @@ export function useConversionQueue() {
     [patchJob, pump],
   );
 
+  /**
+   * Stops one output without disturbing the others.
+   *
+   * ffmpeg blocks its worker for the whole of a command, so a conversion that
+   * has already started can only be stopped by killing the worker — there is no
+   * cooperative interrupt. That is survivable here because a finished output is
+   * a JS Blob that never lived in the worker: the downloads already on the card
+   * keep working. What the termination does cost is the mount, so any format
+   * still queued behind this one is re-run on a fresh engine, and the core is
+   * cached by then, so the restart is a WebAssembly instantiation rather than a
+   * 31 MB download.
+   */
+  const cancelOutput = useCallback(
+    (jobId: string, outputId: string) => {
+      const job = jobsRef.current.find((entry) => entry.id === jobId);
+      const output = job?.outputs.find((entry) => entry.id === outputId);
+      if (!job || !output) return;
+      if (output.status === "done" || output.status === "cancelled") return;
+
+      // Marked before the worker dies so the run loop can tell this apart from
+      // a genuine failure, and so the row reacts immediately.
+      patchOutput(jobId, outputId, { status: "cancelled", ratio: null, error: undefined });
+
+      if (output.status === "running") {
+        partialCancelRef.current.add(jobId);
+        getEngine().terminate();
+      }
+    },
+    [patchOutput],
+  );
+
+  /** Puts a cancelled or failed output back in the queue on its own. */
+  const retryOutput = useCallback(
+    (jobId: string, outputId: string) => {
+      const job = jobsRef.current.find((entry) => entry.id === jobId);
+      const output = job?.outputs.find((entry) => entry.id === outputId);
+      if (!job || !output) return;
+      if (output.status === "running" || output.status === "done") return;
+
+      // A job that is still running picks this up on its next pass; one that
+      // has finished has to be handed back to the pump.
+      const isActive = activeJobRef.current === jobId;
+
+      patchJob(jobId, (current) => {
+        const outputs = current.outputs.map((entry) =>
+          entry.id === outputId
+            ? {
+                ...entry,
+                status: "pending" as const,
+                ratio: null,
+                processedSeconds: 0,
+                error: undefined,
+              }
+            : entry,
+        );
+        return isActive
+          ? { outputs, error: undefined }
+          : { outputs, error: undefined, status: "queued" as const, phase: "Waiting…" };
+      });
+
+      if (!isActive) void pump();
+    },
+    [patchJob, pump],
+  );
+
   const cancelJob = useCallback(
     (jobId: string) => {
       const job = jobsRef.current.find((entry) => entry.id === jobId);
@@ -528,6 +629,7 @@ export function useConversionQueue() {
       const job = jobsRef.current.find((entry) => entry.id === jobId);
       if (!job) return;
       if (activeJobRef.current === jobId) cancelJob(jobId);
+      partialCancelRef.current.delete(jobId);
       for (const output of job.outputs) {
         if (output.url) URL.revokeObjectURL(output.url);
       }
@@ -587,6 +689,8 @@ export function useConversionQueue() {
     addFiles,
     addFormatToJob,
     detectSilence,
+    cancelOutput,
+    retryOutput,
     cancelJob,
     removeJob,
     retryJob,

@@ -26,6 +26,8 @@ interface FileCardProps {
   onRetry: (jobId: string) => void;
   onAddFormat: (jobId: string, formatId: OutputFormatId, trim?: TrimRange | null) => void;
   onDetectSilence: (jobId: string) => void;
+  onCancelOutput: (jobId: string, outputId: string) => void;
+  onRetryOutput: (jobId: string, outputId: string) => void;
 }
 
 const STATUS_STYLE: Record<Job["status"], string> = {
@@ -46,12 +48,19 @@ const STATUS_LABEL: Record<Job["status"], string> = {
   cancelled: "Cancelled",
 };
 
+const ROW_BUTTON =
+  "rounded-md border border-border-strong px-2 py-1 text-xs font-medium transition-colors hover:bg-surface";
+
 function OutputRow({
   output,
   durationSeconds,
+  onCancel,
+  onRetry,
 }: {
   output: JobOutput;
   durationSeconds: number | null;
+  onCancel: () => void;
+  onRetry: () => void;
 }) {
   const { result, trim } = output;
 
@@ -104,12 +113,50 @@ function OutputRow({
         )}
 
         {output.status === "running" && (
-          <span className="text-xs tabular-nums text-muted">
-            {output.ratio === null ? "Working…" : formatPercent(output.ratio)}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs tabular-nums text-muted">
+              {output.ratio === null ? "Working…" : formatPercent(output.ratio)}
+            </span>
+            <button
+              type="button"
+              onClick={onCancel}
+              aria-label={`Cancel ${output.label}`}
+              className={ROW_BUTTON}
+            >
+              Cancel
+            </button>
+          </div>
         )}
 
-        {output.status === "pending" && <span className="text-xs text-subtle">Waiting</span>}
+        {output.status === "pending" && (
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-subtle">Waiting</span>
+            <button
+              type="button"
+              onClick={onCancel}
+              aria-label={`Cancel ${output.label}`}
+              className={ROW_BUTTON}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {(output.status === "cancelled" || output.status === "error") && (
+          <div className="flex items-center gap-3">
+            {output.status === "cancelled" && (
+              <span className="text-xs text-subtle">Cancelled</span>
+            )}
+            <button
+              type="button"
+              onClick={onRetry}
+              aria-label={`Retry ${output.label}`}
+              className={ROW_BUTTON}
+            >
+              Retry
+            </button>
+          </div>
+        )}
       </div>
 
       {output.status === "running" && (
@@ -136,6 +183,8 @@ export function FileCard({
   onRetry,
   onAddFormat,
   onDetectSilence,
+  onCancelOutput,
+  onRetryOutput,
 }: FileCardProps) {
   const [showLogs, setShowLogs] = useState(false);
   const [showTrim, setShowTrim] = useState(false);
@@ -156,9 +205,14 @@ export function FileCard({
 
   /** Formats with no full-file output yet; clips are offered by the trim panel. */
   const remainingFormats = OUTPUT_FORMATS.filter((format) => {
-    if (job.outputs.some((output) => output.formatId === format.id && output.trim === null)) {
-      return false;
-    }
+    const covered = job.outputs.some(
+      (output) =>
+        output.formatId === format.id &&
+        output.trim === null &&
+        // A cancelled output produced nothing, so the format is still on offer.
+        output.status !== "cancelled",
+    );
+    if (covered) return false;
     if (!capabilities || !format.requiredEncoder) return true;
     return capabilities.encoders.has(format.requiredEncoder);
   });
@@ -279,7 +333,12 @@ export function FileCard({
         <ul className="mt-3 space-y-2">
           {job.outputs.map((output) => (
             <li key={output.id}>
-              <OutputRow output={output} durationSeconds={totalDuration} />
+              <OutputRow
+                output={output}
+                durationSeconds={totalDuration}
+                onCancel={() => onCancelOutput(job.id, output.id)}
+                onRetry={() => onRetryOutput(job.id, output.id)}
+              />
             </li>
           ))}
         </ul>

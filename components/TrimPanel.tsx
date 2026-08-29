@@ -186,7 +186,10 @@ export function TrimPanel({
           </span>
           {formats.map((format) => {
             const exists = job.outputs.some(
-              (output) => output.formatId === format.id && sameTrimRange(output.trim, trim),
+              (output) =>
+                output.formatId === format.id &&
+                output.status !== "cancelled" &&
+                sameTrimRange(output.trim, trim),
             );
             return (
               <button

@@ -26,6 +26,8 @@ export function AudioExtractorApp() {
     addFiles,
     addFormatToJob,
     detectSilence,
+    cancelOutput,
+    retryOutput,
     cancelJob,
     removeJob,
     retryJob,
@@ -148,6 +150,8 @@ export function AudioExtractorApp() {
                   onRetry={retryJob}
                   onAddFormat={addFormatToJob}
                   onDetectSilence={detectSilence}
+                  onCancelOutput={cancelOutput}
+                  onRetryOutput={retryOutput}
                 />
               ))}
             </ul>
