@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "extract-audio-from-video-nextjs",
+  "name": "key-is-unlimited-free-tools",
   "compatibility_date": "2026-08-28",
 
   // Assets-only Worker: no "main" entry point, so every request is served
