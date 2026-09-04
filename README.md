@@ -175,6 +175,17 @@ npx wrangler deploy  # or: npm run deploy
 npm run preview      # build + wrangler dev, with _headers applied
 ```
 
+`wrangler deploy` creates the Worker if it does not exist yet, so a first deploy needs nothing set
+up in the dashboard beyond `npx wrangler login`. The Worker is named by `name` in `wrangler.jsonc`;
+it has no connection to the repository name, and Cloudflare cannot rename a Worker in place —
+changing `name` deploys a *second* Worker under the new name and leaves the old one running until
+you delete it.
+
+If you also connect [Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/) to
+deploy on push, that link is bound to a specific Worker on the account, not to the repository. If
+that Worker is ever deleted or renamed, its build fails with *"This Worker does not exist on your
+account"* until you re-point it at Settings → Builds → Git Repository → Manage.
+
 ### The 25 MiB problem
 
 `ffmpeg-core.wasm` is ~30.7 MiB and Cloudflare enforces a hard **25 MiB per static asset**, so the

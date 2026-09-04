@@ -36,6 +36,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# cloudflare: local state written by `wrangler dev` / `wrangler deploy`
+/.wrangler/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
