@@ -37,8 +37,17 @@ export const CORE_BASE_URL =
 export const CORE_JS_URL = `${CORE_BASE_URL}/ffmpeg-core.js`;
 export const CORE_WASM_URL = `${CORE_BASE_URL}/ffmpeg-core.wasm`;
 
-/** Path of the same-origin class worker copied into public/ at build time. */
-export const CLASS_WORKER_PATH = `/ffmpeg/worker.js?v=${FFMPEG_VERSION}`;
+/**
+ * Path of the same-origin class worker copied into public/ at build time.
+ *
+ * The version is a path segment rather than a query string because the worker
+ * is an ES module that imports its siblings (`./const.js`, `./errors.js`) by
+ * bare relative path, and `public/_headers` marks everything under /ffmpeg/ as
+ * immutable for a year. A `?v=` on the worker alone would fetch a new worker
+ * after an upgrade and run it against siblings still cached from the old one;
+ * a versioned directory changes every URL at once.
+ */
+export const CLASS_WORKER_PATH = `/ffmpeg/${FFMPEG_VERSION}/worker.js`;
 
 /**
  * Absolute URL of `@ffmpeg/ffmpeg`'s class worker.
@@ -58,5 +67,25 @@ export function getClassWorkerUrl(): string {
   return new URL(CLASS_WORKER_PATH, window.location.origin).href;
 }
 
-/** Roughly the size of the core download, used for progress before headers arrive. */
-export const CORE_APPROX_BYTES = 32_232_419;
+/**
+ * Exact size and SHA-256 of the pinned core files, as published to npm.
+ *
+ * The size drives the download progress bar. CDNs serve the wasm compressed,
+ * so the Content-Length header describes the compressed body while the stream
+ * yields decompressed bytes; a ratio built from the header reaches 100% about a
+ * third of the way through. The pinned size is the one total that is right in
+ * every configuration.
+ *
+ * The digests are checked after download, before the core is handed to the
+ * worker. Everything the app promises about privacy rests on the core being
+ * the build it claims to be, and the JS half runs with this page's origin, so
+ * a CDN serving something else has to be refused rather than executed.
+ *
+ * `scripts/copy-ffmpeg-worker.mjs` asserts all three against node_modules, so
+ * a version bump that forgets to update them fails the build.
+ */
+export const CORE_WASM_BYTES = 32_232_419;
+export const CORE_WASM_SHA256 =
+  "9f57947a5bd530d8f00c5b3f2cb2a3492faa7e5d823315342d6a8656d0a6b7b7";
+export const CORE_JS_SHA256 =
+  "67a48f11645f85439f3fde4f2119042c16b374b910206b7a7a24f342e28dcae3";

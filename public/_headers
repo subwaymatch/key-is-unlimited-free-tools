@@ -5,8 +5,9 @@
 /_next/static/*
   Cache-Control: public, max-age=31536000, immutable
 
-# The ffmpeg.wasm class worker is copied here by scripts/copy-ffmpeg-worker.mjs
-# and requested with a ?v=<pkg version> cache buster.
+# The ffmpeg.wasm class worker and its sibling modules are copied here by
+# scripts/copy-ffmpeg-worker.mjs, into a directory named after the pinned
+# version, so an upgrade changes every URL at once and nothing stale is reused.
 /ffmpeg/*
   Cache-Control: public, max-age=31536000, immutable
 
