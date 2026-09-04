@@ -13,8 +13,10 @@
  *
  *   node scripts/verify-e2e.mjs
  *
- * Requires: a Chromium installed by Playwright, and ffmpeg/ffprobe on PATH to
- * build and inspect the fixtures.
+ * Requires ffmpeg/ffprobe on PATH to build and inspect the fixtures, and a
+ * Chromium: either one Playwright can find on its own (`npx playwright install
+ * chromium`, honouring PLAYWRIGHT_BROWSERS_PATH) or any Chrome/Chromium binary
+ * named in CHROMIUM_PATH.
  */
 import { createReadStream, existsSync, mkdirSync, statSync } from "node:fs";
 import { createServer } from "node:http";
@@ -157,7 +159,8 @@ async function main() {
   log(`Serving ${OUT} on http://127.0.0.1:${PORT}`);
 
   const browser = await chromium.launch({
-    executablePath: process.env.CHROMIUM_PATH ?? "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+    // Undefined lets Playwright resolve its own managed Chromium.
+    executablePath: process.env.CHROMIUM_PATH,
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
   const downloadDir = join(tmpdir(), `extract-audio-verify-${Date.now()}`);
