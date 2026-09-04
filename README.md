@@ -191,11 +191,18 @@ account"* until you re-point it at Settings → Builds → Git Repository → Ma
 `key.is` and `www.key.is` are declared as `custom_domain` routes in `wrangler.jsonc`, so a deploy
 binds them to this Worker and Cloudflare owns their DNS records.
 
-Declaring them matters because a custom domain is otherwise invisible from the repository: the
-hostname is just a record in the dashboard, and nothing here says which host it points at. That is
-exactly how `key.is` broke once — `www` was bound to the Worker while the apex record still pointed
-at a host this project no longer deploys to, so `https://key.is` served *that* host's 404 while
-`https://www.key.is` worked.
+Declaring them matters because the binding is otherwise invisible from the repository: it lives as
+records and route patterns in the dashboard, and nothing here says which host answers.
+
+That is exactly how `key.is` broke once. The zone had no Worker-managed records at all — every `A`
+record still pointed at an unrelated host left over from an earlier deploy — and the Worker was
+attached by a `*.key.is/*` **route** instead. A wildcard route matches every subdomain but *not* the
+bare apex, so `www.key.is` (and every other subdomain) was intercepted at the edge and served this
+Worker, while `https://key.is` fell through to the stale origin and returned that host's 404.
+
+Migrating from that setup takes the subdomains down briefly: deleting the leftover records stops
+them resolving, and they only come back once a deploy has created the custom-domain records. Delete
+and deploy back to back, then remove the old wildcard route.
 
 Because Cloudflare wants to create the record itself, a deploy fails while a conflicting
 `A`/`AAAA`/`CNAME` record for the same hostname already exists:
