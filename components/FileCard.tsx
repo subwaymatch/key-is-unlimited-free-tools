@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 
-import { OUTPUT_FORMATS, type OutputFormatId } from "@/lib/engine/formats";
+import { isFormatAvailable, OUTPUT_FORMATS, type OutputFormatId } from "@/lib/engine/formats";
 import { formatTimecode } from "@/lib/engine/trim";
 import type { EngineCapabilities, TrimRange } from "@/lib/engine/types";
 import {
@@ -206,9 +206,7 @@ export function FileCard({
         // A cancelled output produced nothing, so the format is still on offer.
         output.status !== "cancelled",
     );
-    if (covered) return false;
-    if (!capabilities || !format.requiredEncoder) return true;
-    return capabilities.encoders.has(format.requiredEncoder);
+    return !covered && isFormatAvailable(format, capabilities);
   });
 
   const totalDuration = job.probe?.durationSeconds ?? null;
@@ -279,9 +277,14 @@ export function FileCard({
       </div>
 
       {isRunning && (
-        <div className={styles.progress} aria-live="polite">
+        <div className={styles.progress}>
           <div className={styles.phaseRow}>
-            <p className={styles.phase}>{job.phase}</p>
+            {/* Only the phase is announced: it changes a handful of times per
+                file, whereas the counter beside it updates several times a
+                second, and the progress bar already carries its value. */}
+            <p className={styles.phase} aria-live="polite">
+              {job.phase}
+            </p>
             {runningOutput && totalDuration !== null && (
               <p className={styles.elapsed}>
                 {formatDuration(runningOutput.processedSeconds)} /{" "}

@@ -522,13 +522,20 @@ export class FFmpegEngine implements AudioExtractor {
     onProgress?: (progress: ExtractProgress) => void,
   ): Promise<SilenceScanResult> {
     const settings: SilenceScanOptions = { ...DEFAULT_SILENCE_OPTIONS, ...options };
-    const duration = probe.durationSeconds;
+    const probedDuration = probe.durationSeconds;
+
+    // Progress is the decoder's own clock, so its high-water mark is the length
+    // of the audio when the container did not say. Files from a browser's
+    // MediaRecorder never do, and without some length there is no way to tell
+    // a trailing silence from a pause, so the scan would find nothing to trim.
+    let decodedSeconds = 0;
 
     this.#progressSink = ({ time }) => {
       const processedSeconds = Math.max(0, time / 1_000_000);
+      decodedSeconds = Math.max(decodedSeconds, processedSeconds);
       onProgress?.({
         processedSeconds,
-        ratio: duration ? Math.min(1, processedSeconds / duration) : null,
+        ratio: probedDuration ? Math.min(1, processedSeconds / probedDuration) : null,
       });
     };
 
@@ -565,6 +572,7 @@ export class FFmpegEngine implements AudioExtractor {
       );
     }
 
+    const duration = probedDuration ?? (decodedSeconds > 0 ? decodedSeconds : null);
     const intervals = parseSilenceLog(eventLog.lines);
     onProgress?.({ processedSeconds: duration ?? 0, ratio: 1 });
 
@@ -572,6 +580,7 @@ export class FFmpegEngine implements AudioExtractor {
       intervals,
       suggested: suggestTrimFromSilence(intervals, duration),
       entirelySilent: isEntirelySilent(intervals, duration),
+      durationSeconds: duration,
       options: settings,
     };
   }

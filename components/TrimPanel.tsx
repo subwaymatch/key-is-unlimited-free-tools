@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { OUTPUT_FORMATS, type OutputFormatId } from "@/lib/engine/formats";
+import { isFormatAvailable, OUTPUT_FORMATS, type OutputFormatId } from "@/lib/engine/formats";
 import { formatTimecode, parseTrimInputs, resolveTrim, sameTrimRange } from "@/lib/engine/trim";
 import type { EngineCapabilities, TrimRange } from "@/lib/engine/types";
 import { formatDuration } from "@/lib/format-utils";
@@ -66,12 +66,7 @@ export function TrimPanel({
       ? duration
       : (trim.endSeconds ?? duration ?? 0) - trim.startSeconds;
 
-  const formats = OUTPUT_FORMATS.filter(
-    (format) =>
-      !capabilities ||
-      !format.requiredEncoder ||
-      capabilities.encoders.has(format.requiredEncoder),
-  );
+  const formats = OUTPUT_FORMATS.filter((format) => isFormatAvailable(format, capabilities));
 
   const setFromPreview = (setter: (value: string) => void) => {
     const position = getPreviewPosition?.();

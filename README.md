@@ -20,10 +20,12 @@ npm run dev          # http://localhost:3000
 ```
 
 `dev` and `build` first run `scripts/copy-ffmpeg-worker.mjs`, which copies ffmpeg.wasm's class
-worker into `public/ffmpeg/` (see [The class worker](#the-class-worker) below).
+worker into `public/ffmpeg/<version>/` and checks that the versions and core checksums pinned in
+`lib/engine/constants.ts` still match what is installed (see
+[The class worker](#the-class-worker) below).
 
 ```bash
-npm test             # unit tests for the parsers and format catalogue
+npm test             # unit tests: parsers, format catalogue, core loader, conversion queue
 npm run typecheck
 npm run lint
 npm run build        # static export to out/
@@ -69,11 +71,11 @@ lib/useConversionQueue.ts   sequential job runner, progress + cancellation
 lib/engine/
   types.ts           AudioExtractor contract (engine-agnostic)
   ffmpegEngine.ts    ffmpeg.wasm implementation — mount, probe, extract, scan
-  coreLoader.ts      fetches the ~31 MB core with byte-level progress
+  coreLoader.ts      fetches the ~31 MB core with byte-level progress; verifies its checksum
   formats.ts         output catalogue; decides stream-copy vs re-encode
   trim.ts            pure trim logic — ranges, timecodes, silence parsing
   probe.ts           pure parsers for ffmpeg's stderr
-  constants.ts       pinned versions and asset URLs
+  constants.ts       pinned versions, checksums and asset URLs
 ```
 
 Files convert **one at a time**. There is a single ffmpeg worker with a single heap, so concurrency
@@ -89,6 +91,13 @@ contained change behind the interface rather than a rewrite.
 "Original" and "M4A" copy the audio track without decoding it whenever the source codec already
 fits the target container — bit-for-bit identical output, and seconds instead of minutes on a large
 file. The UI labels these outputs `STREAM COPY`. Everything else re-encodes.
+
+"Original" picks the container from the codec: AAC and ALAC go to M4A; MP3, Opus, Vorbis, FLAC and
+the Dolby codecs to their native files; little-endian PCM to WAV; and anything else to Matroska
+audio. That last group includes the big-endian PCM older QuickTime files carry, which the WAV muxer
+rejects at mux time rather than at probe time. "M4A (AAC)" copies only when the source is already
+AAC: an ALAC source is re-encoded, because the format promises AAC in its name and "Original"
+already offers the lossless copy.
 
 ### Trimming and clipping
 
@@ -122,7 +131,8 @@ under the output ceiling that would otherwise push it to FLAC.
 
 Silence detection is a full decode of the audio stream (via the null muxer, which writes nothing),
 so it costs roughly one re-encode and is only ever run when asked for. It reports progress like any
-other phase.
+other phase. Files with no duration in their container — a browser's MediaRecorder never writes
+one — are measured by the decode itself, so a trailing silence can still be told apart from a pause.
 
 ### Cancelling one format
 
@@ -137,6 +147,11 @@ so any format still queued behind the cancelled one is re-run on a fresh engine,
 run loop reads the next pending output each pass rather than iterating a list fixed before the
 first one started.
 
+Cancelling a whole file while the core is still downloading has nothing to kill: the download is
+left to finish, since the next file needs it anyway, and the card says "Cancelling…" until it does.
+Cancelling a file that has not started costs nothing at all, and a queued file whose every format
+has been cancelled is settled without ever being opened.
+
 ### Styling
 
 Plain CSS modules, one per component, plus `app/globals.css` for the palette and a small reset.
@@ -148,7 +163,9 @@ PostCSS config; the whole stylesheet is about 17 KB.
 
 Every phase reports something, so the app is never silent:
 
-- **Core download** — a real percentage, read from the response stream (~31 MB, once per browser).
+- **Core download** — a real percentage, read from the response stream against the pinned size of
+  the core (~31 MB, once per browser). CDNs serve the wasm compressed, so the response's own
+  Content-Length describes the compressed body and would put the bar at 100% a third of the way in.
 - **Probing** — indeterminate; ffmpeg is reading the container.
 - **Converting** — a percentage computed from processed media time over the probed duration, or
   over the length of the clip when one is being extracted: input seeking restarts the output
@@ -223,6 +240,12 @@ curl -sSI https://key.is | grep -iE 'server|x-vercel|cf-ray'
 core cannot ship in `public/`. It is fetched at runtime from jsDelivr, which serves it with
 `access-control-allow-origin: *` and an `immutable` cache lifetime.
 
+Wherever it comes from, the download is hashed and compared with the SHA-256 pinned in
+`lib/engine/constants.ts` before the worker sees a byte of it. The JS half of the core runs as a
+worker on this page's origin, so a CDN serving anything other than the pinned build is refused
+rather than executed. `fetch`'s own `integrity` option would make the same check, but it buffers
+the whole response before resolving, which would take the progress bar with it.
+
 To self-host instead — worth doing if you would rather not depend on a third party — mirror the two
 core files to an R2 bucket (egress is free), put it behind a custom domain, give it a CORS policy,
 and point the app at it:
@@ -232,7 +255,8 @@ NEXT_PUBLIC_FFMPEG_CORE_BASE_URL=https://cdn.example.com/ffmpeg npm run build
 ```
 
 The files to mirror are `ffmpeg-core.js` and `ffmpeg-core.wasm` from
-`node_modules/@ffmpeg/core/dist/esm/`.
+`node_modules/@ffmpeg/core/dist/esm/`. Mirror them byte for byte: the checksum check does not care
+where the core came from, only that it is the pinned build.
 
 ### Headers
 
@@ -257,9 +281,13 @@ Worker constructor throws `SecurityError`. The app therefore passes an **absolut
 `window.location.origin`.
 
 The worker is also an ES module that relative-imports its siblings, which is why
-`scripts/copy-ffmpeg-worker.mjs` copies the whole `dist/esm` directory rather than one file. That
-script also asserts the versions pinned in `lib/engine/constants.ts` still match `package.json`, so
-a dependency bump cannot silently desync the CDN URL.
+`scripts/copy-ffmpeg-worker.mjs` copies the whole `dist/esm` directory rather than one file. It
+copies into a directory named after the package version, because `public/_headers` caches
+everything under `/ffmpeg/` as immutable for a year: a cache-buster on the worker URL alone would
+fetch a new worker after an upgrade and run it against siblings still cached from the old one. The
+script also asserts that the versions, core size and core checksums pinned in
+`lib/engine/constants.ts` match what is installed, so a dependency bump cannot silently desync the
+CDN URL, the worker path, or the integrity check.
 
 ### ESM core, not UMD
 
@@ -271,11 +299,17 @@ The `dist/esm` build has a real default export and must be used.
 ## Verification
 
 ```bash
-npm test                                                    # 95 unit tests
+npm test                                                    # 120 unit tests
 NEXT_PUBLIC_FFMPEG_CORE_BASE_URL=/core npm run build
 node scripts/verify-e2e.mjs                                 # 41 browser checks
 node scripts/verify-large-file.mjs                          # >2 GiB input
 ```
+
+The unit tests include the conversion queue itself, driven through a fake engine behind the
+`AudioExtractor` interface, so every cancel, retry and re-queue transition is pinned without ffmpeg
+in the loop. The browser scripts need ffmpeg and ffprobe on `PATH`, plus a Chromium: one Playwright
+can find on its own (`npx playwright install chromium`), or any Chrome/Chromium binary named in
+`CHROMIUM_PATH`.
 
 `verify-e2e.mjs` drives a real Chromium through seven cases — an MP4 with AAC, a video with no
 audio track, an MKV with 5.1 FLAC, a hand-set 1s–3s clip, an 8s file padded with two seconds of

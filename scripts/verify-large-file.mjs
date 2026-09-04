@@ -15,7 +15,8 @@
  *   node scripts/verify-large-file.mjs
  *
  * Separate from verify-e2e.mjs because it needs several GB of free disk and
- * takes minutes rather than seconds.
+ * takes minutes rather than seconds. Same requirements: ffmpeg/ffprobe on PATH
+ * and a Chromium Playwright can find, or one named in CHROMIUM_PATH.
  */
 import { createReadStream, existsSync, mkdirSync, statSync } from "node:fs";
 import { createServer } from "node:http";
@@ -94,8 +95,8 @@ async function main() {
 
   const server = await startServer();
   const browser = await chromium.launch({
-    executablePath:
-      process.env.CHROMIUM_PATH ?? "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+    // Undefined lets Playwright resolve its own managed Chromium.
+    executablePath: process.env.CHROMIUM_PATH,
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
   const context = await browser.newContext({ acceptDownloads: true });

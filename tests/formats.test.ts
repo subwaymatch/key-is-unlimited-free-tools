@@ -5,12 +5,16 @@ import {
   estimateOutputBytes,
   findFormatBlocker,
   getFormat,
+  isFormatAvailable,
   MAX_SAFE_OUTPUT_BYTES,
   OUTPUT_FORMATS,
 } from "@/lib/engine/formats";
 import type { AudioStreamInfo, ProbeResult } from "@/lib/engine/types";
 
-function probe(audio: Partial<AudioStreamInfo> | null, durationSeconds = 600): ProbeResult {
+function probe(
+  audio: Partial<AudioStreamInfo> | null,
+  durationSeconds: number | null = 600,
+): ProbeResult {
   const stream: AudioStreamInfo | null = audio
     ? {
         codec: "aac",
@@ -43,10 +47,17 @@ describe("copyTargetForCodec", () => {
     expect(copyTargetForCodec("ac3").extension).toBe("ac3");
   });
 
-  it("routes every PCM variant to WAV", () => {
-    expect(copyTargetForCodec("pcm_s16le").extension).toBe("wav");
-    expect(copyTargetForCodec("pcm_s24be").extension).toBe("wav");
-    expect(copyTargetForCodec("pcm_f32le").extension).toBe("wav");
+  it("routes the PCM flavours WAV can hold to WAV", () => {
+    for (const codec of ["pcm_s16le", "pcm_s24le", "pcm_s32le", "pcm_f32le", "pcm_u8", "pcm_alaw"]) {
+      expect(copyTargetForCodec(codec).extension, codec).toBe("wav");
+    }
+  });
+
+  it("sends big-endian PCM to Matroska, since the WAV muxer rejects it", () => {
+    // What older QuickTime files carry; a copy into WAV fails at mux time.
+    for (const codec of ["pcm_s16be", "pcm_s24be", "pcm_f32be", "pcm_u16le"]) {
+      expect(copyTargetForCodec(codec).extension, codec).toBe("mka");
+    }
   });
 
   it("falls back to Matroska for anything it does not know", () => {
@@ -82,6 +93,22 @@ describe("format plans", () => {
     expect(plan.mode).toBe("copy");
     expect(plan.args).toContain("copy");
     expect(plan.args).not.toContain("aac");
+  });
+
+  it("re-encodes ALAC for the M4A format, which promises AAC in its name", () => {
+    // The lossless copy of an ALAC track is what "Original" is for.
+    expect(getFormat("m4a").plan(probe({ codec: "alac" })).mode).toBe("encode");
+    expect(getFormat("original").plan(probe({ codec: "alac" }))).toMatchObject({
+      mode: "copy",
+      extension: "m4a",
+    });
+  });
+
+  it("puts the moov atom up front for every MP4 output, copies included", () => {
+    expect(getFormat("original").plan(probe({ codec: "aac" })).args).toContain("+faststart");
+    expect(getFormat("m4a").plan(probe({ codec: "vorbis" })).args).toContain("+faststart");
+    // Other containers have no such flag to set.
+    expect(getFormat("original").plan(probe({ codec: "flac" })).args).not.toContain("-movflags");
   });
 
   it("re-encodes to AAC when the source codec cannot live in an MP4", () => {
@@ -127,7 +154,8 @@ describe("estimateOutputBytes", () => {
     expect(estimateOutputBytes("original", probe({}))).toBeNull();
   });
 
-  it("returns null when the duration is unknown", () => {
+  it("returns null when the duration is unknown or zero", () => {
+    expect(estimateOutputBytes("wav", probe({}, null))).toBeNull();
     expect(estimateOutputBytes("wav", probe({}, 0))).toBeNull();
   });
 });
@@ -181,5 +209,28 @@ describe("findFormatBlocker", () => {
 
   it("keeps the ceiling below the engine's 2 GB heap", () => {
     expect(MAX_SAFE_OUTPUT_BYTES).toBeLessThan(2 * 1024 ** 3);
+  });
+});
+
+describe("isFormatAvailable", () => {
+  const capabilities = { encoders: new Set(["aac", "flac"]), supportsWorkerFs: true };
+
+  it("offers everything until the core has reported what it ships", () => {
+    for (const format of OUTPUT_FORMATS) {
+      expect(isFormatAvailable(format, null)).toBe(true);
+    }
+  });
+
+  it("greys out formats whose encoder the loaded core lacks", () => {
+    expect(isFormatAvailable(getFormat("m4a"), capabilities)).toBe(true);
+    expect(isFormatAvailable(getFormat("flac"), capabilities)).toBe(true);
+    expect(isFormatAvailable(getFormat("mp3"), capabilities)).toBe(false);
+    expect(isFormatAvailable(getFormat("wav"), capabilities)).toBe(false);
+  });
+
+  it("never needs an encoder for a stream copy", () => {
+    expect(isFormatAvailable(getFormat("original"), { ...capabilities, encoders: new Set() })).toBe(
+      true,
+    );
   });
 });
