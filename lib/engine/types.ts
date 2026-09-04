@@ -92,6 +92,13 @@ export interface SilenceScanResult {
   suggested: TrimRange | null;
   /** True when silence covers the whole file, which is why `suggested` is null. */
   entirelySilent: boolean;
+  /**
+   * Length of audio the scan worked against, in seconds: the container's
+   * duration when the probe found one, otherwise how far the decode itself
+   * got. Files written without a duration (a browser MediaRecorder WebM, say)
+   * only have the latter, and `suggested` was computed from it.
+   */
+  durationSeconds: number | null;
   options: SilenceScanOptions;
 }
 
