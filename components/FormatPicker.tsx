@@ -1,6 +1,6 @@
 "use client";
 
-import { OUTPUT_FORMATS, type OutputFormatId } from "@/lib/engine/formats";
+import { isFormatAvailable, OUTPUT_FORMATS, type OutputFormatId } from "@/lib/engine/formats";
 import type { EngineCapabilities } from "@/lib/engine/types";
 
 import styles from "./Settings.module.css";
@@ -41,11 +41,7 @@ export function FormatPicker({
 
       <div className={styles.grid}>
         {OUTPUT_FORMATS.map((format) => {
-          const unavailable = Boolean(
-            capabilities &&
-              format.requiredEncoder &&
-              !capabilities.encoders.has(format.requiredEncoder),
-          );
+          const unavailable = !isFormatAvailable(format, capabilities);
           const isChecked = selected.includes(format.id) && !unavailable;
 
           return (

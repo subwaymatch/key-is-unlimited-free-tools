@@ -11,7 +11,7 @@
  *    subtitles and data, so muxers never reject an unsupported companion stream.
  */
 import { trimDuration } from "./trim";
-import type { ExtractMode, ProbeResult, TrimRange } from "./types";
+import type { EngineCapabilities, ExtractMode, ProbeResult, TrimRange } from "./types";
 
 export type OutputFormatId = "original" | "m4a" | "mp3" | "wav" | "opus" | "flac";
 
@@ -41,6 +41,19 @@ export const SELECT_AUDIO = ["-map", "0:a:0", "-vn", "-sn", "-dn"];
 
 const MP4_AUDIO = { extension: "m4a", mimeType: "audio/mp4" };
 
+/** Moves the moov atom to the front so players can start immediately. */
+const MP4_FASTSTART = ["-movflags", "+faststart"];
+
+/**
+ * PCM flavours the WAV muxer can hold.
+ *
+ * WAV's tag table covers little-endian PCM, unsigned 8-bit and the two
+ * telephony codecs. The big-endian variants older QuickTime files carry are not
+ * in it, and a stream copy into WAV fails at mux time rather than at probe
+ * time, so those are sent to Matroska with the other unusual codecs.
+ */
+const WAV_COPYABLE_PCM = /^pcm_(?:s(?:16|24|32|64)le|f(?:32|64)le|u8|alaw|mulaw)$/;
+
 /**
  * Container to copy each codec into, so "Original" stays a true stream copy.
  * Anything unrecognised goes to Matroska audio, which accepts nearly any codec.
@@ -58,7 +71,7 @@ const COPY_TARGETS: Array<{
   { matches: (c) => c === "flac", extension: "flac", mimeType: "audio/flac" },
   { matches: (c) => c === "ac3", extension: "ac3", mimeType: "audio/ac3" },
   { matches: (c) => c === "eac3", extension: "eac3", mimeType: "audio/eac3" },
-  { matches: (c) => c.startsWith("pcm_"), extension: "wav", mimeType: "audio/wav" },
+  { matches: (c) => WAV_COPYABLE_PCM.test(c), extension: "wav", mimeType: "audio/wav" },
 ];
 
 const MATROSKA_AUDIO = { extension: "mka", mimeType: "audio/x-matroska" };
@@ -76,8 +89,13 @@ export function copyTargetForCodec(codec: string | null): {
     : MATROSKA_AUDIO;
 }
 
-/** Codecs that can be copied straight into an MP4/M4A container. */
-const MP4_COPYABLE = new Set(["aac", "alac"]);
+/**
+ * Codecs the "M4A (AAC)" format copies rather than re-encodes.
+ *
+ * ALAC would sit in an M4A just as happily, but this format promises AAC in
+ * its name; a lossless copy of an ALAC track is what "Original" produces.
+ */
+const MP4_COPYABLE = new Set(["aac"]);
 
 export const OUTPUT_FORMATS: readonly OutputFormat[] = [
   {
@@ -89,7 +107,12 @@ export const OUTPUT_FORMATS: readonly OutputFormat[] = [
     plan(probe) {
       const target = copyTargetForCodec(probe.audio?.codec ?? null);
       return {
-        args: [...SELECT_AUDIO, "-c:a", "copy"],
+        args: [
+          ...SELECT_AUDIO,
+          "-c:a",
+          "copy",
+          ...(target.extension === MP4_AUDIO.extension ? MP4_FASTSTART : []),
+        ],
         ...target,
         mode: "copy",
       };
@@ -108,9 +131,7 @@ export const OUTPUT_FORMATS: readonly OutputFormat[] = [
         args: [
           ...SELECT_AUDIO,
           ...(canCopy ? ["-c:a", "copy"] : ["-c:a", "aac", "-b:a", "192k"]),
-          // Moves the moov atom to the front so players can start immediately.
-          "-movflags",
-          "+faststart",
+          ...MP4_FASTSTART,
         ],
         ...MP4_AUDIO,
         mode: canCopy ? "copy" : "encode",
@@ -185,6 +206,21 @@ export function getFormat(id: string): OutputFormat {
   const format = OUTPUT_FORMATS.find((entry) => entry.id === id);
   if (!format) throw new Error(`Unknown output format: ${id}`);
   return format;
+}
+
+/**
+ * Whether the loaded core can produce this format.
+ *
+ * Everything is on offer until the core has reported what it ships: the list
+ * is not knowable before then, and greying out formats on a guess would be
+ * worse than letting the engine say no.
+ */
+export function isFormatAvailable(
+  format: OutputFormat,
+  capabilities: EngineCapabilities | null,
+): boolean {
+  if (!capabilities || !format.requiredEncoder) return true;
+  return capabilities.encoders.has(format.requiredEncoder);
 }
 
 /**
