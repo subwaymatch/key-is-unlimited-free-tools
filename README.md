@@ -186,6 +186,30 @@ deploy on push, that link is bound to a specific Worker on the account, not to t
 that Worker is ever deleted or renamed, its build fails with *"This Worker does not exist on your
 account"* until you re-point it at Settings → Builds → Git Repository → Manage.
 
+### Custom domains
+
+`key.is` and `www.key.is` are declared as `custom_domain` routes in `wrangler.jsonc`, so a deploy
+binds them to this Worker and Cloudflare owns their DNS records.
+
+Declaring them matters because a custom domain is otherwise invisible from the repository: the
+hostname is just a record in the dashboard, and nothing here says which host it points at. That is
+exactly how `key.is` broke once — `www` was bound to the Worker while the apex record still pointed
+at a host this project no longer deploys to, so `https://key.is` served *that* host's 404 while
+`https://www.key.is` worked.
+
+Because Cloudflare wants to create the record itself, a deploy fails while a conflicting
+`A`/`AAAA`/`CNAME` record for the same hostname already exists:
+
+> ...already has a DNS record. Please remove it and try again.
+
+Delete the stale record under **DNS → Records** first, then deploy. To check which host is actually
+answering, look at the response headers rather than the page — a 404 from a foreign host names
+itself there:
+
+```bash
+curl -sSI https://key.is | grep -iE 'server|x-vercel|cf-ray'
+```
+
 ### The 25 MiB problem
 
 `ffmpeg-core.wasm` is ~30.7 MiB and Cloudflare enforces a hard **25 MiB per static asset**, so the
