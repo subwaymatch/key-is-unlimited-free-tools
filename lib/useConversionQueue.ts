@@ -17,7 +17,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getEngine, resetEngine } from "./engine/ffmpegEngine";
-import { DEFAULT_FORMAT_IDS, getFormat, type OutputFormatId } from "./engine/formats";
+import {
+  DEFAULT_FORMAT_IDS,
+  getFormat,
+  isFormatAvailable,
+  type OutputFormatId,
+} from "./engine/formats";
 import { DEFAULT_SILENCE_OPTIONS, parseTrimInputs, sameTrimRange } from "./engine/trim";
 import { ExtractionError } from "./engine/types";
 import type {
@@ -80,8 +85,6 @@ export interface Job {
   outputs: JobOutput[];
   error?: JobFailure;
   logs: string[];
-  startedAt?: number;
-  finishedAt?: number;
 }
 
 export type TrimMode = "full" | "silence" | "range";
@@ -158,6 +161,44 @@ function makeOutputs(
 let jobCounter = 0;
 const nextJobId = () => `job-${(jobCounter += 1)}-${Date.now().toString(36)}`;
 
+/**
+ * Formats a new file will be converted to.
+ *
+ * The picker greys out formats the loaded core cannot produce, but the
+ * selection can still hold one chosen before the core reported in, and an
+ * output built from it would fail on the spot. Anything unavailable is dropped;
+ * an empty result falls back to the defaults and, failing that, to a stream
+ * copy, which needs no encoder at all.
+ */
+export function availableFormatIds(
+  wanted: readonly OutputFormatId[],
+  capabilities: EngineCapabilities | null,
+): OutputFormatId[] {
+  const available = (ids: readonly OutputFormatId[]) =>
+    ids.filter((id) => isFormatAvailable(getFormat(id), capabilities));
+  for (const candidates of [wanted, DEFAULT_FORMAT_IDS]) {
+    const ids = available(candidates);
+    if (ids.length > 0) return ids;
+  }
+  return ["original"];
+}
+
+/** The state a job settles into once every one of its outputs has had its turn. */
+export function summarizeOutputs(
+  outputs: readonly JobOutput[],
+): Pick<Job, "status" | "phase" | "error"> {
+  const anyDone = outputs.some((output) => output.status === "done");
+  const firstError = outputs.find((output) => output.error)?.error;
+  const failed = !anyDone && firstError !== undefined;
+  // Nothing produced and nothing broken: the formats were cancelled.
+  const cancelled =
+    !anyDone && !failed && outputs.some((output) => output.status === "cancelled");
+
+  if (failed) return { status: "error", phase: "Failed", error: firstError };
+  if (cancelled) return { status: "cancelled", phase: "Cancelled", error: undefined };
+  return { status: "done", phase: "Done", error: undefined };
+}
+
 export function useConversionQueue() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [engineState, setEngineState] = useState<EngineState>(INITIAL_ENGINE_STATE);
@@ -175,9 +216,11 @@ export function useConversionQueue() {
   const partialCancelRef = useRef<Set<string>>(new Set());
   const selectedFormatsRef = useRef<OutputFormatId[]>(selectedFormats);
   const trimSettingsRef = useRef<TrimSettings>(trimSettings);
+  const engineStateRef = useRef<EngineState>(engineState);
 
   selectedFormatsRef.current = selectedFormats;
   trimSettingsRef.current = trimSettings;
+  engineStateRef.current = engineState;
 
   const commit = useCallback((next: Job[]) => {
     jobsRef.current = next;
@@ -209,15 +252,25 @@ export function useConversionQueue() {
   /** Runs one job to completion; never throws. */
   const runJob = useCallback(
     async (jobId: string) => {
-      const engine = getEngine();
       const job = jobsRef.current.find((entry) => entry.id === jobId);
       if (!job) return;
 
+      // Nothing pending and no scan asked for: settle without waking the
+      // engine. Cancelling every format of a file still in the queue lands
+      // here, and downloading the core and mounting the file only to then do
+      // nothing would be a long wait for no output.
+      const hasWork =
+        job.autoTrim || job.outputs.some((output) => output.status === "pending");
+      if (!hasWork) {
+        patchJob(jobId, { ...summarizeOutputs(job.outputs), phaseRatio: null });
+        return;
+      }
+
+      const engine = getEngine();
       activeJobRef.current = jobId;
       patchJob(jobId, {
         status: "preparing",
         phase: engine.loaded ? "Reading file details…" : "Loading the ffmpeg engine…",
-        startedAt: job.startedAt ?? Date.now(),
         error: undefined,
       });
 
@@ -269,12 +322,12 @@ export function useConversionQueue() {
         // Automatic trimming has to happen here rather than at queue time: the
         // range is not knowable until the audio has been listened to, and the
         // outputs waiting behind it inherit whatever the scan finds.
-        if (jobsRef.current.find((entry) => entry.id === jobId)?.autoTrim) {
-          const options = jobsRef.current.find((entry) => entry.id === jobId)!.silenceOptions;
+        const current = jobsRef.current.find((entry) => entry.id === jobId);
+        if (current?.autoTrim) {
           patchJob(jobId, { phase: "Listening for silence…", phaseRatio: 0 });
 
           let lastScanTick = 0;
-          const silence = await session.detectSilence(options, (progress) => {
+          const silence = await session.detectSilence(current.silenceOptions, (progress) => {
             const now = Date.now();
             if (now - lastScanTick < PROGRESS_THROTTLE_MS) return;
             lastScanTick = now;
@@ -282,20 +335,20 @@ export function useConversionQueue() {
           });
           if (isCancelled()) throw new ExtractionError("Cancelled.");
 
-          patchJob(jobId, (current) => ({
+          patchJob(jobId, (latest) => ({
             silence,
             autoTrim: false,
             trim: silence.suggested,
             phaseRatio: null,
-            outputs: current.outputs.map((output) =>
+            outputs: latest.outputs.map((output) =>
               output.status === "pending" ? { ...output, trim: silence.suggested } : output,
             ),
           }));
         }
 
         // Re-read the pending output each pass rather than iterating a snapshot:
-        // an output can be cancelled, or retried back into the queue, while the
-        // job it belongs to is still running.
+        // an output can be cancelled, retried back into the queue, or added,
+        // while the job it belongs to is still running.
         for (;;) {
           if (isCancelled()) throw new ExtractionError("Cancelled.");
 
@@ -340,10 +393,10 @@ export function useConversionQueue() {
             // is how a per-format cancel is told apart from a real failure.
             // Outputs already finished are JS Blobs and are untouched by the
             // termination; whatever is still pending re-runs below.
-            const current = jobsRef.current
+            const latest = jobsRef.current
               .find((entry) => entry.id === jobId)
               ?.outputs.find((entry) => entry.id === output.id);
-            if (current?.status === "cancelled") break;
+            if (latest?.status === "cancelled") break;
 
             // One failed format should not abandon the others.
             patchOutput(jobId, output.id, {
@@ -364,38 +417,14 @@ export function useConversionQueue() {
         if (partialCancelRef.current.has(jobId) && outputs.some((o) => o.status === "pending")) {
           patchJob(jobId, { status: "queued", phase: "Waiting…", phaseRatio: null });
         } else {
-          const anyDone = outputs.some((output) => output.status === "done");
-          const firstError = outputs.find((output) => output.error)?.error;
-          const failed = !anyDone && firstError !== undefined;
-          // Nothing produced and nothing broken: the formats were cancelled.
-          const cancelled =
-            !anyDone && !failed && outputs.some((output) => output.status === "cancelled");
-
-          patchJob(jobId, {
-            status: failed ? "error" : cancelled ? "cancelled" : "done",
-            phase: failed ? "Failed" : cancelled ? "Cancelled" : "Done",
-            phaseRatio: null,
-            error: failed ? firstError : undefined,
-            finishedAt: Date.now(),
-          });
+          patchJob(jobId, { ...summarizeOutputs(outputs), phaseRatio: null });
         }
       } catch (error) {
         if (isCancelled()) {
-          patchJob(jobId, {
-            status: "cancelled",
-            phase: "Cancelled",
-            phaseRatio: null,
-            finishedAt: Date.now(),
-          });
+          patchJob(jobId, { status: "cancelled", phase: "Cancelled", phaseRatio: null });
         } else {
           const failure = toFailure(error);
-          patchJob(jobId, {
-            status: "error",
-            phase: "Failed",
-            phaseRatio: null,
-            error: failure,
-            finishedAt: Date.now(),
-          });
+          patchJob(jobId, { status: "error", phase: "Failed", phaseRatio: null, error: failure });
           // A failure to load the engine is global, not specific to this file.
           if (!engine.loaded) {
             setEngineState((previous) => ({ ...previous, stage: "error", error: failure }));
@@ -442,7 +471,10 @@ export function useConversionQueue() {
   const addFiles = useCallback(
     (files: File[]) => {
       if (files.length === 0) return;
-      const formatIds = selectedFormatsRef.current;
+      const formatIds = availableFormatIds(
+        selectedFormatsRef.current,
+        engineStateRef.current.capabilities,
+      );
       const settings = trimSettingsRef.current;
       // In silence mode the range is still unknown; the run fills it in for
       // every pending output once it has listened to the file.
@@ -460,7 +492,7 @@ export function useConversionQueue() {
         trim,
         autoTrim: settings.mode === "silence",
         silenceOptions: settings.silence,
-        outputs: makeOutputs(formatIds.length > 0 ? formatIds : DEFAULT_FORMAT_IDS, trim),
+        outputs: makeOutputs(formatIds, trim),
         logs: [],
       }));
       commit([...jobsRef.current, ...newJobs]);
@@ -470,8 +502,10 @@ export function useConversionQueue() {
   );
 
   /**
-   * Queues another output for a file that has already been converted, either
-   * the whole audio or a clip of it.
+   * Queues another output for a file, either the whole audio or a clip of it.
+   *
+   * A job still running picks the new output up on its next pass, so its
+   * status is left alone; one that has finished is handed back to the pump.
    */
   const addFormatToJob = useCallback(
     (jobId: string, formatId: OutputFormatId, trim: TrimRange | null = null) => {
@@ -487,14 +521,14 @@ export function useConversionQueue() {
       );
       if (duplicate) return;
 
-      patchJob(jobId, {
-        status: "queued",
-        phase: "Waiting…",
-        error: undefined,
+      const isActive = activeJobRef.current === jobId;
+      patchJob(jobId, (current) => ({
         trim,
-        outputs: [...job.outputs, ...makeOutputs([formatId], trim)],
-      });
-      void pump();
+        error: undefined,
+        outputs: [...current.outputs, ...makeOutputs([formatId], trim)],
+        ...(isActive ? {} : { status: "queued" as const, phase: "Waiting…" }),
+      }));
+      if (!isActive) void pump();
     },
     [patchJob, pump],
   );
@@ -613,13 +647,28 @@ export function useConversionQueue() {
 
       if (activeJobRef.current === jobId) {
         // ffmpeg blocks its worker while running, so the only way to stop a
-        // conversion in flight is to kill the worker.
+        // conversion in flight is to kill the worker. During the core download
+        // there is no worker yet and nothing to kill: the download is left to
+        // finish, since the next file needs it anyway, and the job is settled
+        // the moment the engine comes back. Say so now, so the card does not
+        // look ignored in the meantime.
         cancelledRef.current.add(jobId);
+        patchJob(jobId, { phase: "Cancelling…", phaseRatio: null });
         getEngine().terminate();
         return;
       }
 
-      patchJob(jobId, { status: "cancelled", phase: "Cancelled", finishedAt: Date.now() });
+      // Still waiting its turn: nothing is running, so the outputs can be
+      // settled along with the file rather than left saying "Waiting".
+      patchJob(jobId, (current) => ({
+        status: "cancelled",
+        phase: "Cancelled",
+        outputs: current.outputs.map((output) =>
+          output.status === "pending"
+            ? { ...output, status: "cancelled" as const, ratio: null }
+            : output,
+        ),
+      }));
     },
     [patchJob],
   );
@@ -670,7 +719,11 @@ export function useConversionQueue() {
   useEffect(() => {
     const busy = jobs.some((job) => job.status === "converting" || job.status === "preparing");
     if (!busy) return;
-    const handler = (event: BeforeUnloadEvent) => event.preventDefault();
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      // Older Safari and Chrome only honour the legacy form.
+      event.returnValue = "";
+    };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [jobs]);
