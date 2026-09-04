@@ -186,6 +186,37 @@ deploy on push, that link is bound to a specific Worker on the account, not to t
 that Worker is ever deleted or renamed, its build fails with *"This Worker does not exist on your
 account"* until you re-point it at Settings → Builds → Git Repository → Manage.
 
+### Custom domains
+
+`key.is` and `www.key.is` are declared as `custom_domain` routes in `wrangler.jsonc`, so a deploy
+binds them to this Worker and Cloudflare owns their DNS records.
+
+Declaring them matters because the binding is otherwise invisible from the repository: it lives as
+records and route patterns in the dashboard, and nothing here says which host answers.
+
+That is exactly how `key.is` broke once. The zone had no Worker-managed records at all — every `A`
+record still pointed at an unrelated host left over from an earlier deploy — and the Worker was
+attached by a `*.key.is/*` **route** instead. A wildcard route matches every subdomain but *not* the
+bare apex, so `www.key.is` (and every other subdomain) was intercepted at the edge and served this
+Worker, while `https://key.is` fell through to the stale origin and returned that host's 404.
+
+Migrating from that setup takes the subdomains down briefly: deleting the leftover records stops
+them resolving, and they only come back once a deploy has created the custom-domain records. Delete
+and deploy back to back, then remove the old wildcard route.
+
+Because Cloudflare wants to create the record itself, a deploy fails while a conflicting
+`A`/`AAAA`/`CNAME` record for the same hostname already exists:
+
+> ...already has a DNS record. Please remove it and try again.
+
+Delete the stale record under **DNS → Records** first, then deploy. To check which host is actually
+answering, look at the response headers rather than the page — a 404 from a foreign host names
+itself there:
+
+```bash
+curl -sSI https://key.is | grep -iE 'server|x-vercel|cf-ray'
+```
+
 ### The 25 MiB problem
 
 `ffmpeg-core.wasm` is ~30.7 MiB and Cloudflare enforces a hard **25 MiB per static asset**, so the
