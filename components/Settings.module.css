@@ -1,0 +1,185 @@
+/* Shared by the format and trim pickers, which sit in the same panel. */
+
+.fieldset {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+}
+
+.legend {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+}
+
+.intro {
+  margin-top: 0.25rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--muted);
+}
+
+.grid {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+@media (min-width: 640px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .gridThree {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  padding: 0.75rem;
+  transition:
+    border-color 150ms,
+    background-color 150ms;
+}
+
+.option:hover {
+  border-color: var(--border-strong);
+}
+
+.optionChecked,
+.optionChecked:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.optionDisabled,
+.optionDisabled:hover {
+  cursor: not-allowed;
+  opacity: 0.55;
+  border-color: var(--border);
+}
+
+.control {
+  margin-top: 0.125rem;
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  accent-color: var(--accent);
+}
+
+.optionBody {
+  min-width: 0;
+}
+
+.optionHead {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.optionLabel {
+  display: block;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+}
+
+.optionBlurb {
+  display: block;
+  margin-top: 0.125rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--muted);
+}
+
+.badge {
+  border-radius: var(--radius-sm);
+  background: var(--success-soft);
+  padding: 0.125rem 0.375rem;
+  font-size: 10px;
+  line-height: 1.2;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+  color: var(--success);
+}
+
+.warning {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--warning);
+}
+
+/* ---- The detail panel a trim mode reveals ------------------------------ */
+
+.panel {
+  margin-top: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  padding: 0.75rem;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.fieldLabel {
+  display: block;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.input {
+  margin-top: 0.25rem;
+  width: 7rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.select {
+  margin-top: 0.25rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.hint {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--subtle);
+}
+
+.panelNote {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--subtle);
+}

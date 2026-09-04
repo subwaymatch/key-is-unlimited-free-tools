@@ -3,6 +3,8 @@
 import { OUTPUT_FORMATS, type OutputFormatId } from "@/lib/engine/formats";
 import type { EngineCapabilities } from "@/lib/engine/types";
 
+import styles from "./Settings.module.css";
+
 interface FormatPickerProps {
   selected: OutputFormatId[];
   onChange: (formats: OutputFormatId[]) => void;
@@ -31,13 +33,13 @@ export function FormatPicker({
   };
 
   return (
-    <fieldset disabled={disabled} className="min-w-0">
-      <legend className="text-sm font-medium">Output formats</legend>
-      <p className="mt-1 text-sm text-muted">
+    <fieldset disabled={disabled} className={styles.fieldset}>
+      <legend className={styles.legend}>Output formats</legend>
+      <p className={styles.intro}>
         Applied to files you add next. Each file can get more formats afterwards.
       </p>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      <div className={styles.grid}>
         {OUTPUT_FORMATS.map((format) => {
           const unavailable = Boolean(
             capabilities &&
@@ -49,29 +51,23 @@ export function FormatPicker({
           return (
             <label
               key={format.id}
-              className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${
-                isChecked
-                  ? "border-accent bg-accent-soft"
-                  : "border-border-subtle bg-surface hover:border-border-strong"
-              } ${unavailable || disabled ? "cursor-not-allowed opacity-55" : ""}`}
+              className={`${styles.option} ${isChecked ? styles.optionChecked : ""} ${
+                unavailable || disabled ? styles.optionDisabled : ""
+              }`}
             >
               <input
                 type="checkbox"
                 checked={isChecked}
                 disabled={unavailable || disabled}
                 onChange={() => toggle(format.id)}
-                className="mt-0.5 size-4 accent-[var(--accent)]"
+                className={styles.control}
               />
-              <span className="min-w-0">
-                <span className="flex items-center gap-2">
-                  <span className="text-sm font-medium">{format.label}</span>
-                  {format.lossless && (
-                    <span className="rounded bg-success-soft px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-success">
-                      Lossless
-                    </span>
-                  )}
+              <span className={styles.optionBody}>
+                <span className={styles.optionHead}>
+                  <span className={styles.optionLabel}>{format.label}</span>
+                  {format.lossless && <span className={styles.badge}>Lossless</span>}
                 </span>
-                <span className="mt-0.5 block text-xs text-muted">
+                <span className={styles.optionBlurb}>
                   {unavailable
                     ? `Unavailable — this ffmpeg build has no ${format.requiredEncoder} encoder`
                     : format.blurb}
@@ -83,7 +79,7 @@ export function FormatPicker({
       </div>
 
       {selected.length === 0 && (
-        <p className="mt-2 text-xs text-warning">
+        <p className={styles.warning}>
           Select at least one format, or files will convert with the defaults.
         </p>
       )}

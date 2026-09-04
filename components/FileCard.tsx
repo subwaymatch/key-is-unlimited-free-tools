@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { OUTPUT_FORMATS, type OutputFormatId } from "@/lib/engine/formats";
-import type { EngineCapabilities } from "@/lib/engine/types";
+import { formatTimecode } from "@/lib/engine/trim";
+import type { EngineCapabilities, TrimRange } from "@/lib/engine/types";
 import {
   describeAudio,
   formatBytes,
@@ -15,6 +16,8 @@ import {
 import type { Job, JobOutput } from "@/lib/useConversionQueue";
 
 import { ProgressBar } from "./ProgressBar";
+import { TrimPanel } from "./TrimPanel";
+import styles from "./FileCard.module.css";
 
 interface FileCardProps {
   job: Job;
@@ -22,16 +25,19 @@ interface FileCardProps {
   onCancel: (jobId: string) => void;
   onRemove: (jobId: string) => void;
   onRetry: (jobId: string) => void;
-  onAddFormat: (jobId: string, formatId: OutputFormatId) => void;
+  onAddFormat: (jobId: string, formatId: OutputFormatId, trim?: TrimRange | null) => void;
+  onDetectSilence: (jobId: string) => void;
+  onCancelOutput: (jobId: string, outputId: string) => void;
+  onRetryOutput: (jobId: string, outputId: string) => void;
 }
 
 const STATUS_STYLE: Record<Job["status"], string> = {
-  queued: "bg-border-subtle text-muted",
-  preparing: "bg-accent-soft text-accent",
-  converting: "bg-accent-soft text-accent",
-  done: "bg-success-soft text-success",
-  error: "bg-danger-soft text-danger",
-  cancelled: "bg-border-subtle text-muted",
+  queued: styles.statusIdle,
+  preparing: styles.statusBusy,
+  converting: styles.statusBusy,
+  done: styles.statusDone,
+  error: styles.statusError,
+  cancelled: styles.statusIdle,
 };
 
 const STATUS_LABEL: Record<Job["status"], string> = {
@@ -43,18 +49,46 @@ const STATUS_LABEL: Record<Job["status"], string> = {
   cancelled: "Cancelled",
 };
 
-function OutputRow({ output }: { output: JobOutput }) {
-  const { result } = output;
+function OutputRow({
+  output,
+  durationSeconds,
+  onCancel,
+  onRetry,
+}: {
+  output: JobOutput;
+  durationSeconds: number | null;
+  onCancel: () => void;
+  onRetry: () => void;
+}) {
+  const { result, trim } = output;
+
+  const range = trim
+    ? `${formatTimecode(trim.startSeconds)}–${
+        trim.endSeconds !== null
+          ? formatTimecode(trim.endSeconds)
+          : durationSeconds !== null
+            ? formatTimecode(durationSeconds)
+            : "end"
+      }`
+    : null;
 
   return (
-    <div className="rounded-lg border border-border-subtle bg-background px-3 py-2.5">
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="text-sm font-medium">{output.label}</span>
+    <div className={styles.row}>
+      <div className={styles.rowHead}>
+        <div className={styles.rowLabel}>
+          <span className={styles.formatName}>{output.label}</span>
+          {range && (
+            <span
+              title="Clipped to this range of the source"
+              className={`${styles.tag} ${styles.tagRange}`}
+            >
+              {range}
+            </span>
+          )}
           {result?.mode === "copy" && (
             <span
               title="Copied without re-encoding — bit-for-bit identical audio"
-              className="rounded bg-success-soft px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-success"
+              className={`${styles.tag} ${styles.tagCopy}`}
             >
               Stream copy
             </span>
@@ -62,39 +96,73 @@ function OutputRow({ output }: { output: JobOutput }) {
         </div>
 
         {output.status === "done" && result && (
-          <div className="flex items-center gap-3">
-            <span className="text-xs tabular-nums text-muted">
+          <div className={styles.rowState}>
+            <span className={styles.rowMeta}>
               {formatBytes(result.bytes)} · {formatElapsed(result.elapsedMs)}
             </span>
-            <a
-              href={output.url}
-              download={result.fileName}
-              className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-accent-contrast transition-colors hover:bg-accent-hover"
-            >
+            <a href={output.url} download={result.fileName} className={styles.download}>
               Download
             </a>
           </div>
         )}
 
         {output.status === "running" && (
-          <span className="text-xs tabular-nums text-muted">
-            {output.ratio === null ? "Working…" : formatPercent(output.ratio)}
-          </span>
+          <div className={styles.rowState}>
+            <span className={styles.rowMeta}>
+              {output.ratio === null ? "Working…" : formatPercent(output.ratio)}
+            </span>
+            <button
+              type="button"
+              onClick={onCancel}
+              aria-label={`Cancel ${output.label}`}
+              className={styles.rowButton}
+            >
+              Cancel
+            </button>
+          </div>
         )}
 
-        {output.status === "pending" && <span className="text-xs text-subtle">Waiting</span>}
+        {output.status === "pending" && (
+          <div className={styles.rowState}>
+            <span className={styles.rowWaiting}>Waiting</span>
+            <button
+              type="button"
+              onClick={onCancel}
+              aria-label={`Cancel ${output.label}`}
+              className={styles.rowButton}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {(output.status === "cancelled" || output.status === "error") && (
+          <div className={styles.rowState}>
+            {output.status === "cancelled" && (
+              <span className={styles.rowWaiting}>Cancelled</span>
+            )}
+            <button
+              type="button"
+              onClick={onRetry}
+              aria-label={`Retry ${output.label}`}
+              className={styles.rowButton}
+            >
+              Retry
+            </button>
+          </div>
+        )}
       </div>
 
       {output.status === "running" && (
-        <div className="mt-2">
+        <div className={styles.rowBar}>
           <ProgressBar ratio={output.ratio} label={`${output.label} conversion progress`} />
         </div>
       )}
 
       {output.status === "error" && output.error && (
-        <div className="mt-1.5 text-xs">
-          <p className="text-danger">{output.error.message}</p>
-          {output.error.hint && <p className="mt-0.5 text-muted">{output.error.hint}</p>}
+        <div className={styles.rowError}>
+          <p className={styles.rowErrorMessage}>{output.error.message}</p>
+          {output.error.hint && <p className={styles.rowErrorHint}>{output.error.hint}</p>}
         </div>
       )}
     </div>
@@ -108,8 +176,13 @@ export function FileCard({
   onRemove,
   onRetry,
   onAddFormat,
+  onDetectSilence,
+  onCancelOutput,
+  onRetryOutput,
 }: FileCardProps) {
   const [showLogs, setShowLogs] = useState(false);
+  const [showTrim, setShowTrim] = useState(false);
+  const previewRef = useRef<HTMLAudioElement | null>(null);
 
   const isRunning = job.status === "preparing" || job.status === "converting";
   const runningOutput = job.outputs.find((output) => output.status === "running");
@@ -124,22 +197,43 @@ export function FileCard({
     [job.outputs],
   );
 
+  /** Formats with no full-file output yet; clips are offered by the trim panel. */
   const remainingFormats = OUTPUT_FORMATS.filter((format) => {
-    if (job.outputs.some((output) => output.formatId === format.id)) return false;
+    const covered = job.outputs.some(
+      (output) =>
+        output.formatId === format.id &&
+        output.trim === null &&
+        // A cancelled output produced nothing, so the format is still on offer.
+        output.status !== "cancelled",
+    );
+    if (covered) return false;
     if (!capabilities || !format.requiredEncoder) return true;
     return capabilities.encoders.has(format.requiredEncoder);
   });
 
   const totalDuration = job.probe?.durationSeconds ?? null;
 
+  /**
+   * Markers can only be read off the preview when the preview is the whole
+   * track. A clip's timeline starts at its own zero, so its playback position
+   * does not name a point in the source.
+   */
+  const getPreviewPosition =
+    playable && playable.trim === null
+      ? () => {
+          const element = previewRef.current;
+          return element && Number.isFinite(element.currentTime) ? element.currentTime : null;
+        }
+      : null;
+
   return (
-    <li className="rounded-xl border border-border-subtle bg-surface p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-medium" title={job.file.name}>
+    <li className={styles.card}>
+      <div className={styles.header}>
+        <div className={styles.identity}>
+          <p className={styles.fileName} title={job.file.name}>
             {job.file.name}
           </p>
-          <p className="mt-0.5 text-xs text-muted">
+          <p className={styles.meta}>
             {formatBytes(job.file.size)}
             {job.probe && (
               <>
@@ -155,29 +249,19 @@ export function FileCard({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span
-            className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[job.status]}`}
-          >
+        <div className={styles.actions}>
+          <span className={`${styles.status} ${STATUS_STYLE[job.status]}`}>
             {STATUS_LABEL[job.status]}
           </span>
 
           {isRunning ? (
-            <button
-              type="button"
-              onClick={() => onCancel(job.id)}
-              className="rounded-md border border-border-strong px-2.5 py-1 text-xs font-medium transition-colors hover:bg-background"
-            >
+            <button type="button" onClick={() => onCancel(job.id)} className={styles.action}>
               Cancel
             </button>
           ) : (
             <>
               {(job.status === "error" || job.status === "cancelled") && (
-                <button
-                  type="button"
-                  onClick={() => onRetry(job.id)}
-                  className="rounded-md border border-border-strong px-2.5 py-1 text-xs font-medium transition-colors hover:bg-background"
-                >
+                <button type="button" onClick={() => onRetry(job.id)} className={styles.action}>
                   Retry
                 </button>
               )}
@@ -185,7 +269,7 @@ export function FileCard({
                 type="button"
                 onClick={() => onRemove(job.id)}
                 aria-label={`Remove ${job.file.name}`}
-                className="rounded-md border border-border-strong px-2.5 py-1 text-xs font-medium transition-colors hover:bg-background"
+                className={styles.action}
               >
                 Remove
               </button>
@@ -195,18 +279,24 @@ export function FileCard({
       </div>
 
       {isRunning && (
-        <div className="mt-3" aria-live="polite">
-          <div className="flex items-baseline justify-between gap-3">
-            <p className="text-sm text-muted">{job.phase}</p>
+        <div className={styles.progress} aria-live="polite">
+          <div className={styles.phaseRow}>
+            <p className={styles.phase}>{job.phase}</p>
             {runningOutput && totalDuration !== null && (
-              <p className="text-xs tabular-nums text-muted">
-                {formatDuration(runningOutput.processedSeconds)} / {formatDuration(totalDuration)}
+              <p className={styles.elapsed}>
+                {formatDuration(runningOutput.processedSeconds)} /{" "}
+                {formatDuration(
+                  runningOutput.trim
+                    ? (runningOutput.trim.endSeconds ?? totalDuration) -
+                        runningOutput.trim.startSeconds
+                    : totalDuration,
+                )}
               </p>
             )}
           </div>
-          <div className="mt-1.5">
+          <div className={styles.progressBar}>
             <ProgressBar
-              ratio={runningOutput?.ratio ?? null}
+              ratio={runningOutput?.ratio ?? job.phaseRatio}
               label={`${job.file.name} progress`}
             />
           </div>
@@ -214,64 +304,91 @@ export function FileCard({
       )}
 
       {job.status === "error" && job.error && (
-        <div
-          role="alert"
-          className="mt-3 rounded-lg border border-danger/40 bg-danger-soft px-3 py-2 text-sm"
-        >
-          <p className="font-medium text-danger">{job.error.message}</p>
-          {job.error.hint && <p className="mt-0.5 text-xs text-muted">{job.error.hint}</p>}
+        <div role="alert" className={styles.alert}>
+          <p className={styles.alertMessage}>{job.error.message}</p>
+          {job.error.hint && <p className={styles.alertHint}>{job.error.hint}</p>}
         </div>
       )}
 
       {job.outputs.length > 0 && (
-        <ul className="mt-3 space-y-2">
+        <ul className={styles.outputs}>
           {job.outputs.map((output) => (
-            <li key={output.formatId}>
-              <OutputRow output={output} />
+            <li key={output.id}>
+              <OutputRow
+                output={output}
+                durationSeconds={totalDuration}
+                onCancel={() => onCancelOutput(job.id, output.id)}
+                onRetry={() => onRetryOutput(job.id, output.id)}
+              />
             </li>
           ))}
         </ul>
       )}
 
       {playable?.url && (
-        <div className="mt-3">
-          <audio controls preload="metadata" src={playable.url} className="w-full">
-            Your browser cannot play this audio format.
-          </audio>
-        </div>
+        <audio
+          ref={previewRef}
+          controls
+          preload="metadata"
+          src={playable.url}
+          className={styles.preview}
+        >
+          Your browser cannot play this audio format.
+        </audio>
       )}
 
-      {job.status === "done" && remainingFormats.length > 0 && (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="text-xs text-muted">Also convert to:</span>
-          {remainingFormats.map((format) => (
+      {!isRunning && job.probe && (
+        <>
+          {remainingFormats.length > 0 && (
+            <div className={styles.chips}>
+              <span className={styles.chipsLabel}>Also convert to:</span>
+              {remainingFormats.map((format) => (
+                <button
+                  key={format.id}
+                  type="button"
+                  onClick={() => onAddFormat(job.id, format.id, null)}
+                  className={styles.chip}
+                >
+                  {format.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className={styles.disclosure}>
             <button
-              key={format.id}
               type="button"
-              onClick={() => onAddFormat(job.id, format.id)}
-              className="rounded-md border border-border-strong px-2 py-0.5 text-xs font-medium transition-colors hover:border-accent hover:text-accent"
+              onClick={() => setShowTrim((previous) => !previous)}
+              aria-expanded={showTrim}
+              className={styles.disclosureButton}
             >
-              {format.label}
+              {showTrim ? "Hide" : "Trim or clip a range"}
             </button>
-          ))}
-        </div>
+            {showTrim && (
+              <TrimPanel
+                job={job}
+                capabilities={capabilities}
+                onExtract={(formatId, trim) => onAddFormat(job.id, formatId, trim)}
+                onDetectSilence={() => onDetectSilence(job.id)}
+                getPreviewPosition={getPreviewPosition}
+                disabled={isRunning}
+              />
+            )}
+          </div>
+        </>
       )}
 
       {job.logs.length > 0 && (
-        <div className="mt-3">
+        <div className={styles.disclosure}>
           <button
             type="button"
             onClick={() => setShowLogs((previous) => !previous)}
             aria-expanded={showLogs}
-            className="text-xs text-subtle underline-offset-2 hover:text-muted hover:underline"
+            className={styles.disclosureButton}
           >
             {showLogs ? "Hide" : "Show"} ffmpeg log ({job.logs.length} lines)
           </button>
-          {showLogs && (
-            <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-background p-3 font-mono text-[11px] leading-relaxed text-muted">
-              {job.logs.join("\n")}
-            </pre>
-          )}
+          {showLogs && <pre className={styles.log}>{job.logs.join("\n")}</pre>}
         </div>
       )}
     </li>

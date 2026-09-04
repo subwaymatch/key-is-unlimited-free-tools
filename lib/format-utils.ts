@@ -1,4 +1,6 @@
 /** Presentation helpers shared by the UI components. */
+import { formatTimecode, trimDuration } from "./engine/trim";
+import type { TrimRange } from "./engine/types";
 
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"];
 
@@ -65,4 +67,21 @@ const PLAYABLE_EXTENSIONS = new Set(["m4a", "mp3", "wav", "opus", "ogg", "flac",
 
 export function isLikelyPlayable(extension: string): boolean {
   return PLAYABLE_EXTENSIONS.has(extension.toLowerCase());
+}
+
+/** "0:03 → 3:12 · 3:09 long", for labelling a clipped output. */
+export function describeTrim(
+  trim: TrimRange | null,
+  durationSeconds: number | null,
+): string {
+  if (!trim) return "Full audio";
+  const end =
+    trim.endSeconds !== null
+      ? formatTimecode(trim.endSeconds)
+      : durationSeconds !== null
+        ? formatTimecode(durationSeconds)
+        : "end";
+  const length = trimDuration(trim, durationSeconds);
+  const span = `${formatTimecode(trim.startSeconds)} → ${end}`;
+  return length === null ? span : `${span} · ${formatDuration(length)} long`;
 }

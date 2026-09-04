@@ -1,0 +1,152 @@
+.page {
+  margin-inline: auto;
+  width: 100%;
+  max-width: 48rem;
+  padding: 2.5rem 1rem;
+}
+
+@media (min-width: 640px) {
+  .page {
+    padding-block: 3.5rem;
+  }
+}
+
+.header {
+  margin-bottom: 2rem;
+}
+
+.title {
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+@media (min-width: 640px) {
+  .title {
+    font-size: 1.875rem;
+    line-height: 2.25rem;
+  }
+}
+
+.tagline {
+  margin-top: 0.5rem;
+  color: var(--muted);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* ---- Settings disclosure ----------------------------------------------- */
+
+.settings {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+}
+
+.settingsToggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  text-align: left;
+}
+
+.settingsTitle {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+}
+
+.settingsSummary {
+  margin-left: 0.5rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.chevron {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  color: var(--muted);
+  transition: transform 150ms;
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+.settingsBody {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  border-top: 1px solid var(--border);
+  padding: 1rem;
+}
+
+/* ---- Queue ------------------------------------------------------------- */
+
+.queueHeader {
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.queueCount {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+}
+
+.queueRemaining {
+  margin-left: 0.5rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.clearButton {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--subtle);
+  text-underline-offset: 2px;
+}
+
+.clearButton:hover {
+  color: var(--muted);
+  text-decoration: underline;
+}
+
+.jobs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.total {
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--subtle);
+}
+
+/* ---- Footer ------------------------------------------------------------ */
+
+.footer {
+  margin-top: 3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--subtle);
+}

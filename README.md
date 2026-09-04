@@ -2,7 +2,8 @@
 
 Pull the audio track out of a video entirely in the browser. Drop one or more files, conversion
 starts automatically, and the results can be played inline or downloaded as M4A, MP3, WAV, FLAC,
-Opus, or a lossless stream copy of the original track.
+Opus, or a lossless stream copy of the original track. Outputs can be the whole track or a clip of
+it — set markers by hand, or let the app find and cut the silence at either end.
 
 Nothing is uploaded. Decoding happens locally with ffmpeg compiled to WebAssembly, which also means
 **videos larger than the usual ~2 GB WebAssembly ceiling work** — a 3 GiB file has been verified
@@ -62,13 +63,15 @@ It builds a >2 GiB fixture, drives Chromium through a real conversion, checks th
 ## Architecture
 
 ```
-components/          UI: drop zone, queue, per-file cards, format picker
+components/          UI: drop zone, queue, per-file cards, format + trim pickers
+  *.module.css       plain CSS modules; no utility-class framework
 lib/useConversionQueue.ts   sequential job runner, progress + cancellation
 lib/engine/
   types.ts           AudioExtractor contract (engine-agnostic)
-  ffmpegEngine.ts    ffmpeg.wasm implementation — mount, probe, extract
+  ffmpegEngine.ts    ffmpeg.wasm implementation — mount, probe, extract, scan
   coreLoader.ts      fetches the ~31 MB core with byte-level progress
   formats.ts         output catalogue; decides stream-copy vs re-encode
+  trim.ts            pure trim logic — ranges, timecodes, silence parsing
   probe.ts           pure parsers for ffmpeg's stderr
   constants.ts       pinned versions and asset URLs
 ```
@@ -87,14 +90,71 @@ contained change behind the interface rather than a rewrite.
 fits the target container — bit-for-bit identical output, and seconds instead of minutes on a large
 file. The UI labels these outputs `STREAM COPY`. Everything else re-encodes.
 
+### Trimming and clipping
+
+An output is a format *and* a range, so one file can produce "the whole thing as MP3" and
+"1:30–2:15 as MP3" side by side. Each clipped output is badged with its range in the UI and carries
+it in the filename (`holiday-1m30s-2m15s.mp3`), so several clips of one video do not all land in
+Downloads under the same name.
+
+There are two ways to set the range:
+
+- **Markers.** Type start and end timecodes (`1:30`, `0:04.5`, `90`). Per-file markers appear on
+  the card once the file has been probed, where the duration is known and — when the preview is of
+  the untrimmed track — its playback position can be dropped straight into either field.
+- **Automatic silence trimming.** ffmpeg's `silencedetect` filter runs over the audio, and the
+  leading and trailing silences it reports become the range. Only the head and tail are cut: pauses
+  in the middle are left alone, since removing those would re-time the audio, which is a different
+  feature.
+
+The arguments are `-ss` **before** `-i` and `-t` **after** it, and both choices matter:
+
+- `-ss` as an *input* option makes ffmpeg seek to the start point rather than decoding and
+  discarding everything before it. WORKERFS mounts are seekable, so on a multi-gigabyte file this
+  is the difference between instant and minutes.
+- `-to` is measured against the input timeline in some ffmpeg versions and the output timeline in
+  others, which makes it a coin flip once `-ss` has already shifted timestamps. `-t` is a *length*,
+  so it means one thing everywhere.
+
+A range covering the whole file resolves to no arguments at all, which keeps the untrimmed stream
+copy byte-exact. A trim also shrinks the estimated WAV size, so a range can bring a long file back
+under the output ceiling that would otherwise push it to FLAC.
+
+Silence detection is a full decode of the audio stream (via the null muxer, which writes nothing),
+so it costs roughly one re-encode and is only ever run when asked for. It reports progress like any
+other phase.
+
+### Cancelling one format
+
+Each output is a format *and* a range, and each can be cancelled on its own. Cancelling one that is
+merely queued is free. Cancelling one that is already running is not: ffmpeg blocks its worker for
+the whole of a command, so there is no cooperative interrupt and the worker has to be killed.
+
+That is survivable because of where the bytes live. A finished output is a JS `Blob` on the main
+thread that never entered the worker, so the downloads already on the card keep working — a 73 MB
+stream copy that finished a minute ago is untouched. What the termination *does* cost is the mount,
+so any format still queued behind the cancelled one is re-run on a fresh engine, which is why the
+run loop reads the next pending output each pass rather than iterating a list fixed before the
+first one started.
+
+### Styling
+
+Plain CSS modules, one per component, plus `app/globals.css` for the palette and a small reset.
+Colours are CSS custom properties on `:root` with a `prefers-color-scheme` override, so the theme
+follows the OS setting with no flash and no JavaScript. There is no utility-class framework and no
+PostCSS config; the whole stylesheet is about 17 KB.
+
 ### Real-time progress
 
 Every phase reports something, so the app is never silent:
 
 - **Core download** — a real percentage, read from the response stream (~31 MB, once per browser).
 - **Probing** — indeterminate; ffmpeg is reading the container.
-- **Converting** — a percentage computed from processed media time over the probed duration.
-  ffmpeg's own `progress` ratio is unreliable when it cannot infer a duration, so it is not used.
+- **Converting** — a percentage computed from processed media time over the probed duration, or
+  over the length of the clip when one is being extracted: input seeking restarts the output
+  timeline at zero. ffmpeg's own `progress` ratio is unreliable when it cannot infer a duration, so
+  it is not used.
+- **Listening for silence** — the same percentage, over the whole file, during a silence scan.
 - **Per-file logs** — ffmpeg's raw output, collapsed behind a disclosure, batched at 300 ms so a
   chatty run cannot thrash React.
 
@@ -169,16 +229,20 @@ The `dist/esm` build has a real default export and must be used.
 ## Verification
 
 ```bash
-npm test                                                    # 51 unit tests
+npm test                                                    # 95 unit tests
 NEXT_PUBLIC_FFMPEG_CORE_BASE_URL=/core npm run build
-node scripts/verify-e2e.mjs                                 # 22 browser checks
+node scripts/verify-e2e.mjs                                 # 41 browser checks
 node scripts/verify-large-file.mjs                          # >2 GiB input
 ```
 
-`verify-e2e.mjs` drives a real Chromium through three cases — an MP4 with AAC, a video with no
-audio track, and an MKV with 5.1 FLAC — and validates every downloaded file with `ffprobe`. It
-serves the core locally so the run is hermetic, which also exercises the self-hosted-core
-configuration.
+`verify-e2e.mjs` drives a real Chromium through seven cases — an MP4 with AAC, a video with no
+audio track, an MKV with 5.1 FLAC, a hand-set 1s–3s clip, an 8s file padded with two seconds of
+silence at each end, an MP3 cancelled mid-conversion, and that same MP3 retried — and validates
+every downloaded file with `ffprobe`. The clip comes back 2.04s long and automatic trimming turns
+the padded file into 4.22s; cancelling MP3 on a 5-minute file leaves the finished stream copy
+downloadable and still converts the M4A queued behind it, over the whole 5 minutes, on a rebuilt
+engine. It serves the core locally so the run is hermetic, which also exercises the
+self-hosted-core configuration.
 
 Not yet verified: Safari. ffmpeg.wasm's WORKERFS pull request reported heavier memory growth there
 during large reads, so a real Safari pass on a multi-gigabyte file is the main open question before
@@ -187,8 +251,13 @@ calling large-file support universal.
 ## Known limitations
 
 - Only the first audio track is extracted; files with several are labelled but not selectable.
+- Silence is only removed from the beginning and end. Cutting the pauses in the middle would need a
+  filter graph and would re-time what is left, so it is deliberately out of scope.
+- Markers are typed rather than dragged on a waveform. Drawing one would mean decoding the audio to
+  PCM up front — a second full pass, on top of the extraction itself.
 - WAV output is capped near 1.5 GB by the engine's in-memory output buffer (~2.9 hours of 48 kHz
   stereo). FLAC is suggested instead.
-- Cancelling a running conversion terminates the ffmpeg worker, since ffmpeg blocks its worker
-  while running and cannot be interrupted cooperatively. The engine restarts on the next job; the
-  core is already cached, so this costs a WebAssembly instantiation, not a 31 MB download.
+- Cancelling terminates the ffmpeg worker, since ffmpeg blocks its worker while running and cannot
+  be interrupted cooperatively. See [Cancelling one format](#cancelling-one-format) for why that is
+  survivable. The engine restarts on the next job; the core is already cached, so this costs a
+  WebAssembly instantiation, not a 31 MB download.

@@ -62,6 +62,39 @@ export interface ExtractProgress {
 
 export type ExtractMode = "copy" | "encode";
 
+/**
+ * A slice of the source timeline, in seconds measured from the start of the
+ * file. `endSeconds` is null for "run to the end", which lets a start-only trim
+ * skip the `-t` argument entirely rather than restating the file's own length.
+ */
+export interface TrimRange {
+  startSeconds: number;
+  endSeconds: number | null;
+}
+
+export interface SilenceScanOptions {
+  /** Amplitude at or below which audio counts as silence, in dBFS. */
+  thresholdDb: number;
+  /** How long the quiet must last before it counts as silence, in seconds. */
+  minDurationSeconds: number;
+}
+
+/** One stretch of silence. `end` is null when the file ended still silent. */
+export interface SilenceInterval {
+  start: number;
+  end: number | null;
+}
+
+export interface SilenceScanResult {
+  /** Every silence ffmpeg reported, in file order. */
+  intervals: SilenceInterval[];
+  /** Leading and trailing silence removed, or null when there is none to cut. */
+  suggested: TrimRange | null;
+  /** True when silence covers the whole file, which is why `suggested` is null. */
+  entirelySilent: boolean;
+  options: SilenceScanOptions;
+}
+
 export interface ExtractOutput {
   blob: Blob;
   fileName: string;
@@ -70,15 +103,31 @@ export interface ExtractOutput {
   bytes: number;
   elapsedMs: number;
   mode: ExtractMode;
+  /** The portion of the source this output covers; null when it is all of it. */
+  trim: TrimRange | null;
+}
+
+export interface ExtractOptions {
+  /** Portion of the source to extract. Null or omitted means the whole file. */
+  trim?: TrimRange | null;
+  onProgress?: (progress: ExtractProgress) => void;
 }
 
 /** One open file: mounted, probed, ready to produce outputs. */
 export interface ExtractSession {
   readonly probe: ProbeResult;
-  extract(
-    formatId: string,
+  extract(formatId: string, options?: ExtractOptions): Promise<ExtractOutput>;
+  /**
+   * Decodes the audio once to find where it is silent.
+   *
+   * This is a full pass over the audio stream, so it costs roughly what one
+   * re-encode costs — which is why it is a separate call the caller opts into
+   * rather than something every extraction does.
+   */
+  detectSilence(
+    options?: Partial<SilenceScanOptions>,
     onProgress?: (progress: ExtractProgress) => void,
-  ): Promise<ExtractOutput>;
+  ): Promise<SilenceScanResult>;
   /** Unmounts the input and releases engine-side resources. */
   close(): Promise<void>;
 }

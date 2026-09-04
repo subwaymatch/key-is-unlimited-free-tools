@@ -132,6 +132,26 @@ describe("estimateOutputBytes", () => {
   });
 });
 
+describe("trimmed output estimates", () => {
+  it("scales the WAV estimate down to the length of the clip", () => {
+    const full = estimateOutputBytes("wav", probe({}, 600));
+    const half = estimateOutputBytes("wav", probe({}, 600), {
+      startSeconds: 0,
+      endSeconds: 300,
+    });
+    expect(half).toBeCloseTo(full! / 2, -2);
+  });
+
+  it("lets a trim rescue a WAV that would otherwise be refused", () => {
+    // Six hours of 48 kHz stereo is far past the in-memory output ceiling.
+    const long = probe({}, 6 * 3600);
+    expect(findFormatBlocker("wav", long)).not.toBeNull();
+    expect(
+      findFormatBlocker("wav", long, { startSeconds: 0, endSeconds: 600 }),
+    ).toBeNull();
+  });
+});
+
 describe("findFormatBlocker", () => {
   it("allows a WAV that fits in the engine's output budget", () => {
     // Two hours of 48 kHz stereo is about 1.4 GB.

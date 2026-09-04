@@ -10,7 +10,8 @@
  *  - Every job selects exactly one audio stream (`-map 0:a:0`) and drops video,
  *    subtitles and data, so muxers never reject an unsupported companion stream.
  */
-import type { ExtractMode, ProbeResult } from "./types";
+import { trimDuration } from "./trim";
+import type { ExtractMode, ProbeResult, TrimRange } from "./types";
 
 export type OutputFormatId = "original" | "m4a" | "mp3" | "wav" | "opus" | "flac";
 
@@ -36,7 +37,7 @@ export interface OutputFormat {
 }
 
 /** Drop video, subtitles and data; take the first audio stream only. */
-const SELECT_AUDIO = ["-map", "0:a:0", "-vn", "-sn", "-dn"];
+export const SELECT_AUDIO = ["-map", "0:a:0", "-vn", "-sn", "-dn"];
 
 const MP4_AUDIO = { extension: "m4a", mimeType: "audio/mp4" };
 
@@ -201,17 +202,22 @@ export const MAX_SAFE_OUTPUT_BYTES = 1_500_000_000;
  * Only uncompressed PCM is worth guarding: at 16-bit/48 kHz stereo, WAV grows
  * about 11.5 MB per minute, so a ~2.2 hour video is already at the ceiling.
  * Compressed formats stay comfortably small at any realistic duration.
+ *
+ * A trim shrinks the output proportionally, which is one way a WAV that would
+ * otherwise be refused becomes perfectly reasonable.
  */
 export function estimateOutputBytes(
   formatId: OutputFormatId,
   probe: ProbeResult,
+  trim: TrimRange | null = null,
 ): number | null {
   if (formatId !== "wav") return null;
-  const { durationSeconds, audio } = probe;
-  if (!durationSeconds || !audio) return null;
+  const { audio } = probe;
+  const seconds = trimDuration(trim, probe.durationSeconds);
+  if (!seconds || !audio) return null;
   const sampleRate = audio.sampleRate ?? 48_000;
   const channels = audio.channels ?? 2;
-  return Math.round(durationSeconds * sampleRate * channels * 2) + 44;
+  return Math.round(seconds * sampleRate * channels * 2) + 44;
 }
 
 /**
@@ -220,13 +226,14 @@ export function estimateOutputBytes(
 export function findFormatBlocker(
   formatId: OutputFormatId,
   probe: ProbeResult,
+  trim: TrimRange | null = null,
 ): { message: string; hint: string } | null {
-  const estimated = estimateOutputBytes(formatId, probe);
+  const estimated = estimateOutputBytes(formatId, probe, trim);
   if (estimated !== null && estimated > MAX_SAFE_OUTPUT_BYTES) {
     const gib = (estimated / 1024 ** 3).toFixed(1);
     return {
       message: `WAV would be about ${gib} GB`,
-      hint: "ffmpeg.wasm builds its output in memory, which caps out near 1.5 GB. Choose FLAC for lossless audio at roughly half the size.",
+      hint: "ffmpeg.wasm builds its output in memory, which caps out near 1.5 GB. Choose FLAC for lossless audio at roughly half the size, or trim the range down.",
     };
   }
   return null;
