@@ -16,6 +16,9 @@ interface EngineBannerProps {
  *
  * It is ~31 MB, so the first conversion would otherwise begin with a long,
  * unexplained pause. Once the engine is ready this collapses to nothing.
+ *
+ * It borrows the page's label column so the strip reads as another band of the
+ * grid rather than an interruption of it.
  */
 export function EngineBanner({ state }: EngineBannerProps) {
   if (state.stage === "idle" || state.stage === "ready") return null;
@@ -23,10 +26,13 @@ export function EngineBanner({ state }: EngineBannerProps) {
   if (state.stage === "error") {
     return (
       <div role="alert" className={styles.error}>
-        <p className={styles.errorMessage}>
-          {state.error?.message ?? "The ffmpeg engine failed to load."}
-        </p>
-        {state.error?.hint && <p className={styles.errorHint}>{state.error.hint}</p>}
+        <p className={`${styles.label} ${styles.labelError}`}>Engine</p>
+        <div className={styles.body}>
+          <p className={styles.errorMessage}>
+            {state.error?.message ?? "The ffmpeg engine failed to load."}
+          </p>
+          {state.error?.hint && <p className={styles.errorHint}>{state.error.hint}</p>}
+        </div>
       </div>
     );
   }
@@ -35,27 +41,28 @@ export function EngineBanner({ state }: EngineBannerProps) {
 
   return (
     <div className={styles.banner}>
-      <div className={styles.header}>
-        <p className={styles.title}>
-          {isDownloading ? "Downloading the ffmpeg engine…" : "Starting the ffmpeg engine…"}
-        </p>
-        {isDownloading && state.totalBytes > 0 && (
-          <p className={styles.bytes}>
-            {formatBytes(state.receivedBytes)} / {formatBytes(state.totalBytes)}
+      <p className={styles.label}>Engine</p>
+      <div className={styles.body}>
+        <div className={styles.header}>
+          <p className={styles.title}>
+            {isDownloading ? "Downloading the ffmpeg engine…" : "Starting the ffmpeg engine…"}
           </p>
-        )}
-      </div>
+          {isDownloading && state.totalBytes > 0 && (
+            <p className={styles.bytes}>
+              {formatBytes(state.receivedBytes)} / {formatBytes(state.totalBytes)}
+            </p>
+          )}
+        </div>
 
-      <div className={styles.bar}>
-        <ProgressBar
-          ratio={isDownloading ? state.ratio : null}
-          label="ffmpeg engine loading progress"
-        />
-      </div>
+        <div className={styles.bar}>
+          <ProgressBar
+            ratio={isDownloading ? state.ratio : null}
+            label="ffmpeg engine loading progress"
+          />
+        </div>
 
-      <p className={styles.note}>
-        {CORE_LABEL} is fetched once and then cached by your browser.
-      </p>
+        <p className={styles.note}>{CORE_LABEL} is fetched once and then cached by your browser.</p>
+      </div>
     </div>
   );
 }

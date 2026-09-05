@@ -1,65 +1,92 @@
 /*
+ * The design is a Swiss grid: everything sits on one column axis, horizontal
+ * hairlines divide the page into bands, and elements are told apart by where
+ * they align rather than by boxes, fills or shadows. The palette is therefore
+ * deliberately thin — paper, ink, two greys and one signal red — and the only
+ * decoration is the rule.
+ *
  * Light palette on :root, dark overrides under prefers-color-scheme, so the
  * page follows the OS setting without a flash of the wrong theme.
  *
  * Component styling lives in CSS modules next to each component; this file is
- * the palette, the reset, and the handful of rules that have to be global.
+ * the palette, the grid measurements, the type scale, the reset, and the
+ * handful of rules that have to be global.
  */
 :root {
-  --background: #f7f7f9;
+  /* ---- Palette --------------------------------------------------------- */
+  --background: #ffffff;
   --surface: #ffffff;
-  --surface-raised: #ffffff;
-  --border: #e3e3e8;
-  --border-strong: #cdcdd6;
-  --foreground: #17171c;
-  --muted: #61616e;
-  --subtle: #8a8a97;
-  --accent: #5b52e8;
-  --accent-hover: #4b42d8;
+  /* Recessed areas — inputs, log output, tag fills. Never a raised card. */
+  --surface-sunken: #f4f4f2;
+  --border: #e4e4de;
+  --border-strong: #c2c2b9;
+  --foreground: #0f0f0e;
+  --muted: #67675f;
+  --subtle: #92928a;
+  --accent: #cc1f1a;
+  --accent-hover: #a3130f;
   --accent-contrast: #ffffff;
-  --accent-soft: #ecebff;
-  --success: #12855f;
-  --success-soft: #e2f5ee;
-  --danger: #c0332c;
-  --danger-soft: #fdecea;
-  --warning: #9a6100;
-  --warning-soft: #fdf3e0;
+  --accent-soft: #fbeceb;
+  /* Success is ink, not green: state is carried by position and wording, and
+     the one hue in the palette is reserved for what needs attention. */
+  --success: #0f0f0e;
+  --success-soft: #f4f4f2;
+  --danger: #cc1f1a;
+  --danger-soft: #fbeceb;
+  --warning: #cc1f1a;
 
+  /* ---- Type ------------------------------------------------------------ */
   --font-sans:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
-    sans-serif;
+    var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
   --font-mono:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 
-  --radius-sm: 0.25rem;
-  --radius-md: 0.375rem;
-  --radius-lg: 0.5rem;
-  --radius-xl: 0.75rem;
-  --radius-2xl: 1rem;
+  /* Inter set slightly tight: enough to close the words up at text sizes,
+     more of it as the type grows, and opened back out for the small caps
+     labels that would otherwise clot. */
+  --tracking-body: -0.011em;
+  --tracking-tight: -0.022em;
+  --tracking-display: -0.035em;
+  --tracking-label: 0.09em;
+
+  --text-display: clamp(2.125rem, 1.35rem + 3.6vw, 3.5rem);
+  --text-lead: clamp(1rem, 0.94rem + 0.3vw, 1.125rem);
+  --text-body: 0.9375rem;
+  --text-small: 0.8125rem;
+  --text-micro: 0.6875rem;
+
+  /* ---- Grid ------------------------------------------------------------ */
+  /* One page measure, one gutter, one label column. Every band on the page
+     starts its content at the same x, which is what does the separating. */
+  --measure: 64rem;
+  --gutter: clamp(1.25rem, 5vw, 4rem);
+  --col-label: 8.5rem;
+  --gap-col: clamp(1.5rem, 4vw, 3rem);
+  --band: clamp(2.5rem, 5vw, 4rem);
 
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0c0c10;
-    --surface: #131318;
-    --surface-raised: #1a1a21;
-    --border: #26262f;
-    --border-strong: #3a3a46;
-    --foreground: #f0f0f3;
-    --muted: #a1a1af;
-    --subtle: #74747f;
-    --accent: #7d75ff;
-    --accent-hover: #8e87ff;
-    --accent-contrast: #0c0c10;
-    --accent-soft: #1e1b3d;
-    --success: #4ade9f;
-    --success-soft: #10241d;
-    --danger: #ff8a80;
-    --danger-soft: #2c1613;
-    --warning: #f0b45e;
-    --warning-soft: #2a1f0d;
+    --background: #0b0b0a;
+    --surface: #0b0b0a;
+    --surface-sunken: #171715;
+    --border: #272725;
+    --border-strong: #454540;
+    --foreground: #f2f2ef;
+    --muted: #a0a099;
+    --subtle: #6f6f68;
+    --accent: #ff5d4d;
+    --accent-hover: #ff8073;
+    --accent-contrast: #0b0b0a;
+    --accent-soft: #2a1310;
+    --success: #f2f2ef;
+    --success-soft: #1a1a18;
+    --danger: #ff5d4d;
+    --danger-soft: #2a1310;
+    --warning: #ff5d4d;
 
     color-scheme: dark;
   }
@@ -88,8 +115,9 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
-  font-size: 1rem;
-  line-height: 1.5;
+  font-size: var(--text-body);
+  line-height: 1.55;
+  letter-spacing: var(--tracking-body);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -151,11 +179,17 @@ a {
 code,
 pre {
   font-family: var(--font-mono);
+  letter-spacing: 0;
 }
 
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-contrast);
 }
 
 /* ---- Shared utilities -------------------------------------------------- */

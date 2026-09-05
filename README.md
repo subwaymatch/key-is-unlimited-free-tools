@@ -154,10 +154,25 @@ has been cancelled is settled without ever being opened.
 
 ### Styling
 
-Plain CSS modules, one per component, plus `app/globals.css` for the palette and a small reset.
-Colours are CSS custom properties on `:root` with a `prefers-color-scheme` override, so the theme
-follows the OS setting with no flash and no JavaScript. There is no utility-class framework and no
-PostCSS config; the whole stylesheet is about 17 KB.
+Plain CSS modules, one per component, plus `app/globals.css` for the palette, the grid
+measurements, the type scale and a small reset. Colours are CSS custom properties on `:root` with a
+`prefers-color-scheme` override, so the theme follows the OS setting with no flash and no
+JavaScript. There is no utility-class framework and no PostCSS config; the whole stylesheet is
+about 20 KB.
+
+The layout is a Swiss grid. One measure, one gutter, and one vertical axis: a label column on the
+left (`01 Source`, `02 Output`, `03 Queue`, the engine strip, the footer terms) with everything it
+describes starting at the same x in the column beside it. Bands are divided by full-width
+hairlines; inside a queue record the trick repeats one level down, so each file's status, format
+names and byte counts line up down the list. Elements are told apart by where they align rather
+than by boxes, fills, shadows or rounded corners, which is why the palette is thin — paper, ink,
+two greys and one signal red, reserved for what needs attention — and why almost nothing on the
+page carries a fill at all: the file picker is the one solid rectangle.
+
+The type is Inter, tracked slightly tight (`--tracking-body`, pulled in further as the type grows
+and opened back out for the small-caps labels). It is self-hosted: `next/font` fetches the subset
+at build time and the export serves it from this origin, so no font is pulled from a third party at
+run time.
 
 ### Real-time progress
 

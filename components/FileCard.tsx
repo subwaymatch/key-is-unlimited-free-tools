@@ -226,6 +226,12 @@ export function FileCard({
 
   return (
     <li className={styles.card}>
+      {/* The status sits in the card's left column: every record in the queue
+          announces itself at the same x, which is what makes the list scan. */}
+      <p className={`${styles.status} ${STATUS_STYLE[job.status]}`}>
+        {STATUS_LABEL[job.status]}
+      </p>
+
       <div className={styles.header}>
         <div className={styles.identity}>
           <p className={styles.fileName} title={job.file.name}>
@@ -248,10 +254,6 @@ export function FileCard({
         </div>
 
         <div className={styles.actions}>
-          <span className={`${styles.status} ${STATUS_STYLE[job.status]}`}>
-            {STATUS_LABEL[job.status]}
-          </span>
-
           {isRunning ? (
             <button type="button" onClick={() => onCancel(job.id)} className={styles.action}>
               Cancel
