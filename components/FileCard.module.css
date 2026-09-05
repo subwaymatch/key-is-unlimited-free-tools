@@ -1,21 +1,84 @@
+/*
+ * A queue record, not a card: a hairline above, the status in the left column,
+ * and every other part of the record starting on the same content axis. Rows
+ * inside it repeat the trick one level down, so the format names, the tags and
+ * the state of each output all line up down the list.
+ */
 .card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  background: var(--surface);
-  padding: 1rem;
+  --record-col: 7rem;
+  display: grid;
+  gap: 0.875rem 1.5rem;
+  border-top: 1px solid var(--border);
+  padding-block: 1.375rem;
+}
+
+@media (min-width: 40rem) {
+  .card {
+    grid-template-columns: var(--record-col) minmax(0, 1fr);
+  }
+
+  .card > * {
+    grid-column: 2;
+  }
+
+  .status {
+    grid-column: 1;
+    grid-row: 1;
+    padding-top: 0.15rem;
+  }
+
+  .header {
+    grid-row: 1;
+  }
+}
+
+/* ---- Identity and status ----------------------------------------------- */
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--text-micro);
+  line-height: 1.4;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+}
+
+/* The one mark of colour in a record: a square, not a pill. */
+.status::before {
+  content: "";
+  flex: none;
+  width: 0.4375rem;
+  height: 0.4375rem;
+  background: currentColor;
+}
+
+.statusIdle {
+  color: var(--subtle);
+}
+
+.statusBusy {
+  color: var(--accent);
+}
+
+.statusDone {
+  color: var(--success);
+}
+
+.statusError {
+  color: var(--danger);
 }
 
 .header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.5rem 1.5rem;
 }
 
 .identity {
   min-width: 0;
-  flex: 1 1 0%;
 }
 
 .fileName {
@@ -23,12 +86,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 500;
+  letter-spacing: var(--tracking-tight);
 }
 
 .meta {
-  margin-top: 0.125rem;
-  font-size: 0.75rem;
-  line-height: 1rem;
+  margin-top: 0.25rem;
+  font-size: var(--text-micro);
+  line-height: 1.45;
   color: var(--muted);
 }
 
@@ -38,147 +102,128 @@
   gap: 0.5rem;
 }
 
-.status {
-  border-radius: 9999px;
-  padding: 0.125rem 0.5rem;
-  font-size: 0.75rem;
-  line-height: 1rem;
-  font-weight: 500;
-}
-
-.statusIdle {
-  background: var(--border);
-  color: var(--muted);
-}
-
-.statusBusy {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.statusDone {
-  background: var(--success-soft);
-  color: var(--success);
-}
-
-.statusError {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-
-.action {
+.action,
+.rowButton {
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  padding: 0.25rem 0.625rem;
-  font-size: 0.75rem;
-  line-height: 1rem;
+  padding: 0.3125rem 0.625rem;
+  font-size: var(--text-micro);
+  line-height: 1;
   font-weight: 500;
-  transition: background-color 150ms;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--muted);
+  transition:
+    border-color 150ms,
+    color 150ms;
 }
 
-.action:hover {
-  background: var(--background);
+.action:hover,
+.rowButton:hover {
+  border-color: var(--foreground);
+  color: var(--foreground);
 }
 
 /* ---- Running phase ----------------------------------------------------- */
 
 .progress {
-  margin-top: 0.75rem;
+  min-width: 0;
 }
 
 .phaseRow {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 1rem;
 }
 
 .phase {
-  font-size: 0.875rem;
-  line-height: 1.25rem;
+  font-size: var(--text-small);
+  line-height: 1.4;
   color: var(--muted);
 }
 
 .elapsed {
-  font-size: 0.75rem;
-  line-height: 1rem;
+  font-size: var(--text-micro);
+  line-height: 1.4;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
 
 .progressBar {
-  margin-top: 0.375rem;
+  margin-top: 0.5rem;
 }
 
 /* ---- Failure ----------------------------------------------------------- */
 
 .alert {
-  margin-top: 0.75rem;
-  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
-  border-radius: var(--radius-lg);
-  background: var(--danger-soft);
-  padding: 0.5rem 0.75rem;
-  font-size: 0.875rem;
-  line-height: 1.25rem;
+  border-left: 2px solid var(--danger);
+  padding-left: 1rem;
 }
 
 .alertMessage {
+  font-size: var(--text-small);
+  line-height: 1.4;
   font-weight: 500;
   color: var(--danger);
 }
 
 .alertHint {
-  margin-top: 0.125rem;
-  font-size: 0.75rem;
-  line-height: 1rem;
+  margin-top: 0.25rem;
+  font-size: var(--text-micro);
+  line-height: 1.45;
   color: var(--muted);
 }
 
 /* ---- Outputs ----------------------------------------------------------- */
 
 .outputs {
-  margin-top: 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  display: grid;
 }
 
+/* Narrow: the state drops under the label rather than colliding with it. */
 .row {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--background);
-  padding: 0.625rem 0.75rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.375rem 1rem;
+  border-top: 1px solid var(--border);
+  padding-block: 0.625rem;
+}
+
+@media (min-width: 40rem) {
+  .row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
 }
 
 .rowHead {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.25rem 0.75rem;
+  display: contents;
 }
 
 .rowLabel {
   display: flex;
+  flex-wrap: wrap;
   min-width: 0;
-  align-items: center;
-  gap: 0.5rem;
+  align-items: baseline;
+  gap: 0.375rem 0.75rem;
 }
 
+/* Fixed so the tags beside it start at the same x on every row. */
 .formatName {
-  font-size: 0.875rem;
-  line-height: 1.25rem;
+  flex: none;
+  min-width: 5.75rem;
+  font-size: var(--text-small);
+  line-height: 1.4;
   font-weight: 500;
 }
 
 .tag {
-  border-radius: var(--radius-sm);
-  padding: 0.125rem 0.375rem;
-  font-size: 10px;
+  padding: 0.1875rem 0.375rem;
+  font-size: 0.625rem;
   line-height: 1.2;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.025em;
+  letter-spacing: var(--tracking-label);
   white-space: nowrap;
 }
 
@@ -195,60 +240,62 @@
 
 .rowState {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.5rem 1rem;
+}
+
+@media (min-width: 40rem) {
+  .rowState {
+    justify-content: flex-end;
+  }
+}
+
+.rowMeta,
+.rowWaiting {
+  font-size: var(--text-micro);
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
 }
 
 .rowMeta {
-  font-size: 0.75rem;
-  line-height: 1rem;
-  font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
 
 .rowWaiting {
-  font-size: 0.75rem;
-  line-height: 1rem;
   color: var(--subtle);
 }
 
 .download {
-  border-radius: var(--radius-md);
-  background: var(--accent);
-  padding: 0.25rem 0.625rem;
-  font-size: 0.75rem;
-  line-height: 1rem;
+  border: 1px solid var(--foreground);
+  padding: 0.3125rem 0.75rem;
+  font-size: var(--text-micro);
+  line-height: 1;
   font-weight: 500;
-  color: var(--accent-contrast);
-  transition: background-color 150ms;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  transition:
+    background-color 150ms,
+    color 150ms;
 }
 
 .download:hover {
-  background: var(--accent-hover);
+  background: var(--foreground);
+  color: var(--background);
 }
 
-.rowButton {
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  padding: 0.25rem 0.5rem;
-  font-size: 0.75rem;
-  line-height: 1rem;
-  font-weight: 500;
-  transition: background-color 150ms;
-}
-
-.rowButton:hover {
-  background: var(--surface);
+.rowBar,
+.rowError {
+  grid-column: 1 / -1;
 }
 
 .rowBar {
-  margin-top: 0.5rem;
+  margin-top: 0.25rem;
 }
 
 .rowError {
-  margin-top: 0.375rem;
-  font-size: 0.75rem;
-  line-height: 1rem;
+  font-size: var(--text-micro);
+  line-height: 1.45;
 }
 
 .rowErrorMessage {
@@ -263,30 +310,29 @@
 /* ---- Preview and follow-up actions ------------------------------------- */
 
 .preview {
-  margin-top: 0.75rem;
   width: 100%;
 }
 
 .chips {
-  margin-top: 0.75rem;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.5rem 0.75rem;
 }
 
 .chipsLabel {
-  font-size: 0.75rem;
-  line-height: 1rem;
-  color: var(--muted);
+  font-size: var(--text-micro);
+  line-height: 1.4;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--subtle);
 }
 
 .chip {
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  padding: 0.125rem 0.5rem;
-  font-size: 0.75rem;
-  line-height: 1rem;
+  padding: 0.3125rem 0.625rem;
+  font-size: var(--text-micro);
+  line-height: 1;
   font-weight: 500;
   transition:
     border-color 150ms,
@@ -303,29 +349,30 @@
 }
 
 .disclosure {
-  margin-top: 0.75rem;
+  min-width: 0;
 }
 
 .disclosureButton {
-  font-size: 0.75rem;
-  line-height: 1rem;
+  font-size: var(--text-micro);
+  line-height: 1.4;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
   color: var(--subtle);
-  text-underline-offset: 2px;
+  text-underline-offset: 3px;
 }
 
 .disclosureButton:hover {
-  color: var(--muted);
+  color: var(--foreground);
   text-decoration: underline;
 }
 
 .log {
-  margin-top: 0.5rem;
+  margin-top: 0.75rem;
   max-height: 16rem;
   overflow: auto;
-  border-radius: var(--radius-lg);
-  background: var(--background);
-  padding: 0.75rem;
-  font-size: 11px;
-  line-height: 1.625;
+  background: var(--surface-sunken);
+  padding: 0.875rem 1rem;
+  font-size: 0.6875rem;
+  line-height: 1.7;
   color: var(--muted);
 }
