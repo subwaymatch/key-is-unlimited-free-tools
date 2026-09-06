@@ -129,7 +129,7 @@ const fake = vi.hoisted(() => {
     readonly id = "fake";
     loaded = false;
     terminated = false;
-    /** When set, `load` waits on it — for tests that act during the core download. */
+    /** When set, `load` waits on it - for tests that act during the core download. */
     loadGate: Deferred<void> | null = null;
     sessions: FakeSession[] = [];
     capabilities: EngineCapabilities | null = null;
@@ -420,15 +420,15 @@ describe("cancelling", () => {
       hook.result.current.addFiles([file()]);
     });
     expect(job(hook).status).toBe("preparing");
-    expect(job(hook).phase).toBe("Loading the ffmpeg engine…");
+    expect(job(hook).phase).toBe("Loading the ffmpeg engine...");
 
     await act(async () => {
       hook.result.current.cancelJob(job(hook).id);
     });
-    // There was no worker to kill, so the download is left to finish — but the
+    // There was no worker to kill, so the download is left to finish - but the
     // card says what is going on rather than looking ignored.
     expect(job(hook).status).toBe("preparing");
-    expect(job(hook).phase).toBe("Cancelling…");
+    expect(job(hook).phase).toBe("Cancelling...");
 
     await act(async () => {
       gate.resolve();
@@ -581,7 +581,7 @@ describe("automatic trimming", () => {
     const scan = await nextCall(first);
     expect(scan.kind).toBe("silence");
     expect(scan.options).toEqual({ thresholdDb: -40, minDurationSeconds: 0.3 });
-    expect(job(hook).phase).toBe("Listening for silence…");
+    expect(job(hook).phase).toBe("Listening for silence...");
 
     const suggested = { startSeconds: 3.1, endSeconds: 110.4 };
     await act(async () => {

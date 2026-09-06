@@ -18,7 +18,7 @@ const TONE_CLASS = {
 
 /**
  * A determinate bar when ffmpeg can report a ratio, and a moving indeterminate
- * bar when it cannot — so a running job never looks like a frozen one.
+ * bar when it cannot - so a running job never looks like a frozen one.
  */
 export function ProgressBar({ ratio, label, tone = "accent" }: ProgressBarProps) {
   const isIndeterminate = ratio === null;
@@ -31,7 +31,7 @@ export function ProgressBar({ ratio, label, tone = "accent" }: ProgressBarProps)
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={isIndeterminate ? undefined : percent}
-      aria-valuetext={isIndeterminate ? "Working…" : `${percent}%`}
+      aria-valuetext={isIndeterminate ? "Working..." : `${percent}%`}
       className={`${styles.track} ${
         // The keyframes are global, so the reduced-motion rule can reach them.
         isIndeterminate ? `${styles.indeterminate} progress-indeterminate` : ""

@@ -65,7 +65,7 @@ export function FormatPicker({
                 </span>
                 <span className={styles.optionBlurb}>
                   {unavailable
-                    ? `Unavailable — this ffmpeg build has no ${format.requiredEncoder} encoder`
+                    ? `Unavailable - this ffmpeg build has no ${format.requiredEncoder} encoder`
                     : format.blurb}
                 </span>
               </span>

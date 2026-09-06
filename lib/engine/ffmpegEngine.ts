@@ -2,7 +2,7 @@
  * ffmpeg.wasm implementation of the AudioExtractor contract.
  *
  * The one load-bearing decision in this file is how the input file reaches
- * ffmpeg. The obvious API — `ffmpeg.writeFile(name, await fetchFile(file))` —
+ * ffmpeg. The obvious API - `ffmpeg.writeFile(name, await fetchFile(file))` -
  * copies the entire video into the core's in-memory filesystem, which lives in
  * a WebAssembly heap that tops out around 2 GB. That is the entire reason
  * ffmpeg.wasm is famous for a "2 GB limit".
@@ -15,7 +15,7 @@
  * MAX_SAFE_OUTPUT_BYTES in formats.ts).
  *
  * Note the imports: `@ffmpeg/ffmpeg` resolves to a throwing stub under Node's
- * export condition, so it must never be imported at module scope — a static
+ * export condition, so it must never be imported at module scope - a static
  * export build prerenders these modules in Node. Types are imported with
  * `import type` (erased at compile time) and the real module is pulled in
  * dynamically, in the browser, on first use.
@@ -70,7 +70,7 @@ const MAX_ENCODER_LOG_LINES = 2_000;
  * Silence events retained per scan.
  *
  * A conversation with a pause every few seconds produces thousands of them, and
- * the ones that matter are at both ends — so this cap is generous and the
+ * the ones that matter are at both ends - so this cap is generous and the
  * capture keeps only silencedetect's own lines rather than the whole log.
  */
 const MAX_SILENCE_EVENT_LINES = 20_000;
@@ -333,7 +333,7 @@ export class FFmpegEngine implements AudioExtractor {
     try {
       await ffmpeg.createDir(MOUNT_POINT);
     } catch {
-      // Already exists from a previous file — the expected path after job one.
+      // Already exists from a previous file - the expected path after job one.
     }
     // A run terminated mid-flight may have left something mounted here.
     await this.#safeUnmount(ffmpeg);
@@ -350,8 +350,8 @@ export class FFmpegEngine implements AudioExtractor {
   /**
    * Unmounts the input and confirms it is really gone.
    *
-   * WORKERFS never copies the video — a mounted entry is a node holding a
-   * reference to the `File`, read through `Blob.slice` on demand — so releasing
+   * WORKERFS never copies the video - a mounted entry is a node holding a
+   * reference to the `File`, read through `Blob.slice` on demand - so releasing
    * it is exactly this unmount. But that also means a silently failed unmount
    * would pin the user's file inside the worker for the life of the page, and
    * `unmount` has to stay best-effort because it is called speculatively before
@@ -409,7 +409,7 @@ export class FFmpegEngine implements AudioExtractor {
     return probe;
   }
 
-  /** @internal — driven by FFmpegSession. */
+  /** @internal - driven by FFmpegSession. */
   async runExtract(
     ffmpeg: FFmpeg,
     inputPath: string,
@@ -507,11 +507,11 @@ export class FFmpegEngine implements AudioExtractor {
   }
 
   /**
-   * @internal — driven by FFmpegSession.
+   * @internal - driven by FFmpegSession.
    *
    * Runs the audio through `silencedetect` with the null muxer: a full decode
    * of the audio stream that writes nothing. Video is never touched, so this
-   * costs far less than the name suggests, but it is still a whole pass — which
+   * costs far less than the name suggests, but it is still a whole pass - which
    * is why it happens only when someone asks for automatic trimming.
    */
   async runSilenceScan(
@@ -585,7 +585,7 @@ export class FFmpegEngine implements AudioExtractor {
     };
   }
 
-  /** @internal — driven by FFmpegSession. */
+  /** @internal - driven by FFmpegSession. */
   async closeSession(ffmpeg: FFmpeg): Promise<void> {
     await this.#releaseInput(ffmpeg);
     this.#progressSink = null;
@@ -596,7 +596,7 @@ export class FFmpegEngine implements AudioExtractor {
    * Stops any in-flight command.
    *
    * ffmpeg runs synchronously inside its worker, so a conversion in progress
-   * cannot be interrupted cooperatively — killing the worker is the only way.
+   * cannot be interrupted cooperatively - killing the worker is the only way.
    * The next `load()` starts a fresh one; the core bytes are already cached, so
    * the restart costs a WebAssembly instantiation, not a 31 MB download.
    */

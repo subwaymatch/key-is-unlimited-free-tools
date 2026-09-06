@@ -54,8 +54,8 @@ describe("formatBytes", () => {
   });
 
   it("handles nonsense input", () => {
-    expect(formatBytes(Number.NaN)).toBe("—");
-    expect(formatBytes(-1)).toBe("—");
+    expect(formatBytes(Number.NaN)).toBe("-");
+    expect(formatBytes(-1)).toBe("-");
   });
 });
 
@@ -70,9 +70,9 @@ describe("formatDuration", () => {
     expect(formatDuration(36000)).toBe("10:00:00");
   });
 
-  it("renders an em dash when the duration is unknown", () => {
-    expect(formatDuration(null)).toBe("—");
-    expect(formatDuration(undefined)).toBe("—");
+  it("renders a placeholder when the duration is unknown", () => {
+    expect(formatDuration(null)).toBe("-");
+    expect(formatDuration(undefined)).toBe("-");
   });
 });
 

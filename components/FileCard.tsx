@@ -63,7 +63,7 @@ function OutputRow({
   const { result, trim } = output;
 
   const range = trim
-    ? `${formatTimecode(trim.startSeconds)}–${
+    ? `${formatTimecode(trim.startSeconds)}-${
         trim.endSeconds !== null
           ? formatTimecode(trim.endSeconds)
           : durationSeconds !== null
@@ -87,7 +87,7 @@ function OutputRow({
           )}
           {result?.mode === "copy" && (
             <span
-              title="Copied without re-encoding — bit-for-bit identical audio"
+              title="Copied without re-encoding - bit-for-bit identical audio"
               className={`${styles.tag} ${styles.tagCopy}`}
             >
               Stream copy
@@ -98,7 +98,7 @@ function OutputRow({
         {output.status === "done" && result && (
           <div className={styles.rowState}>
             <span className={styles.rowMeta}>
-              {formatBytes(result.bytes)} · {formatElapsed(result.elapsedMs)}
+              {formatBytes(result.bytes)}, {formatElapsed(result.elapsedMs)}
             </span>
             <a href={output.url} download={result.fileName} className={styles.download}>
               Download
@@ -109,7 +109,7 @@ function OutputRow({
         {output.status === "running" && (
           <div className={styles.rowState}>
             <span className={styles.rowMeta}>
-              {output.ratio === null ? "Working…" : formatPercent(output.ratio)}
+              {output.ratio === null ? "Working..." : formatPercent(output.ratio)}
             </span>
             <button
               type="button"
@@ -235,14 +235,14 @@ export function FileCard({
             {formatBytes(job.file.size)}
             {job.probe && (
               <>
-                {" · "}
+                {", "}
                 {formatDuration(job.probe.durationSeconds)}
-                {" · "}
+                {", "}
                 {describeAudio(job.probe.audio)}
               </>
             )}
             {job.probe && job.probe.audioStreams.length > 1 && (
-              <> {` · ${job.probe.audioStreams.length} audio tracks (using the first)`}</>
+              <> {`, ${job.probe.audioStreams.length} audio tracks (using the first)`}</>
             )}
           </p>
         </div>

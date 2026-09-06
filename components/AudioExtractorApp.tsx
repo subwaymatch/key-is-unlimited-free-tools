@@ -61,7 +61,7 @@ export function AudioExtractorApp() {
       <header className={styles.header}>
         <h1 className={styles.title}>Extract audio from video</h1>
         <p className={styles.tagline}>
-          Drop one or more videos and the audio comes out the other side — MP3, M4A, WAV, FLAC or
+          Drop one or more videos and the audio comes out the other side - MP3, M4A, WAV, FLAC or
           Opus, whole or clipped to a range. Everything runs in your browser through WebAssembly,
           so nothing is uploaded and there is no file size limit to speak of.
         </p>
@@ -87,8 +87,8 @@ export function AudioExtractorApp() {
                     ? "1 format"
                     : `${selectedFormats.length} formats`
                   : "no format"}
-                {trimSettings.mode === "silence" && " · trim silence"}
-                {trimSettings.mode === "range" && " · clip a range"}
+                {trimSettings.mode === "silence" && " - trim silence"}
+                {trimSettings.mode === "range" && " - clip a range"}
               </span>
             </span>
             <svg
@@ -157,7 +157,7 @@ export function AudioExtractorApp() {
 
             {completedOutputs.length > 1 && (
               <p className={styles.total}>
-                {completedOutputs.length} files ready ·{" "}
+                {completedOutputs.length} files ready -{" "}
                 {formatBytes(
                   completedOutputs.reduce((total, output) => total + (output.result?.bytes ?? 0), 0),
                 )}{" "}

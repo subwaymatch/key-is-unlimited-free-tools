@@ -9,6 +9,7 @@
     "start": "wrangler dev",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "check:characters": "node scripts/check-characters.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "preview": "npm run build && wrangler dev",

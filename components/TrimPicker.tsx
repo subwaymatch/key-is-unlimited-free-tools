@@ -153,7 +153,7 @@ export function TrimPicker({ settings, onChange, disabled = false }: TrimPickerP
             </select>
           </label>
           <p className={styles.panelNote}>
-            Only silence at the very beginning and end is removed — pauses in the middle are left
+            Only silence at the very beginning and end is removed - pauses in the middle are left
             alone. Detection decodes the audio once first, so a long file takes noticeably longer.
           </p>
         </div>

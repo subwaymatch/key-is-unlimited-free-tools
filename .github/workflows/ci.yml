@@ -20,6 +20,7 @@ jobs:
 
       - run: npm run lint
       - run: npm run typecheck
+      - run: npm run check:characters
       - run: npm test
 
       # Also proves the static export still fits Cloudflare's asset limits.

@@ -48,7 +48,7 @@ export function TrimPanel({
   );
 
   // A silence scan is the one thing that changes the markers from outside this
-  // component, so its result — and only its result — is pulled into the fields.
+  // component, so its result - and only its result - is pulled into the fields.
   const suggested = job.silence?.suggested ?? null;
   useEffect(() => {
     if (!job.silence) return;
@@ -111,7 +111,7 @@ export function TrimPanel({
               title="Set the start marker to the preview's playback position"
               className={styles.button}
             >
-              ⇱ Start here
+              Start here
             </button>
             <button
               type="button"
@@ -120,7 +120,7 @@ export function TrimPanel({
               title="Set the end marker to the preview's playback position"
               className={styles.button}
             >
-              ⇲ End here
+              End here
             </button>
           </div>
         )}
@@ -163,7 +163,7 @@ export function TrimPanel({
       {job.silence && (
         <p className={styles.detail}>
           {job.silence.entirelySilent
-            ? "The audio is silent throughout — nothing to trim."
+            ? "The audio is silent throughout - nothing to trim."
             : suggested
               ? `Found ${job.silence.intervals.length} silent ${
                   job.silence.intervals.length === 1 ? "stretch" : "stretches"

@@ -6,7 +6,7 @@ const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"];
 
 /** 1536 -> "1.5 KB". Uses decimal units, matching what file managers show. */
 export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return "—";
+  if (!Number.isFinite(bytes) || bytes < 0) return "-";
   if (bytes < 1000) return `${bytes} B`;
 
   let value = bytes;
@@ -20,7 +20,7 @@ export function formatBytes(bytes: number): string {
 
 /** 3725 -> "1:02:05"; 65 -> "1:05". */
 export function formatDuration(seconds: number | null | undefined): string {
-  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return "—";
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return "-";
 
   const whole = Math.floor(seconds);
   const hours = Math.floor(whole / 3600);
@@ -39,7 +39,7 @@ export function formatPercent(ratio: number | null | undefined): string {
 
 /** 92_400 -> "1m 32s"; 850 -> "0.9s". */
 export function formatElapsed(milliseconds: number): string {
-  if (!Number.isFinite(milliseconds) || milliseconds < 0) return "—";
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) return "-";
   const seconds = milliseconds / 1000;
   if (seconds < 10) return `${seconds.toFixed(1)}s`;
   if (seconds < 60) return `${Math.round(seconds)}s`;
@@ -47,7 +47,7 @@ export function formatElapsed(milliseconds: number): string {
   return `${minutes}m ${Math.round(seconds % 60)}s`;
 }
 
-/** Compact description of an audio stream, e.g. "AAC · 48 kHz · stereo". */
+/** Compact description of an audio stream, e.g. "AAC, 48 kHz, stereo". */
 export function describeAudio(audio: {
   codec: string;
   sampleRate: number | null;
@@ -59,7 +59,7 @@ export function describeAudio(audio: {
   if (audio.sampleRate) parts.push(`${(audio.sampleRate / 1000).toFixed(audio.sampleRate % 1000 === 0 ? 0 : 1)} kHz`);
   if (audio.channelLayout) parts.push(audio.channelLayout);
   if (audio.bitrateKbps) parts.push(`${audio.bitrateKbps} kbps`);
-  return parts.join(" · ");
+  return parts.join(", ");
 }
 
 /** Media types the <audio> element can be expected to play. */
@@ -69,7 +69,7 @@ export function isLikelyPlayable(extension: string): boolean {
   return PLAYABLE_EXTENSIONS.has(extension.toLowerCase());
 }
 
-/** "0:03 → 3:12 · 3:09 long", for labelling a clipped output. */
+/** "0:03 -> 3:12, 3:09 long", for labelling a clipped output. */
 export function describeTrim(
   trim: TrimRange | null,
   durationSeconds: number | null,
@@ -82,6 +82,6 @@ export function describeTrim(
         ? formatTimecode(durationSeconds)
         : "end";
   const length = trimDuration(trim, durationSeconds);
-  const span = `${formatTimecode(trim.startSeconds)} → ${end}`;
-  return length === null ? span : `${span} · ${formatDuration(length)} long`;
+  const span = `${formatTimecode(trim.startSeconds)} -> ${end}`;
+  return length === null ? span : `${span}, ${formatDuration(length)} long`;
 }

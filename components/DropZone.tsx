@@ -18,12 +18,12 @@ interface DropZoneProps {
  * click-to-browse fallback.
  *
  * The zone is a `<label>` wrapping the file input, so the entire box opens the
- * picker rather than only the button inside it — that is the browser's own
+ * picker rather than only the button inside it - that is the browser's own
  * behaviour, with no click forwarding to keep in sync. It also means the input
  * stays a real focusable control: tabbing to it rings the whole box through
  * `focus-within`, and Space opens the picker. Everything else inside is
  * therefore markup a label may legally contain, which is why the text is in
- * spans rather than paragraphs, and why the button is a span — a real button
+ * spans rather than paragraphs, and why the button is a span - a real button
  * would swallow the click instead of activating the input.
  */
 export function DropZone({ onFiles, compact = false }: DropZoneProps) {
@@ -120,14 +120,14 @@ export function DropZone({ onFiles, compact = false }: DropZoneProps) {
           {isDraggingOver ? "Drop to start converting" : "Drop video files here"}
         </span>
         <span className={styles.subhead}>
-          Conversion starts automatically · multi-gigabyte files supported
+          Conversion starts automatically, multi-gigabyte files supported
         </span>
       </span>
 
       <span className={styles.button}>Choose files</span>
 
       <span className={styles.privacy}>
-        Everything runs on your device — nothing is uploaded.
+        Everything runs on your device - nothing is uploaded.
       </span>
     </label>
   );

@@ -161,7 +161,7 @@ pre {
 /* ---- Shared utilities -------------------------------------------------- */
 
 /*
- * Hidden from sight but not from the accessibility tree or the tab order —
+ * Hidden from sight but not from the accessibility tree or the tab order -
  * `display: none` would take the file input out of both.
  */
 .visually-hidden {

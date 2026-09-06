@@ -37,7 +37,7 @@ export function EngineBanner({ state }: EngineBannerProps) {
     <div className={styles.banner}>
       <div className={styles.header}>
         <p className={styles.title}>
-          {isDownloading ? "Downloading the ffmpeg engine…" : "Starting the ffmpeg engine…"}
+          {isDownloading ? "Downloading the ffmpeg engine..." : "Starting the ffmpeg engine..."}
         </p>
         {isDownloading && state.totalBytes > 0 && (
           <p className={styles.bytes}>
