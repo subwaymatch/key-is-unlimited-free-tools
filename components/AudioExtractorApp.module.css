@@ -1,185 +1,78 @@
-/*
- * The page grid. One measure, one gutter, and one vertical axis: labels sit in
- * the left column, everything they describe starts at the same x in the right
- * column. Full-width hairlines cut the page into bands; nothing is boxed.
- */
-
 .page {
   margin-inline: auto;
   width: 100%;
-  max-width: var(--measure);
-  padding-inline: var(--gutter);
-  padding-block: clamp(2.5rem, 6vw, 4.5rem) clamp(3rem, 7vw, 5rem);
+  max-width: 48rem;
+  padding: 2.5rem 1rem;
 }
 
-/* ---- Masthead ---------------------------------------------------------- */
-
-.masthead {
-  display: grid;
-  gap: 1.5rem var(--gap-col);
-  padding-bottom: var(--band);
-}
-
-@media (min-width: 48rem) {
-  .masthead {
-    grid-template-columns: var(--col-label) minmax(0, 1fr);
+@media (min-width: 640px) {
+  .page {
+    padding-block: 3.5rem;
   }
 }
 
-.wordmark {
-  font-size: var(--text-micro);
-  line-height: 1.4;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-label);
-}
-
-.wordmarkNote {
-  display: block;
-  margin-top: 0.35rem;
-  font-weight: 400;
-  color: var(--subtle);
-}
-
-@media (min-width: 48rem) {
-  .wordmark {
-    /* Optically levels the label with the cap height of the title beside it. */
-    padding-top: 0.5rem;
-  }
+.header {
+  margin-bottom: 2rem;
 }
 
 .title {
-  font-size: var(--text-display);
-  line-height: 0.98;
+  font-size: 1.5rem;
+  line-height: 2rem;
   font-weight: 600;
-  letter-spacing: var(--tracking-display);
-  text-wrap: balance;
+  letter-spacing: -0.025em;
+}
+
+@media (min-width: 640px) {
+  .title {
+    font-size: 1.875rem;
+    line-height: 2.25rem;
+  }
 }
 
 .tagline {
-  max-width: 34rem;
-  font-size: var(--text-lead);
-  line-height: 1.5;
-  letter-spacing: var(--tracking-tight);
+  margin-top: 0.5rem;
   color: var(--muted);
 }
 
-@media (min-width: 48rem) {
-  .title,
-  .tagline,
-  .spec {
-    grid-column: 2;
-  }
-}
-
-/* A three-up specification strip: terms above values, each on its own axis. */
-.spec {
-  display: grid;
-  gap: 1rem var(--gap-col);
-  border-top: 1px solid var(--border);
-  padding-top: 1.125rem;
-}
-
-@media (min-width: 34rem) {
-  .spec {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-.specItem {
-  min-width: 0;
-}
-
-.specTerm {
-  font-size: var(--text-micro);
-  line-height: 1.4;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-label);
-  color: var(--subtle);
-}
-
-.specValue {
-  margin-top: 0.375rem;
-  font-size: var(--text-small);
-  line-height: 1.45;
-  color: var(--muted);
-}
-
-/* ---- Bands ------------------------------------------------------------- */
-
-.band {
-  display: grid;
-  gap: 1rem var(--gap-col);
-  border-top: 1px solid var(--border);
-  padding-block: var(--band);
-}
-
-@media (min-width: 48rem) {
-  .band {
-    grid-template-columns: var(--col-label) minmax(0, 1fr);
-    gap: 0 var(--gap-col);
-  }
-}
-
-.bandLabel {
+.stack {
   display: flex;
-  align-items: baseline;
-  gap: 0.75rem;
-  align-self: start;
-  font-size: var(--text-micro);
-  line-height: 1.4;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-label);
-  color: var(--muted);
-}
-
-@media (min-width: 48rem) {
-  .bandLabel {
-    padding-top: 0.25rem;
-  }
-}
-
-.bandIndex {
-  color: var(--accent);
-  font-variant-numeric: tabular-nums;
-}
-
-.bandBody {
-  min-width: 0;
+  flex-direction: column;
+  gap: 1rem;
 }
 
 /* ---- Settings disclosure ----------------------------------------------- */
 
 .settings {
-  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
 }
 
 .settingsToggle {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 1rem;
+  display: flex;
   width: 100%;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0.875rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
   text-align: left;
 }
 
 .settingsTitle {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
   font-weight: 500;
-  letter-spacing: var(--tracking-tight);
 }
 
 .settingsSummary {
-  font-size: var(--text-small);
+  margin-left: 0.5rem;
+  font-weight: 400;
   color: var(--muted);
 }
 
 .chevron {
-  width: 0.875rem;
-  height: 0.875rem;
+  width: 1rem;
+  height: 1rem;
   flex: none;
   color: var(--muted);
   transition: transform 150ms;
@@ -190,107 +83,70 @@
 }
 
 .settingsBody {
-  display: grid;
-  gap: 2rem;
-  padding-top: 2rem;
-}
-
-.settingsSection {
-  min-width: 0;
-}
-
-/* The rule lives on the wrapper, never on the fieldset: a legend cuts a notch
-   out of its own fieldset's border. */
-.settingsSection + .settingsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
   border-top: 1px solid var(--border);
-  padding-top: 2rem;
+  padding: 1rem;
 }
 
 /* ---- Queue ------------------------------------------------------------- */
 
 .queueHeader {
+  margin-bottom: 0.5rem;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  padding-bottom: 0.75rem;
-}
-
-.queueCount,
-.clearButton {
-  font-size: var(--text-micro);
-  line-height: 1.4;
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-label);
+  gap: 0.75rem;
 }
 
 .queueCount {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
   font-weight: 500;
 }
 
 .queueRemaining {
-  margin-left: 0.75rem;
+  margin-left: 0.5rem;
   font-weight: 400;
-  color: var(--accent);
+  color: var(--muted);
 }
 
 .clearButton {
+  font-size: 0.75rem;
+  line-height: 1rem;
   color: var(--subtle);
-  text-underline-offset: 3px;
+  text-underline-offset: 2px;
 }
 
 .clearButton:hover {
-  color: var(--foreground);
+  color: var(--muted);
   text-decoration: underline;
 }
 
 .jobs {
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 .total {
-  border-top: 1px solid var(--border);
-  padding-top: 0.75rem;
-  font-size: var(--text-micro);
-  line-height: 1.4;
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-label);
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
   color: var(--subtle);
 }
 
 /* ---- Footer ------------------------------------------------------------ */
 
 .footer {
-  display: grid;
-  gap: 1.25rem;
+  margin-top: 3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
   border-top: 1px solid var(--border);
-  padding-top: var(--band);
-}
-
-.footerRow {
-  display: grid;
-  gap: 0.375rem var(--gap-col);
-}
-
-@media (min-width: 48rem) {
-  .footerRow {
-    grid-template-columns: var(--col-label) minmax(0, 1fr);
-    gap: 0 var(--gap-col);
-  }
-}
-
-.footerTerm {
-  font-size: var(--text-micro);
-  line-height: 1.4;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-label);
+  padding-top: 1.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
   color: var(--subtle);
-}
-
-.footerValue {
-  max-width: 42rem;
-  font-size: var(--text-small);
-  line-height: 1.55;
-  color: var(--muted);
 }

@@ -1,18 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
-
-/*
- * Inter, self-hosted by next/font — the file is fetched at build time and
- * served from this origin, so no request leaves the visitor's browser. The
- * grid leans on Inter's tight, even colour; the tracking is pulled in globally
- * (see `--tracking-body`).
- */
-const inter = Inter({
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-inter",
-});
 
 export const metadata: Metadata = {
   title: "Extract Audio from Video",
@@ -22,8 +9,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#0b0b0a" },
+    { media: "(prefers-color-scheme: light)", color: "#f7f7f9" },
+    { media: "(prefers-color-scheme: dark)", color: "#0c0c10" },
   ],
 };
 
@@ -33,7 +20,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en">
       <body>{children}</body>
     </html>
   );

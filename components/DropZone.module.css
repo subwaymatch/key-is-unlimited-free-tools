@@ -1,28 +1,18 @@
-/*
- * A plain rectangle, ruled rather than dashed, with its text set flush left so
- * it lines up with the label column beside it. The call to action sits on the
- * opposite edge of the same baseline, and the privacy note is separated by a
- * rule instead of a gap.
- */
 .zone {
   position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: end;
-  gap: clamp(1.25rem, 3vw, 2rem) var(--gap-col);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
   cursor: pointer;
-  border: 1px solid var(--border-strong);
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius-2xl);
   background: var(--surface);
-  padding: clamp(1.75rem, 4vw, 2.75rem);
+  padding: 4rem 1.5rem;
+  text-align: center;
   transition:
     border-color 150ms,
     background-color 150ms;
-}
-
-@media (min-width: 34rem) {
-  .zone {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
 }
 
 .zone:hover {
@@ -36,7 +26,7 @@
 }
 
 .compact {
-  padding: clamp(1.25rem, 3vw, 1.75rem);
+  padding: 2rem 1.5rem;
 }
 
 .dragging {
@@ -44,76 +34,56 @@
   background: var(--accent-soft);
 }
 
-.body {
-  min-width: 0;
-}
-
 .icon {
-  width: 1.5rem;
-  height: 1.5rem;
-  margin-bottom: 1rem;
+  width: 3rem;
+  height: 3rem;
   color: var(--subtle);
 }
 
-.zone:hover .icon,
-.dragging .icon {
-  color: var(--accent);
-}
-
 .compact .icon {
-  width: 1.25rem;
-  height: 1.25rem;
-  margin-bottom: 0.75rem;
+  width: 2rem;
+  height: 2rem;
 }
 
 .headline {
   display: block;
-  font-size: clamp(1.375rem, 1.1rem + 1.2vw, 1.875rem);
-  line-height: 1.1;
-  font-weight: 600;
-  letter-spacing: var(--tracking-display);
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+  font-weight: 500;
 }
 
 .compact .headline {
-  font-size: 1.25rem;
-  line-height: 1.2;
+  font-size: 1rem;
+  line-height: 1.5rem;
 }
 
 .subhead {
   display: block;
-  margin-top: 0.625rem;
-  font-size: var(--text-small);
-  line-height: 1.45;
+  margin-top: 0.25rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
   color: var(--muted);
 }
 
-/* A solid ink rectangle: the one filled element on the page. */
 .button {
-  justify-self: start;
-  background: var(--foreground);
-  padding: 0.75rem 1.375rem;
-  font-size: var(--text-micro);
-  line-height: 1.2;
+  margin-top: 0.25rem;
+  border-radius: var(--radius-lg);
+  background: var(--accent);
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
   font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-label);
-  color: var(--background);
+  color: var(--accent-contrast);
   transition: background-color 150ms;
 }
 
 .zone:hover .button {
-  background: var(--accent);
-  color: var(--accent-contrast);
+  background: var(--accent-hover);
 }
 
 .privacy {
-  grid-column: 1 / -1;
   display: block;
-  border-top: 1px solid var(--border);
-  padding-top: 0.875rem;
-  font-size: var(--text-micro);
-  line-height: 1.4;
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-label);
+  font-size: 0.75rem;
+  line-height: 1rem;
   color: var(--subtle);
 }
