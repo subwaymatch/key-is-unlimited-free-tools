@@ -1,10 +1,23 @@
 import type { Metadata, Viewport } from "next";
+
+import { SiteFooter } from "@/components/SiteFooter";
+import { SiteHeader } from "@/components/SiteHeader";
+import { SITE_NAME, SITE_URL } from "@/lib/site";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Extract Audio from Video",
+  metadataBase: new URL(SITE_URL),
+  /*
+   * Tool pages set a bare `title` and this wraps it, so a page stays
+   * responsible for naming itself and nothing repeats the site name by hand.
+   */
+  title: {
+    default: "Free browser tools with no file size limit",
+    template: `%s | ${SITE_NAME}`,
+  },
   description:
-    "Pull the audio track out of any video, entirely in your browser. Files never leave your device, and multi-gigabyte videos are supported.",
+    "Convert, compress and edit files entirely in your browser. Nothing is uploaded, so there is no file size limit and nothing to pay.",
+  alternates: { canonical: "/" },
 };
 
 export const viewport: Viewport = {
@@ -21,7 +34,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <SiteHeader />
+        {children}
+        <SiteFooter />
+      </body>
     </html>
   );
 }

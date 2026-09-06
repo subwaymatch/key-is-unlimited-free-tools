@@ -1,0 +1,11 @@
+/*
+ * AudioExtractorApp owns its own <main> and page width, so anything rendered
+ * after it needs the same constraints to line up with the tool above it.
+ * Step 2 of the plan moves this width into a shared container token.
+ */
+.below {
+  margin-inline: auto;
+  width: 100%;
+  max-width: 48rem;
+  padding: 0 1rem 1rem;
+}

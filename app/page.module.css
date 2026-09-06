@@ -1,0 +1,90 @@
+.page {
+  margin-inline: auto;
+  width: 100%;
+  max-width: 72rem;
+  padding: 2.5rem 1rem;
+}
+
+@media (min-width: 640px) {
+  .page {
+    padding-block: 3.5rem;
+  }
+}
+
+.header {
+  max-width: 42rem;
+  margin-bottom: 2.5rem;
+}
+
+.title {
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+@media (min-width: 640px) {
+  .title {
+    font-size: 1.875rem;
+    line-height: 2.25rem;
+  }
+}
+
+.reason {
+  margin-top: 0.75rem;
+  color: var(--muted);
+}
+
+.qualifier {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--subtle);
+}
+
+.group {
+  margin-top: 2rem;
+}
+
+.groupTitle {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--subtle);
+  margin-bottom: 0.75rem;
+}
+
+.list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  height: 100%;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.card:hover {
+  border-color: var(--border-strong);
+}
+
+.name {
+  font-weight: 500;
+}
+
+.tagline {
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.accepts {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--subtle);
+}
