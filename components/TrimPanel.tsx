@@ -8,6 +8,7 @@ import type { EngineCapabilities, TrimRange } from "@/lib/engine/types";
 import { formatDuration } from "@/lib/format-utils";
 import type { Job } from "@/lib/useConversionQueue";
 
+import { Button } from "./ui/Button";
 import styles from "./TrimPanel.module.css";
 
 interface TrimPanelProps {
@@ -48,7 +49,7 @@ export function TrimPanel({
   );
 
   // A silence scan is the one thing that changes the markers from outside this
-  // component, so its result — and only its result — is pulled into the fields.
+  // component, so its result - and only its result - is pulled into the fields.
   const suggested = job.silence?.suggested ?? null;
   useEffect(() => {
     if (!job.silence) return;
@@ -104,49 +105,42 @@ export function TrimPanel({
 
         {getPreviewPosition && (
           <div className={styles.markerButtons}>
-            <button
-              type="button"
+            <Button
               disabled={disabled}
               onClick={() => setFromPreview(setStartText)}
               title="Set the start marker to the preview's playback position"
-              className={styles.button}
             >
-              ⇱ Start here
-            </button>
-            <button
-              type="button"
+              Start here
+            </Button>
+            <Button
               disabled={disabled}
               onClick={() => setFromPreview(setEndText)}
               title="Set the end marker to the preview's playback position"
-              className={styles.button}
             >
-              ⇲ End here
-            </button>
+              End here
+            </Button>
           </div>
         )}
 
-        <button
-          type="button"
+        <Button
           disabled={disabled}
           onClick={onDetectSilence}
           title="Decode the audio once to find leading and trailing silence"
-          className={styles.button}
         >
           Detect silence
-        </button>
+        </Button>
 
         {(startText || endText) && (
-          <button
-            type="button"
+          <Button
             disabled={disabled}
             onClick={() => {
               setStartText("");
               setEndText("");
             }}
-            className={styles.clear}
+            variant="ghost"
           >
             Clear
-          </button>
+          </Button>
         )}
       </div>
 
@@ -163,7 +157,7 @@ export function TrimPanel({
       {job.silence && (
         <p className={styles.detail}>
           {job.silence.entirelySilent
-            ? "The audio is silent throughout — nothing to trim."
+            ? "The audio is silent throughout - nothing to trim."
             : suggested
               ? `Found ${job.silence.intervals.length} silent ${
                   job.silence.intervals.length === 1 ? "stretch" : "stretches"
@@ -185,16 +179,15 @@ export function TrimPanel({
                 sameTrimRange(output.trim, trim),
             );
             return (
-              <button
+              <Button
                 key={format.id}
-                type="button"
                 disabled={disabled || exists}
                 title={exists ? "Already extracted for this range" : undefined}
                 onClick={() => onExtract(format.id, trim)}
                 className={styles.chip}
               >
                 {format.label}
-              </button>
+              </Button>
             );
           })}
         </div>

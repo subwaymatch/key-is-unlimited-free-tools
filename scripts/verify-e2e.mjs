@@ -2,8 +2,8 @@
  * End-to-end verification: drives a real browser through a real conversion.
  *
  * Unit tests cover the parsers and the format catalogue, but the parts most
- * likely to break — the class worker URL, the WORKERFS mount, ffmpeg's exit
- * codes, blob downloads — only exist in a browser. This script builds the app,
+ * likely to break - the class worker URL, the WORKERFS mount, ffmpeg's exit
+ * codes, blob downloads - only exist in a browser. This script builds the app,
  * serves the export, drops fixture videos into it with Chromium, and checks the
  * bytes that come out with a real ffprobe.
  *
@@ -47,7 +47,7 @@ const MIME = {
 
 const log = (...args) => console.log(...args);
 const fail = (message) => {
-  console.error(`\n✗ ${message}\n`);
+  console.error(`\nFAIL ${message}\n`);
   process.exitCode = 1;
   throw new Error(message);
 };
@@ -57,7 +57,7 @@ function ensureFixtures() {
   const build = (name, args) => {
     const path = join(FIXTURES, name);
     if (existsSync(path)) return path;
-    log(`  generating ${name}…`);
+    log(`  generating ${name}...`);
     execFileSync("ffmpeg", ["-y", "-v", "error", ...args, path]);
     return path;
   };
@@ -73,7 +73,7 @@ function ensureFixtures() {
       "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25",
       "-t", "3", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
     ]),
-    // 2s of silence, 4s of tone, 2s of silence — the shape automatic trimming
+    // 2s of silence, 4s of tone, 2s of silence - the shape automatic trimming
     // is supposed to recognise.
     padded: build("padded.mp4", [
       "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25",
@@ -141,15 +141,15 @@ function ffprobeJson(path) {
 const checks = [];
 function check(name, condition, detail = "") {
   checks.push({ name, ok: Boolean(condition), detail });
-  log(`  ${condition ? "✓" : "✗"} ${name}${detail ? ` — ${detail}` : ""}`);
+  log(`  ${condition ? "PASS" : "FAIL"} ${name}${detail ? ` - ${detail}` : ""}`);
 }
 
 async function main() {
-  log("Preparing fixtures…");
+  log("Preparing fixtures...");
   const fixtures = ensureFixtures();
 
   if (!existsSync(join(OUT, "index.html"))) {
-    fail("out/index.html missing — run `NEXT_PUBLIC_FFMPEG_CORE_BASE_URL=/core npm run build` first.");
+    fail("out/index.html missing - run `NEXT_PUBLIC_FFMPEG_CORE_BASE_URL=/core npm run build` first.");
   }
   if (!existsSync(join(CORE_DIST, "ffmpeg-core.wasm"))) {
     fail("@ffmpeg/core is not installed.");
@@ -191,7 +191,7 @@ async function main() {
     }
 
     // ---- Case 1: ordinary MP4 with an AAC track --------------------------
-    log("\nCase 1 — 6s MP4 (H.264 + AAC):");
+    log("\nCase 1 - 6s MP4 (H.264 + AAC):");
     await page.locator('input[type="file"]').setInputFiles(fixtures.sample);
 
     // The core download + WebAssembly start dominate this wait.
@@ -249,7 +249,7 @@ async function main() {
     await page.screenshot({ path: join(root, ".fixtures", "verify-converted.png"), fullPage: true });
 
     // ---- Case 2: a video with no audio -----------------------------------
-    log("\nCase 2 — MP4 with no audio track:");
+    log("\nCase 2 - MP4 with no audio track:");
     await page.locator('input[type="file"]').setInputFiles(fixtures.silent);
     const silentCard = page.locator("li", { hasText: "silent.mp4" }).first();
     await silentCard.getByText("No audio track found.").waitFor({ timeout: 120_000 });
@@ -257,7 +257,7 @@ async function main() {
     check("marks only that file as failed", (await silentCard.getByText("Failed").count()) >= 1);
 
     // ---- Case 3: MKV with 5.1 FLAC ---------------------------------------
-    log("\nCase 3 — MKV with 5.1 FLAC:");
+    log("\nCase 3 - MKV with 5.1 FLAC:");
     await page.locator('input[type="file"]').setInputFiles(fixtures.surround);
     const mkvCard = page.locator("li", { hasText: "surround.mkv" }).first();
     await mkvCard.getByText("Done", { exact: true }).waitFor({ timeout: 180_000 });
@@ -278,7 +278,7 @@ async function main() {
     check("FLAC copy stays FLAC with 6 channels", flacAudio?.codec_name === "flac" && flacAudio?.channels === 6);
 
     // ---- Case 4: clipping a range with the per-file markers ---------------
-    log("\nCase 4 — clipping 1:00–3:00 of the 6s MP4:");
+    log("\nCase 4 - clipping 1:00-3:00 of the 6s MP4:");
     await card.getByRole("button", { name: "Trim or clip a range" }).click();
     const markers = card.getByRole("group", { name: "Clip markers" });
     await markers.getByLabel("Start", { exact: true }).fill("1");
@@ -287,12 +287,12 @@ async function main() {
 
     await markers.getByRole("button", { name: "MP3", exact: true }).click();
     await card.getByText("Done", { exact: true }).waitFor({ timeout: 120_000 });
-    await card.getByText("0:01–0:03").waitFor({ timeout: 120_000 });
-    check("labels the output with the range it covers", true, "0:01–0:03 badge");
+    await card.getByText("0:01-0:03").waitFor({ timeout: 120_000 });
+    check("labels the output with the range it covers", true, "0:01-0:03 badge");
 
     // Scoped by the range badge: a plain "MP3" match would find the full-audio
     // row that case 1 produced.
-    const clipRow = card.locator("li").filter({ hasText: "0:01–0:03" });
+    const clipRow = card.locator("li").filter({ hasText: "0:01-0:03" });
     const [clipDownload] = await Promise.all([
       page.waitForEvent("download"),
       clipRow.getByText("Download").click(),
@@ -317,7 +317,7 @@ async function main() {
     );
 
     // ---- Case 5: automatic silence trimming -------------------------------
-    log("\nCase 5 — 8s MP4 padded with 2s of silence at each end:");
+    log("\nCase 5 - 8s MP4 padded with 2s of silence at each end:");
     await page.getByRole("button", { name: /Output formats/ }).click();
     await page.getByLabel(/Trim silence/).check();
 
@@ -348,13 +348,13 @@ async function main() {
     );
     check(
       "the trimmed output is still labelled with its range",
-      /–/.test(await paddedCard.innerText()),
+      /-/.test(await paddedCard.innerText()),
     );
 
     await page.screenshot({ path: join(root, ".fixtures", "verify-trimmed.png"), fullPage: true });
 
     // ---- Case 6: cancelling one format, leaving the others alone ----------
-    log("\nCase 6 — cancelling MP3 mid-conversion on a 5min MP4:");
+    log("\nCase 6 - cancelling MP3 mid-conversion on a 5min MP4:");
     await page.getByRole("button", { name: /Output formats/ }).click();
     await page.getByLabel(/Full audio/).check();
     await page.getByLabel(/M4A \(AAC\)/).check();
@@ -366,7 +366,7 @@ async function main() {
     const longM4a = longCard.locator("li").filter({ hasText: /^M4A/ });
 
     // Wait until MP3 is genuinely running, not merely queued behind Original.
-    await longCard.getByText("Extracting MP3…").waitFor({ timeout: 180_000 });
+    await longCard.getByText("Extracting MP3...").waitFor({ timeout: 180_000 });
     check(
       "the stream copy finished before MP3 started",
       (await longOriginal.getByText("Download").count()) === 1,
@@ -404,7 +404,7 @@ async function main() {
     );
 
     // ---- Case 7: retrying just the cancelled format -----------------------
-    log("\nCase 7 — retrying the cancelled MP3:");
+    log("\nCase 7 - retrying the cancelled MP3:");
     await longCard.getByRole("button", { name: "Retry MP3" }).click();
     await longMp3.getByText("Download").waitFor({ timeout: 240_000 });
 

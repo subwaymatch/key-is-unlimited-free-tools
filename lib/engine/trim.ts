@@ -72,7 +72,7 @@ export interface TrimProblem {
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 
-/** Seconds as a plain decimal — ffmpeg accepts this anywhere a time is taken. */
+/** Seconds as a plain decimal - ffmpeg accepts this anywhere a time is taken. */
 function formatSeconds(seconds: number): string {
   return (Math.round(seconds * 1000) / 1000).toFixed(3);
 }
@@ -82,7 +82,7 @@ function formatSeconds(seconds: number): string {
  *
  * Returns a null trim for a range that turns out to cover everything, so the
  * common case adds no arguments at all, and a `problem` for a range that would
- * produce no audio — which is worth saying before a long conversion, not after.
+ * produce no audio - which is worth saying before a long conversion, not after.
  */
 export function resolveTrim(
   trim: TrimRange | null | undefined,
@@ -173,11 +173,11 @@ export function isSilenceEventLine(message: string): boolean {
  * Reads silencedetect's log lines into intervals.
  *
  * The filter prints an unpaired line per event:
- *   [silencedetect @ 0x…] silence_start: 12.3456
- *   [silencedetect @ 0x…] silence_end: 15.9 | silence_duration: 3.5544
+ *   [silencedetect @ 0x...] silence_start: 12.3456
+ *   [silencedetect @ 0x...] silence_end: 15.9 | silence_duration: 3.5544
  *
  * A `silence_start` with no matching end means the file finished while still
- * silent — which is precisely the trailing silence worth cutting, so it is kept
+ * silent - which is precisely the trailing silence worth cutting, so it is kept
  * as an open interval rather than discarded.
  */
 export function parseSilenceLog(log: readonly string[]): SilenceInterval[] {
@@ -337,12 +337,12 @@ export function parseTrimInputs(
 
   const start = startRaw ? parseTimecode(startRaw) : 0;
   if (start === null) {
-    return { trim: null, error: `"${startRaw}" is not a time — try 1:30, 0:04.5 or 90.` };
+    return { trim: null, error: `"${startRaw}" is not a time - try 1:30, 0:04.5 or 90.` };
   }
 
   const end = endRaw ? parseTimecode(endRaw) : null;
   if (endRaw && end === null) {
-    return { trim: null, error: `"${endRaw}" is not a time — try 1:30, 0:04.5 or 90.` };
+    return { trim: null, error: `"${endRaw}" is not a time - try 1:30, 0:04.5 or 90.` };
   }
 
   if (end !== null && end - start < MIN_CLIP_SECONDS) {

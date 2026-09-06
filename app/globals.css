@@ -1,92 +1,108 @@
 /*
- * The design is a Swiss grid: everything sits on one column axis, horizontal
- * hairlines divide the page into bands, and elements are told apart by where
- * they align rather than by boxes, fills or shadows. The palette is therefore
- * deliberately thin — paper, ink, two greys and one signal red — and the only
- * decoration is the rule.
+ * Design tokens.
  *
- * Light palette on :root, dark overrides under prefers-color-scheme, so the
- * page follows the OS setting without a flash of the wrong theme.
+ * Neutral by default: the background is white, and colour is reserved for two
+ * jobs, conveying the state of a conversion and marking a destructive action.
+ * The token names follow the shadcn/ui shape because it is widely understood;
+ * the values are the Tailwind neutral scale. Radii are deliberately tighter
+ * than shadcn's, which reads as precise rather than soft.
+ *
+ * Borders are used sparingly. A rule earns its place only where it carries
+ * meaning, such as the edge of a text input; containment is otherwise done
+ * with whitespace. See section 7.5 of
+ * agent-outputs/browser-tool-catalogue-and-build-order.md.
  *
  * Component styling lives in CSS modules next to each component; this file is
- * the palette, the grid measurements, the type scale, the reset, and the
- * handful of rules that have to be global.
+ * the palette, the type scale, the reset, and the handful of rules that have
+ * to be global.
  */
 :root {
-  /* ---- Palette --------------------------------------------------------- */
   --background: #ffffff;
-  --surface: #ffffff;
-  /* Recessed areas — inputs, log output, tag fills. Never a raised card. */
-  --surface-sunken: #f4f4f2;
-  --border: #e4e4de;
-  --border-strong: #c2c2b9;
-  --foreground: #0f0f0e;
-  --muted: #67675f;
-  --subtle: #92928a;
-  --accent: #cc1f1a;
-  --accent-hover: #a3130f;
-  --accent-contrast: #ffffff;
-  --accent-soft: #fbeceb;
-  /* Success is ink, not green: state is carried by position and wording, and
-     the one hue in the palette is reserved for what needs attention. */
-  --success: #0f0f0e;
-  --success-soft: #f4f4f2;
-  --danger: #cc1f1a;
-  --danger-soft: #fbeceb;
-  --warning: #cc1f1a;
+  --foreground: #0a0a0a;
+  --muted: #f5f5f5;
+  --muted-foreground: #737373;
+  --subtle: #a3a3a3;
+  --border: #e5e5e5;
+  --border-strong: #d4d4d4;
+  --input: #d4d4d4;
+  --ring: #0a0a0a;
 
-  /* ---- Type ------------------------------------------------------------ */
+  --primary: #171717;
+  --primary-hover: #000000;
+  --primary-foreground: #fafafa;
+  --secondary: #f5f5f5;
+  --secondary-hover: #ebebeb;
+  --secondary-foreground: #171717;
+
+  --destructive: #dc2626;
+  --destructive-soft: #fef2f2;
+  --success: #15803d;
+  --success-soft: #f0fdf4;
+  --warning: #a16207;
+  --warning-soft: #fefce8;
+  --accent-soft: #f5f5f5;
+
   --font-sans:
     var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
   --font-mono:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 
-  /* Inter set slightly tight: enough to close the words up at text sizes,
-     more of it as the type grows, and opened back out for the small caps
-     labels that would otherwise clot. */
+  /*
+   * Four sizes, and nothing sets font-size to a literal value. Hierarchy comes
+   * from weight and colour instead, which is what keeps a page of controls
+   * looking like one thing.
+   */
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.75rem;
+
+  --leading-sm: 1.4;
+  --leading-base: 1.5;
+  --leading-lg: 1.3;
+  --leading-xl: 1.2;
+
+  /*
+   * Slightly tightened. Inter's optical-size axis handles the display sizes,
+   * so this is a nudge rather than a correction.
+   */
   --tracking-body: -0.011em;
-  --tracking-tight: -0.022em;
-  --tracking-display: -0.035em;
-  --tracking-label: 0.09em;
+  --tracking-tight: -0.02em;
 
-  --text-display: clamp(2.125rem, 1.35rem + 3.6vw, 3.5rem);
-  --text-lead: clamp(1rem, 0.94rem + 0.3vw, 1.125rem);
-  --text-body: 0.9375rem;
-  --text-small: 0.8125rem;
-  --text-micro: 0.6875rem;
-
-  /* ---- Grid ------------------------------------------------------------ */
-  /* One page measure, one gutter, one label column. Every band on the page
-     starts its content at the same x, which is what does the separating. */
-  --measure: 64rem;
-  --gutter: clamp(1.25rem, 5vw, 4rem);
-  --col-label: 8.5rem;
-  --gap-col: clamp(1.5rem, 4vw, 3rem);
-  --band: clamp(2.5rem, 5vw, 4rem);
+  --radius-sm: 2px;
+  --radius: 4px;
+  --radius-lg: 6px;
 
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0b0b0a;
-    --surface: #0b0b0a;
-    --surface-sunken: #171715;
-    --border: #272725;
-    --border-strong: #454540;
-    --foreground: #f2f2ef;
-    --muted: #a0a099;
-    --subtle: #6f6f68;
-    --accent: #ff5d4d;
-    --accent-hover: #ff8073;
-    --accent-contrast: #0b0b0a;
-    --accent-soft: #2a1310;
-    --success: #f2f2ef;
-    --success-soft: #1a1a18;
-    --danger: #ff5d4d;
-    --danger-soft: #2a1310;
-    --warning: #ff5d4d;
+    --background: #0a0a0a;
+    --foreground: #fafafa;
+    --muted: #1c1c1c;
+    --muted-foreground: #a3a3a3;
+    --subtle: #737373;
+    --border: #262626;
+    --border-strong: #404040;
+    --input: #404040;
+    --ring: #d4d4d4;
+
+    --primary: #e5e5e5;
+    --primary-hover: #ffffff;
+    --primary-foreground: #171717;
+    --secondary: #1c1c1c;
+    --secondary-hover: #262626;
+    --secondary-foreground: #fafafa;
+
+    --destructive: #ef4444;
+    --destructive-soft: #291414;
+    --success: #4ade80;
+    --success-soft: #0f2318;
+    --warning: #facc15;
+    --warning-soft: #2a2109;
+    --accent-soft: #1c1c1c;
 
     color-scheme: dark;
   }
@@ -112,13 +128,25 @@ html {
 
 body {
   min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  /*
+   * Gives the page its own stacking context so Base UI's portaled popups land
+   * above the content without any component having to pick a z-index.
+   */
+  isolation: isolate;
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
-  font-size: var(--text-body);
-  line-height: 1.55;
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
   letter-spacing: var(--tracking-body);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Pushes the footer down when the page is shorter than the viewport. */
+body > main {
+  flex: 1 0 auto;
 }
 
 h1,
@@ -182,20 +210,20 @@ pre {
   letter-spacing: 0;
 }
 
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+/* Figures that update in place should not jitter as their width changes. */
+.tabular {
+  font-variant-numeric: tabular-nums;
 }
 
-::selection {
-  background: var(--accent);
-  color: var(--accent-contrast);
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 /* ---- Shared utilities -------------------------------------------------- */
 
 /*
- * Hidden from sight but not from the accessibility tree or the tab order —
+ * Hidden from sight but not from the accessibility tree or the tab order -
  * `display: none` would take the file input out of both.
  */
 .visually-hidden {

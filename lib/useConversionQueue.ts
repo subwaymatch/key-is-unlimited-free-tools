@@ -49,7 +49,7 @@ export interface JobOutput {
    * Identity of this output.
    *
    * The format alone is not enough once a file can be clipped: "MP3 of the
-   * whole thing" and "MP3 of 1:30–2:15" are two outputs of the same format.
+   * whole thing" and "MP3 of 1:30-2:15" are two outputs of the same format.
    */
   id: string;
   formatId: OutputFormatId;
@@ -270,7 +270,7 @@ export function useConversionQueue() {
       activeJobRef.current = jobId;
       patchJob(jobId, {
         status: "preparing",
-        phase: engine.loaded ? "Reading file details…" : "Loading the ffmpeg engine…",
+        phase: engine.loaded ? "Reading file details..." : "Loading the ffmpeg engine...",
         error: undefined,
       });
 
@@ -313,7 +313,7 @@ export function useConversionQueue() {
         setEngineState((previous) => ({ ...previous, stage: "ready", capabilities }));
         if (isCancelled()) throw new ExtractionError("Cancelled.");
 
-        patchJob(jobId, { phase: "Reading file details…" });
+        patchJob(jobId, { phase: "Reading file details..." });
         session = await engine.openSession(job.file);
         if (isCancelled()) throw new ExtractionError("Cancelled.");
 
@@ -324,7 +324,7 @@ export function useConversionQueue() {
         // outputs waiting behind it inherit whatever the scan finds.
         const current = jobsRef.current.find((entry) => entry.id === jobId);
         if (current?.autoTrim) {
-          patchJob(jobId, { phase: "Listening for silence…", phaseRatio: 0 });
+          patchJob(jobId, { phase: "Listening for silence...", phaseRatio: 0 });
 
           let lastScanTick = 0;
           const silence = await session.detectSilence(current.silenceOptions, (progress) => {
@@ -359,7 +359,7 @@ export function useConversionQueue() {
 
           const format = getFormat(output.formatId);
           patchJob(jobId, {
-            phase: output.trim ? `Extracting ${format.label} clip…` : `Extracting ${format.label}…`,
+            phase: output.trim ? `Extracting ${format.label} clip...` : `Extracting ${format.label}...`,
           });
           patchOutput(jobId, output.id, { status: "running", ratio: 0, processedSeconds: 0 });
 
@@ -415,7 +415,7 @@ export function useConversionQueue() {
         // need a fresh session. Re-queueing hands the job straight back to the
         // pump, which is already looping.
         if (partialCancelRef.current.has(jobId) && outputs.some((o) => o.status === "pending")) {
-          patchJob(jobId, { status: "queued", phase: "Waiting…", phaseRatio: null });
+          patchJob(jobId, { status: "queued", phase: "Waiting...", phaseRatio: null });
         } else {
           patchJob(jobId, { ...summarizeOutputs(outputs), phaseRatio: null });
         }
@@ -487,7 +487,7 @@ export function useConversionQueue() {
         id: nextJobId(),
         file,
         status: "queued",
-        phase: "Waiting…",
+        phase: "Waiting...",
         phaseRatio: null,
         trim,
         autoTrim: settings.mode === "silence",
@@ -511,7 +511,7 @@ export function useConversionQueue() {
     (jobId: string, formatId: OutputFormatId, trim: TrimRange | null = null) => {
       const job = jobsRef.current.find((entry) => entry.id === jobId);
       if (!job) return;
-      // Same format over the same range is the output that already exists — but
+      // Same format over the same range is the output that already exists - but
       // a cancelled one has no audio behind it, so it does not block a re-add.
       const duplicate = job.outputs.some(
         (output) =>
@@ -526,7 +526,7 @@ export function useConversionQueue() {
         trim,
         error: undefined,
         outputs: [...current.outputs, ...makeOutputs([formatId], trim)],
-        ...(isActive ? {} : { status: "queued" as const, phase: "Waiting…" }),
+        ...(isActive ? {} : { status: "queued" as const, phase: "Waiting..." }),
       }));
       if (!isActive) void pump();
     },
@@ -535,7 +535,7 @@ export function useConversionQueue() {
 
   /**
    * Runs a silence scan over a file that is already in the queue, without
-   * producing any audio — the point is the suggested range it comes back with.
+   * producing any audio - the point is the suggested range it comes back with.
    */
   const detectSilence = useCallback(
     (jobId: string, options?: Partial<SilenceScanOptions>) => {
@@ -544,7 +544,7 @@ export function useConversionQueue() {
 
       patchJob(jobId, {
         status: "queued",
-        phase: "Waiting…",
+        phase: "Waiting...",
         error: undefined,
         autoTrim: true,
         silence: undefined,
@@ -561,7 +561,7 @@ export function useConversionQueue() {
       if (!job) return;
       patchJob(jobId, {
         status: "queued",
-        phase: "Waiting…",
+        phase: "Waiting...",
         error: undefined,
         logs: [],
         outputs: job.outputs.map((output) =>
@@ -579,7 +579,7 @@ export function useConversionQueue() {
    * Stops one output without disturbing the others.
    *
    * ffmpeg blocks its worker for the whole of a command, so a conversion that
-   * has already started can only be stopped by killing the worker — there is no
+   * has already started can only be stopped by killing the worker - there is no
    * cooperative interrupt. That is survivable here because a finished output is
    * a JS Blob that never lived in the worker: the downloads already on the card
    * keep working. What the termination does cost is the mount, so any format
@@ -632,7 +632,7 @@ export function useConversionQueue() {
         );
         return isActive
           ? { outputs, error: undefined }
-          : { outputs, error: undefined, status: "queued" as const, phase: "Waiting…" };
+          : { outputs, error: undefined, status: "queued" as const, phase: "Waiting..." };
       });
 
       if (!isActive) void pump();
@@ -653,7 +653,7 @@ export function useConversionQueue() {
         // the moment the engine comes back. Say so now, so the card does not
         // look ignored in the meantime.
         cancelledRef.current.add(jobId);
-        patchJob(jobId, { phase: "Cancelling…", phaseRatio: null });
+        patchJob(jobId, { phase: "Cancelling...", phaseRatio: null });
         getEngine().terminate();
         return;
       }

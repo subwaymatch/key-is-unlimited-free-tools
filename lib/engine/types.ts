@@ -2,7 +2,7 @@
  * Engine-agnostic contract for audio extraction.
  *
  * The app talks to this interface only, so the ffmpeg.wasm implementation can
- * be swapped (or joined) by another engine — e.g. a WebCodecs-based one — with
+ * be swapped (or joined) by another engine - e.g. a WebCodecs-based one - with
  * no changes above `lib/`.
  *
  * The session shape (open once per file, extract many formats, close) exists
@@ -128,7 +128,7 @@ export interface ExtractSession {
    * Decodes the audio once to find where it is silent.
    *
    * This is a full pass over the audio stream, so it costs roughly what one
-   * re-encode costs — which is why it is a separate call the caller opts into
+   * re-encode costs - which is why it is a separate call the caller opts into
    * rather than something every extraction does.
    */
   detectSilence(

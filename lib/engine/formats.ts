@@ -101,7 +101,7 @@ export const OUTPUT_FORMATS: readonly OutputFormat[] = [
   {
     id: "original",
     label: "Original",
-    blurb: "Stream copy — no re-encoding, identical audio, fastest",
+    blurb: "Stream copy - no re-encoding, identical audio, fastest",
     lossless: true,
     requiredEncoder: null,
     plan(probe) {
@@ -186,7 +186,7 @@ export const OUTPUT_FORMATS: readonly OutputFormat[] = [
   {
     id: "wav",
     label: "WAV",
-    blurb: "Uncompressed 16-bit PCM — large files",
+    blurb: "Uncompressed 16-bit PCM - large files",
     lossless: true,
     requiredEncoder: "pcm_s16le",
     plan() {

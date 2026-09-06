@@ -1,8 +1,12 @@
 "use client";
 
+import { Radio } from "@base-ui/react/radio";
+import { RadioGroup } from "@base-ui/react/radio-group";
+
 import { parseTrimInputs } from "@/lib/engine/trim";
 import type { TrimMode, TrimSettings } from "@/lib/useConversionQueue";
 
+import { Select } from "./ui/Select";
 import styles from "./Settings.module.css";
 
 interface TrimPickerProps {
@@ -42,6 +46,11 @@ const SENSITIVITIES = [
   { label: "Also room tone", thresholdDb: -40, minDurationSeconds: 0.3 },
 ];
 
+const SENSITIVITY_OPTIONS = SENSITIVITIES.map((entry, index) => ({
+  value: index,
+  label: `${entry.label} (${entry.thresholdDb} dB for ${entry.minDurationSeconds}s)`,
+}));
+
 /**
  * Trim settings for files added next.
  *
@@ -66,7 +75,12 @@ export function TrimPicker({ settings, onChange, disabled = false }: TrimPickerP
         Applied to files you add next. Each file can be clipped again afterwards.
       </p>
 
-      <div className={`${styles.grid} ${styles.gridThree}`}>
+      <RadioGroup
+        value={settings.mode}
+        onValueChange={(value) => onChange({ ...settings, mode: value as TrimMode })}
+        disabled={disabled}
+        className={`${styles.grid} ${styles.gridThree}`}
+      >
         {MODES.map((mode) => {
           const isChecked = settings.mode === mode.id;
           return (
@@ -76,14 +90,9 @@ export function TrimPicker({ settings, onChange, disabled = false }: TrimPickerP
                 disabled ? styles.optionDisabled : ""
               }`}
             >
-              <input
-                type="radio"
-                name="trim-mode"
-                checked={isChecked}
-                disabled={disabled}
-                onChange={() => onChange({ ...settings, mode: mode.id })}
-                className={styles.control}
-              />
+              <Radio.Root value={mode.id} disabled={disabled} className={styles.controlRadio}>
+                <Radio.Indicator className={styles.controlRadioDot} />
+              </Radio.Root>
               <span className={styles.optionBody}>
                 <span className={styles.optionLabel}>{mode.label}</span>
                 <span className={styles.optionBlurb}>{mode.blurb}</span>
@@ -91,7 +100,7 @@ export function TrimPicker({ settings, onChange, disabled = false }: TrimPickerP
             </label>
           );
         })}
-      </div>
+      </RadioGroup>
 
       {settings.mode === "range" && (
         <div className={styles.panel}>
@@ -131,29 +140,24 @@ export function TrimPicker({ settings, onChange, disabled = false }: TrimPickerP
         <div className={styles.panel}>
           <label>
             <span className={styles.fieldLabel}>What counts as silence</span>
-            <select
+            <Select
+              aria-label="What counts as silence"
               value={sensitivityIndex === -1 ? 1 : sensitivityIndex}
-              onChange={(event) =>
+              disabled={disabled}
+              options={SENSITIVITY_OPTIONS}
+              onValueChange={(index) =>
                 onChange({
                   ...settings,
                   silence: {
-                    thresholdDb: SENSITIVITIES[Number(event.target.value)].thresholdDb,
-                    minDurationSeconds:
-                      SENSITIVITIES[Number(event.target.value)].minDurationSeconds,
+                    thresholdDb: SENSITIVITIES[index].thresholdDb,
+                    minDurationSeconds: SENSITIVITIES[index].minDurationSeconds,
                   },
                 })
               }
-              className={styles.select}
-            >
-              {SENSITIVITIES.map((entry, index) => (
-                <option key={entry.label} value={index}>
-                  {entry.label} ({entry.thresholdDb} dB for {entry.minDurationSeconds}s)
-                </option>
-              ))}
-            </select>
+            />
           </label>
           <p className={styles.panelNote}>
-            Only silence at the very beginning and end is removed — pauses in the middle are left
+            Only silence at the very beginning and end is removed - pauses in the middle are left
             alone. Detection decodes the audio once first, so a long file takes noticeably longer.
           </p>
         </div>
