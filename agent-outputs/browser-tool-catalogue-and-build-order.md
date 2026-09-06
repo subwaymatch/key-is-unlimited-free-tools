@@ -7,8 +7,9 @@ This merges an earlier chatbot's brainstorm with corrections and additions made
 while reading this codebase. The earlier list was a flat menu of about 130
 ideas. The value added here is the cost model that sorts them, three
 corrections where the original advice was wrong or risky, the categories it
-missed entirely, and a build order that follows from what `lib/engine/` already
-does.
+missed entirely, a build order that follows from what `lib/engine/` already
+does, and a plan for the visual design and site structure that the tools will
+share (section 7).
 
 Every entry is marked `prior` (from the earlier list) or `new` (added here).
 
@@ -439,7 +440,311 @@ for large outputs, rather than bolting OPFS onto ffmpeg.
 
 ---
 
-## 7. Open questions
+## 7. Visual design and site structure
+
+This is the plan for turning one tool into a site of tools. It is written
+against the code as it stands after the revert of the Swiss grid redesign:
+the indigo palette in `app/globals.css`, five radius tokens, nine distinct
+`font-size` values across the CSS modules, and a single route at `/`.
+
+Four requirements drive it, in order of importance: every page links to every
+other tool; the site says plainly that everything is free, unlimited and has
+no file size limit, without saying anything untrue; controls come from Base UI
+on a neutral palette; and the type is Inter, slightly tightened, in very few
+sizes.
+
+### 7.1 One route per tool, one registry for all of them
+
+This is a static export, so `app/<slug>/page.tsx` becomes `/<slug>` with its
+own `metadata`. Each tool needs its own URL anyway: the search queries worth
+winning ("extract audio from 10GB video") land on a page about that one job,
+and a page can only carry one title and description.
+
+Slugs are verb-object, lowercase, hyphenated, and permanent:
+
+```
+/                    index of every live tool, grouped by category
+/extract-audio       the tool that exists today
+/compress-video
+/convert-video
+/trim-video
+/video-to-gif
+/remove-audio
+/convert-subtitles
+```
+
+The index moves to `/` now rather than after a second tool ships. An index
+with one entry is honest, and moving the tool's URL later would throw away
+whatever ranking it has earned by then.
+
+Everything that lists tools reads from one registry, `lib/tools.ts`:
+
+```ts
+export interface ToolMeta {
+  slug: string;            // "extract-audio"
+  name: string;            // "Extract audio from video"
+  tagline: string;         // one sentence, under 90 characters
+  category: "video" | "audio" | "subtitles" | "images" | "documents" | "data";
+  accepts: string[];       // ["video/*"], shown on the index card
+  status: "live" | "planned";
+}
+export const TOOLS: readonly ToolMeta[] = [...];
+```
+
+The index, the header menu, the footer, the related-tools block, each page's
+`metadata`, and `app/sitemap.ts` all derive from `TOOLS`. Adding a tool is one
+registry entry plus one page file, and it appears everywhere at once. That is
+what keeps "every page links to every tool" true without anyone remembering
+to do it.
+
+Only `status: "live"` tools render anywhere. No "coming soon" entries: they
+are dead links to a visitor and thin pages to a crawler, and they cost trust
+for nothing.
+
+### 7.2 Every page carries the whole catalogue
+
+Three places, each doing a different job:
+
+| Where | What | Why |
+| --- | --- | --- |
+| Header | Wordmark, then an "All tools" menu (Base UI Navigation Menu, grouped by category; Drawer on narrow screens) | Reachable from any scroll position |
+| Below the tool | "Related tools": same-category siblings first, then up to six others | The visitor who just finished one job is the visitor most likely to have another |
+| Footer | Every live tool as plain links under category headings | Crawlable without JavaScript, and the fallback if the menu fails |
+
+The footer list is ordinary anchors in the server-rendered HTML. Nothing
+about discoverability depends on hydration.
+
+### 7.3 The promise, and how to keep it true
+
+The line that appears on every page, in the same words, in the same place:
+
+> Free. Unlimited. No file size limit.
+
+Under it, one sentence that explains why it is possible:
+
+> Everything runs in your browser. Nothing is uploaded, so there is no
+> server to charge you, throttle you, or cap your file.
+
+And one qualifier, always adjacent rather than hidden, because the claim is
+only honest with it:
+
+> The only limits are your device's: memory, storage and the browser tab.
+
+The word "limits" opens a Base UI Popover with the detail: input is read in
+place through WORKERFS and never copied, a 3 GiB file has been verified end to
+end at a 37 MiB peak heap, and any tool that writes a large output says so on
+its own page. That last clause matters for the converter (section 6): it must
+ship with fragmented output, or with its own note about the output ceiling,
+before it can sit under the site-wide line without contradicting it.
+
+Placement: a slim strip directly under the header on every page, so it reads
+as the site's identity rather than a per-tool boast; the tool page's lead
+paragraph repeating it in that tool's terms ("Extract the audio from a 10 GB
+recording without uploading it"); the footer restating the privacy half.
+
+Words, not badges. The ASCII policy rules out check marks and emoji, and a
+row of pills with ticks is the visual signature of every site this one is
+trying not to resemble.
+
+### 7.4 Base UI
+
+`@base-ui/react`, currently 1.8.0. Unstyled, driven by `className`, no
+provider, no stylesheet to import. Portaled components want
+`isolation: isolate` on the layout root so popups stack above the page
+without `z-index` games; that goes on `<body>` in `globals.css`.
+
+Styling stays in CSS modules as today. Base UI exposes state as data
+attributes (`data-disabled`, `data-checked`, `data-popup-open`,
+`data-highlighted`), which CSS modules select on directly, so no Tailwind and
+no CSS-in-JS enters the repo.
+
+What each existing control becomes:
+
+| Today | Base UI | Note |
+| --- | --- | --- |
+| Nine raw `<button>`s in `FileCard`, five in `TrimPanel`, two in `AudioExtractorApp` | Button | One styled Button; variants by a `data-variant` attribute, not separate classes |
+| `<select>` in `TrimPicker` | Select | Same options, keyboard-complete |
+| Time inputs in `TrimPicker` | Field with Input | Field supplies label, description and error wiring |
+| `role="progressbar"` in `ProgressBar` | Progress | Keeps the indeterminate state; the moving-bar CSS is unchanged |
+| Labels in `FormatPicker` | Checkbox Group | Multi-select formats become real checkboxes |
+| `role="alert"` in `EngineBanner` and `FileCard` | Unchanged | A live region is the right primitive already |
+| Settings | Popover | Settings that apply to the next run do not need a dialog |
+| Cancel on a running job | Alert Dialog | Only because it kills the worker; queued jobs cancel without asking |
+| Header menu | Navigation Menu, Drawer on narrow screens | |
+| "limits" explainer | Popover | |
+| `DropZone` | Stays custom | Base UI has no file input. The `<label>` wrapping the input is the right pattern and keeps the whole box clickable |
+
+Order of replacement: Button first, because it has the most instances and
+sets the look of everything else; then Select and Progress; then Checkbox
+Group; the navigation last, since it depends on the registry from 7.1.
+
+### 7.5 Colour: neutral, in the shadcn token shape, tighter corners
+
+The current palette is built around an indigo accent (`#5b52e8`). It goes.
+Colour is reserved for two things, job state and destructive actions; every
+other surface, border and control is a grey.
+
+The tokens take the shadcn/ui shape because it is a good shape and the names
+are widely understood. The values are the Tailwind neutral scale, which is
+also what shadcn's "neutral" theme is:
+
+```css
+:root {
+  --background: #ffffff;
+  --foreground: #0a0a0a;
+  --card: #ffffff;
+  --muted: #f5f5f5;
+  --muted-foreground: #737373;
+  --border: #e5e5e5;
+  --border-strong: #d4d4d4;
+  --input: #e5e5e5;
+  --ring: #0a0a0a;
+  --primary: #171717;
+  --primary-foreground: #fafafa;
+  --secondary: #f5f5f5;
+  --secondary-foreground: #171717;
+  --destructive: #dc2626;
+  --destructive-foreground: #fafafa;
+  --success: #15803d;
+  --warning: #a16207;
+
+  --radius-sm: 2px;
+  --radius: 4px;
+  --radius-lg: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #fafafa;
+    --card: #0a0a0a;
+    --muted: #262626;
+    --muted-foreground: #a3a3a3;
+    --border: #262626;
+    --border-strong: #404040;
+    --input: #262626;
+    --ring: #d4d4d4;
+    --primary: #e5e5e5;
+    --primary-foreground: #171717;
+    --secondary: #262626;
+    --secondary-foreground: #fafafa;
+    --destructive: #ef4444;
+    --destructive-foreground: #fafafa;
+    --success: #4ade80;
+    --warning: #facc15;
+  }
+}
+```
+
+The primary button is foreground-on-background inverted: near-black on
+white, near-white on black. That is the whole accent system. `--success` and
+`--warning` appear only on the status line of a job card, never as fills.
+
+Radius is where this deliberately differs from shadcn. Its default is 10px in
+recent versions and 8px before that; here the base is 4px, with 2px for small
+controls and 6px for cards. Five radius tokens collapse to three. The result
+reads as precise rather than soft, which suits a tool.
+
+Cards are a 1px `--border` with no shadow; hover moves the border to
+`--border-strong`. Focus is a 2px `--ring` outline with a 2px offset,
+identical on every control. Dark mode stays on `prefers-color-scheme` alone,
+as it is today; no toggle.
+
+### 7.6 Type: Inter, slightly tightened, four sizes
+
+Inter through `next/font/google`, self-hosted at build time so no request
+leaves the visitor's browser for a font. The reverted commit `8e2c9ec` already
+had this exactly right in `app/layout.tsx`, and that part can be cherry-picked
+on its own:
+
+```ts
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-inter",
+  axes: ["opsz"],
+});
+```
+
+`opsz` is Inter 4's optical-size axis. Next 15.5's bundled font data lists
+it for Inter with a 14-32 range, so the option is valid and the browser will
+pick the tighter display cut automatically at `--text-lg` (20px) and
+`--text-xl` (28px). At body size, 15px, it is effectively neutral, which is
+why the tracking token below still does the work there. Confirm the emitted
+`@font-face` carries the axis after the first build; the data says it will.
+
+Tracking is tightened slightly, not dramatically:
+
+```css
+--tracking-body: -0.011em;   /* every size except xl */
+--tracking-tight: -0.02em;   /* --text-xl only */
+```
+
+Monospace resets to `letter-spacing: 0`. There is no positive-tracked
+uppercase label style; that was part of the Swiss treatment and it is not
+coming back.
+
+Font sizes are the main discipline. The CSS modules use nine distinct values
+today: 10px, 11px, 0.75rem, 0.8125rem, 0.875rem, 1rem, 1.125rem, 1.5rem,
+1.875rem. They collapse to four tokens, and nothing sets `font-size` to a
+literal value again:
+
+| Token | Size | Line height | Used for |
+| --- | --- | --- | --- |
+| `--text-sm` | 0.8125rem (13px) | 1.4 | Metadata, captions, table cells, the promise qualifier |
+| `--text-base` | 0.9375rem (15px) | 1.5 | Body, every control, navigation, the promise line |
+| `--text-lg` | 1.25rem (20px) | 1.3 | Section headings, tool card titles |
+| `--text-xl` | 1.75rem (28px) | 1.2 | The page title, once per page |
+
+Hierarchy comes from weight and colour, not size: 400 for body, 500 for
+labels and buttons, 600 for headings, and `--muted-foreground` for anything
+secondary. No 700. The 10px and 11px uses today become `--text-sm`; if
+something looks too large at 13px, the fix is colour or weight, not a fifth
+size.
+
+Timecodes, byte counts and percentages in `FileCard` get
+`font-variant-numeric: tabular-nums` so they stop jittering as they update.
+
+### 7.7 Layout
+
+One content width, `72rem`, with `1.25rem` side padding. Tool pages are a
+single column: title, promise strip, the tool, related tools, footer. The
+index is category sections, each a grid of cards showing the tool name and
+its tagline. No icons per tool, no illustrations, no hero. On a laptop the
+drop zone is above the fold.
+
+### 7.8 What this plan deliberately leaves out
+
+- Icon sets. An icon per tool is a maintenance surface and a visual noise
+  source; the tool name is the identifier.
+- "Coming soon" entries, for the reasons in 7.1.
+- Badges, pills and ticks for the promise, for the reasons in 7.3.
+- The Swiss grid: the baseline grid, uppercase tracked labels and the
+  `clamp()` display size from the reverted commit. Inter and the tracking
+  survive; the grid system does not.
+- A theme toggle. The OS preference is enough.
+
+### 7.9 Sequence
+
+Each step ships on its own and leaves the site working.
+
+1. **Registry and shell.** `lib/tools.ts`, the index at `/`, the tool moved
+   to `/extract-audio`, header, footer, related tools, `app/sitemap.ts`.
+2. **Tokens.** Swap the palette, radii and type scale in `globals.css`;
+   cherry-pick the Inter setup from `8e2c9ec`; replace every literal
+   `font-size` in the CSS modules with a token.
+3. **Base UI.** Button, then Select and Progress, then Checkbox Group, then
+   the navigation, in the order given in 7.4.
+4. **The promise.** The strip, the popover copy and the per-tool lead
+   paragraph.
+
+Step 2 changes how the existing tool looks before any new tool exists; that
+is intended, so the second tool is built on the finished system rather than
+retrofitted to it.
+
+---
+
+## 8. Open questions
 
 - What is the real usable output size before the heap gives out, per codec?
   Measure with `scripts/verify-large-file.mjs`, which already reports peak heap.
@@ -452,3 +757,8 @@ for large outputs, rather than bolting OPFS onto ffmpeg.
   Tier A first; the SEO argument says breadth attracts more queries. Depth is
   the better bet while the differentiator is file size rather than feature
   count.
+- Does the emitted `@font-face` for Inter carry the `opsz` axis in the static
+  export? The font data says yes; confirm on the first build. If not, the
+  tracking tokens in 7.6 do the whole job and the `axes` option is dropped.
+- Which category gets the second tool? Section 4 says a Tier A video tool;
+  section 7.1 is built so that the answer does not change the shell.
