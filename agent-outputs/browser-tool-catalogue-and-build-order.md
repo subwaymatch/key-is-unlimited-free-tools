@@ -578,6 +578,24 @@ Order of replacement: Button first, because it has the most instances and
 sets the look of everything else; then Select and Progress; then Checkbox
 Group; the navigation last, since it depends on the registry from 7.1.
 
+Two notes from doing it:
+
+**The navigation is deferred, not done.** A Navigation Menu whose panel holds
+a single link is worse than the single link, so the header keeps the plain
+anchors described in 7.2 until the catalogue outgrows one row. The trigger to
+build it is roughly five live tools, or the first time the header list wraps on
+a laptop. Nothing else depends on it: the footer already carries the whole
+catalogue as plain anchors, so discovery does not wait on this.
+
+**Radio Group came along with Checkbox Group.** FormatPicker and TrimPicker
+share the `.option` styles, so migrating only the checkboxes would have left
+one stylesheet serving a Base UI control and a native input at once.
+
+**The disclosure toggles stay native for now.** The three `aria-expanded`
+rows in FileCard and the settings toggle in AudioExtractorApp are full-width
+disclosure rows rather than buttons; Base UI's Collapsible is the right
+component for them, not Button, and it is not part of this step.
+
 ### 7.5 Colour: neutral, in the shadcn token shape, tighter corners
 
 The current palette is built around an indigo accent (`#5b52e8`). It goes.
@@ -745,7 +763,8 @@ Each step ships on its own and leaves the site working.
    cherry-pick the Inter setup from `8e2c9ec`; replace every literal
    `font-size` in the CSS modules with a token.
 3. **Base UI.** Button, then Select and Progress, then Checkbox Group, then
-   the navigation, in the order given in 7.4.
+   the navigation, in the order given in 7.4. The navigation waits for a
+   catalogue big enough to need it; see the note in 7.4.
 4. **The promise.** The strip, the popover copy and the per-tool lead
    paragraph.
 

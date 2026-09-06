@@ -1,6 +1,8 @@
 "use client";
 
 import { Download, RotateCcw, X } from "lucide-react";
+
+import { Button } from "./ui/Button";
 import { useMemo, useRef, useState } from "react";
 
 import { isFormatAvailable, OUTPUT_FORMATS, type OutputFormatId } from "@/lib/engine/formats";
@@ -113,28 +115,18 @@ function OutputRow({
             <span className={styles.rowMeta}>
               {output.ratio === null ? "Working..." : formatPercent(output.ratio)}
             </span>
-            <button
-              type="button"
-              onClick={onCancel}
-              aria-label={`Cancel ${output.label}`}
-              className={styles.rowButton}
-            >
+            <Button onClick={onCancel} aria-label={`Cancel ${output.label}`}>
               Cancel
-            </button>
+            </Button>
           </div>
         )}
 
         {output.status === "pending" && (
           <div className={styles.rowState}>
             <span className={styles.rowWaiting}>Waiting</span>
-            <button
-              type="button"
-              onClick={onCancel}
-              aria-label={`Cancel ${output.label}`}
-              className={styles.rowButton}
-            >
+            <Button onClick={onCancel} aria-label={`Cancel ${output.label}`}>
               Cancel
-            </button>
+            </Button>
           </div>
         )}
 
@@ -143,15 +135,10 @@ function OutputRow({
             {output.status === "cancelled" && (
               <span className={styles.rowWaiting}>Cancelled</span>
             )}
-            <button
-              type="button"
-              onClick={onRetry}
-              aria-label={`Retry ${output.label}`}
-              className={styles.rowButton}
-            >
+            <Button onClick={onRetry} aria-label={`Retry ${output.label}`}>
               <RotateCcw aria-hidden="true" size={13} strokeWidth={2} />
               Retry
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -256,26 +243,23 @@ export function FileCard({
           </span>
 
           {isRunning ? (
-            <button type="button" onClick={() => onCancel(job.id)} className={styles.action}>
-              Cancel
-            </button>
+            <Button onClick={() => onCancel(job.id)}>Cancel</Button>
           ) : (
             <>
               {(job.status === "error" || job.status === "cancelled") && (
-                <button type="button" onClick={() => onRetry(job.id)} className={styles.action}>
+                <Button onClick={() => onRetry(job.id)}>
                   <RotateCcw aria-hidden="true" size={13} strokeWidth={2} />
                   Retry
-                </button>
+                </Button>
               )}
-              <button
-                type="button"
+              <Button
                 onClick={() => onRemove(job.id)}
                 aria-label={`Remove ${job.file.name}`}
-                className={styles.action}
+                variant="ghost"
               >
                 <X aria-hidden="true" size={13} strokeWidth={2} />
                 Remove
-              </button>
+              </Button>
             </>
           )}
         </div>
@@ -351,14 +335,13 @@ export function FileCard({
             <div className={styles.chips}>
               <span className={styles.chipsLabel}>Also convert to:</span>
               {remainingFormats.map((format) => (
-                <button
+                <Button
                   key={format.id}
-                  type="button"
                   onClick={() => onAddFormat(job.id, format.id, null)}
                   className={styles.chip}
                 >
                   {format.label}
-                </button>
+                </Button>
               ))}
             </div>
           )}

@@ -72,12 +72,57 @@
   border-color: var(--border);
 }
 
-.control {
+/*
+ * Checkbox and radio indicators.
+ *
+ * These are Base UI controls rather than native inputs now, so the tick and the
+ * dot are drawn here; `accent-color` only ever applied to the native ones.
+ * Base UI sets data-checked and data-disabled, which is what the states select
+ * on.
+ */
+.control,
+.controlRadio {
   margin-top: 0.125rem;
+  display: flex;
   width: 1rem;
   height: 1rem;
   flex: none;
-  accent-color: var(--primary);
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--input);
+  background: var(--background);
+  color: var(--primary-foreground);
+}
+
+.control {
+  border-radius: var(--radius-sm);
+}
+
+.controlRadio {
+  border-radius: 9999px;
+}
+
+.control[data-checked],
+.controlRadio[data-checked] {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+.control[data-disabled],
+.controlRadio[data-disabled] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.controlIndicator {
+  display: flex;
+}
+
+.controlRadioDot {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: var(--primary-foreground);
 }
 
 .optionBody {
@@ -160,15 +205,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.select {
-  margin-top: 0.25rem;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-lg);
-  background: var(--muted);
-  padding: 0.25rem 0.5rem;
-  font-size: var(--text-base);
-  line-height: var(--leading-base);
-}
 
 .hint {
   font-size: var(--text-sm);

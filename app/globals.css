@@ -130,6 +130,11 @@ body {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
+  /*
+   * Gives the page its own stacking context so Base UI's portaled popups land
+   * above the content without any component having to pick a z-index.
+   */
+  isolation: isolate;
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);

@@ -1,6 +1,8 @@
 "use client";
 
 import { ChevronDown } from "lucide-react";
+
+import { Button } from "./ui/Button";
 import { useCallback, useState } from "react";
 
 import { CORE_VERSION, FFMPEG_VERSION } from "@/lib/engine/constants";
@@ -122,13 +124,9 @@ export function AudioExtractorApp() {
                 )}
               </h2>
               {finishedCount > 0 && (
-                <button
-                  type="button"
-                  onClick={clearFinished}
-                  className={styles.clearButton}
-                >
+                <Button onClick={clearFinished} variant="ghost">
                   Clear finished
-                </button>
+                </Button>
               )}
             </div>
 

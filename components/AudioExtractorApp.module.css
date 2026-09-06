@@ -103,18 +103,6 @@
   color: var(--muted-foreground);
 }
 
-.clearButton {
-  font-size: var(--text-sm);
-  line-height: var(--leading-sm);
-  color: var(--subtle);
-  text-underline-offset: 2px;
-}
-
-.clearButton:hover {
-  color: var(--muted-foreground);
-  text-decoration: underline;
-}
-
 .jobs {
   display: flex;
   flex-direction: column;

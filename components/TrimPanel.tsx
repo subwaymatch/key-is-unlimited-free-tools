@@ -8,6 +8,7 @@ import type { EngineCapabilities, TrimRange } from "@/lib/engine/types";
 import { formatDuration } from "@/lib/format-utils";
 import type { Job } from "@/lib/useConversionQueue";
 
+import { Button } from "./ui/Button";
 import styles from "./TrimPanel.module.css";
 
 interface TrimPanelProps {
@@ -104,49 +105,42 @@ export function TrimPanel({
 
         {getPreviewPosition && (
           <div className={styles.markerButtons}>
-            <button
-              type="button"
+            <Button
               disabled={disabled}
               onClick={() => setFromPreview(setStartText)}
               title="Set the start marker to the preview's playback position"
-              className={styles.button}
             >
               Start here
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
               disabled={disabled}
               onClick={() => setFromPreview(setEndText)}
               title="Set the end marker to the preview's playback position"
-              className={styles.button}
             >
               End here
-            </button>
+            </Button>
           </div>
         )}
 
-        <button
-          type="button"
+        <Button
           disabled={disabled}
           onClick={onDetectSilence}
           title="Decode the audio once to find leading and trailing silence"
-          className={styles.button}
         >
           Detect silence
-        </button>
+        </Button>
 
         {(startText || endText) && (
-          <button
-            type="button"
+          <Button
             disabled={disabled}
             onClick={() => {
               setStartText("");
               setEndText("");
             }}
-            className={styles.clear}
+            variant="ghost"
           >
             Clear
-          </button>
+          </Button>
         )}
       </div>
 
@@ -185,16 +179,15 @@ export function TrimPanel({
                 sameTrimRange(output.trim, trim),
             );
             return (
-              <button
+              <Button
                 key={format.id}
-                type="button"
                 disabled={disabled || exists}
                 title={exists ? "Already extracted for this range" : undefined}
                 onClick={() => onExtract(format.id, trim)}
                 className={styles.chip}
               >
                 {format.label}
-              </button>
+              </Button>
             );
           })}
         </div>
