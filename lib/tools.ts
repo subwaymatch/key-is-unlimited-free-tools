@@ -13,6 +13,14 @@
 
 export type ToolCategory = "video" | "audio" | "subtitles" | "images" | "documents" | "data";
 
+/*
+ * Icon keys, resolved to lucide components by components/ToolIcon.tsx.
+ *
+ * Kept as plain strings so this module stays data only: app/sitemap.ts imports
+ * it, and a sitemap has no business pulling React components into its graph.
+ */
+export type ToolIconName = "audio" | "compress" | "convert";
+
 export interface ToolMeta {
   /** URL segment. Verb-object, lowercase, hyphenated, and permanent once shipped. */
   slug: string;
@@ -23,6 +31,7 @@ export interface ToolMeta {
   /** Longer sentence for the meta description and the page lead. */
   description: string;
   category: ToolCategory;
+  icon: ToolIconName;
   /** What the drop zone takes, shown on the index card. */
   accepts: string;
   /**
@@ -60,6 +69,7 @@ export const TOOLS: readonly ToolMeta[] = [
     description:
       "Pull the audio track out of any video, entirely in your browser. Files never leave your device, and multi-gigabyte videos are supported.",
     category: "audio",
+    icon: "audio",
     accepts: "Video files",
     status: "live",
   },
@@ -70,6 +80,7 @@ export const TOOLS: readonly ToolMeta[] = [
     description:
       "Compress a video to a size you choose, entirely in your browser. Nothing is uploaded, so there is no cap on the file you start from.",
     category: "video",
+    icon: "compress",
     accepts: "Video files",
     status: "planned",
   },
@@ -80,6 +91,7 @@ export const TOOLS: readonly ToolMeta[] = [
     description:
       "Convert a video to a format that plays anywhere, entirely in your browser. Nothing is uploaded, whatever the file size.",
     category: "video",
+    icon: "convert",
     accepts: "Video files",
     status: "planned",
   },

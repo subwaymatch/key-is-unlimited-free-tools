@@ -16,22 +16,15 @@
 }
 
 .title {
-  font-size: 1.5rem;
-  line-height: 2rem;
+  font-size: var(--text-xl);
+  line-height: var(--leading-xl);
   font-weight: 600;
-  letter-spacing: -0.025em;
-}
-
-@media (min-width: 640px) {
-  .title {
-    font-size: 1.875rem;
-    line-height: 2.25rem;
-  }
+  letter-spacing: var(--tracking-tight);
 }
 
 .tagline {
   margin-top: 0.5rem;
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 
 .stack {
@@ -43,9 +36,7 @@
 /* ---- Settings disclosure ----------------------------------------------- */
 
 .settings {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  background: var(--surface);
+  border-top: 1px solid var(--border);
 }
 
 .settingsToggle {
@@ -59,22 +50,22 @@
 }
 
 .settingsTitle {
-  font-size: 0.875rem;
-  line-height: 1.25rem;
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
   font-weight: 500;
 }
 
 .settingsSummary {
   margin-left: 0.5rem;
   font-weight: 400;
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 
 .chevron {
   width: 1rem;
   height: 1rem;
   flex: none;
-  color: var(--muted);
+  color: var(--muted-foreground);
   transition: transform 150ms;
 }
 
@@ -101,26 +92,26 @@
 }
 
 .queueCount {
-  font-size: 0.875rem;
-  line-height: 1.25rem;
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
   font-weight: 500;
 }
 
 .queueRemaining {
   margin-left: 0.5rem;
   font-weight: 400;
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 
 .clearButton {
-  font-size: 0.75rem;
-  line-height: 1rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
   color: var(--subtle);
   text-underline-offset: 2px;
 }
 
 .clearButton:hover {
-  color: var(--muted);
+  color: var(--muted-foreground);
   text-decoration: underline;
 }
 
@@ -132,8 +123,8 @@
 
 .total {
   margin-top: 0.75rem;
-  font-size: 0.75rem;
-  line-height: 1rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
   color: var(--subtle);
 }
 
@@ -146,7 +137,7 @@
   gap: 0.5rem;
   border-top: 1px solid var(--border);
   padding-top: 1.5rem;
-  font-size: 0.75rem;
-  line-height: 1rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
   color: var(--subtle);
 }

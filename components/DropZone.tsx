@@ -1,5 +1,6 @@
 "use client";
 
+import { CloudUpload } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import styles from "./DropZone.module.css";
@@ -100,20 +101,7 @@ export function DropZone({ onFiles, compact = false }: DropZoneProps) {
         }}
       />
 
-      <svg
-        aria-hidden="true"
-        viewBox="0 0 24 24"
-        fill="none"
-        strokeWidth={1.5}
-        stroke="currentColor"
-        className={styles.icon}
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M12 16.5V9m0 0-3 3m3-3 3 3M6.75 19.5a4.5 4.5 0 0 1-.41-8.98 6 6 0 0 1 11.64-2.02A4.5 4.5 0 0 1 17.25 19.5H6.75Z"
-        />
-      </svg>
+      <CloudUpload aria-hidden="true" className={styles.icon} size={32} strokeWidth={1.25} />
 
       <span>
         <span className={styles.headline}>

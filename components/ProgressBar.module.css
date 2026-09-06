@@ -14,7 +14,7 @@
 }
 
 .accent {
-  background: var(--accent);
+  background: var(--primary);
 }
 
 .success {
@@ -22,7 +22,7 @@
 }
 
 .danger {
-  background: var(--danger);
+  background: var(--destructive);
 }
 
 /*
@@ -35,6 +35,6 @@
   inset-block: 0;
   width: 25%;
   border-radius: inherit;
-  background: var(--accent);
+  background: var(--primary);
   animation: indeterminate-slide 1.4s ease-in-out infinite;
 }

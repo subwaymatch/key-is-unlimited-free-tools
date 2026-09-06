@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { ToolIcon } from "@/components/ToolIcon";
 import { PROMISE, PROMISE_QUALIFIER, PROMISE_REASON } from "@/lib/site";
 import { CATEGORY_LABELS, liveToolsByCategory, toolPath } from "@/lib/tools";
 
@@ -30,7 +31,10 @@ export default function Page() {
             {tools.map((tool) => (
               <li key={tool.slug}>
                 <Link href={toolPath(tool)} className={styles.card}>
-                  <span className={styles.name}>{tool.name}</span>
+                  <span className={styles.cardHead}>
+                    <ToolIcon name={tool.icon} className={styles.icon} />
+                    <span className={styles.name}>{tool.name}</span>
+                  </span>
                   <span className={styles.tagline}>{tool.tagline}</span>
                   <span className={styles.accepts}>{tool.accepts}</span>
                 </Link>

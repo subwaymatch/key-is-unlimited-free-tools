@@ -1,5 +1,6 @@
 "use client";
 
+import { Download, RotateCcw, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import { isFormatAvailable, OUTPUT_FORMATS, type OutputFormatId } from "@/lib/engine/formats";
@@ -101,6 +102,7 @@ function OutputRow({
               {formatBytes(result.bytes)}, {formatElapsed(result.elapsedMs)}
             </span>
             <a href={output.url} download={result.fileName} className={styles.download}>
+              <Download aria-hidden="true" size={14} strokeWidth={2} />
               Download
             </a>
           </div>
@@ -147,6 +149,7 @@ function OutputRow({
               aria-label={`Retry ${output.label}`}
               className={styles.rowButton}
             >
+              <RotateCcw aria-hidden="true" size={13} strokeWidth={2} />
               Retry
             </button>
           </div>
@@ -260,6 +263,7 @@ export function FileCard({
             <>
               {(job.status === "error" || job.status === "cancelled") && (
                 <button type="button" onClick={() => onRetry(job.id)} className={styles.action}>
+                  <RotateCcw aria-hidden="true" size={13} strokeWidth={2} />
                   Retry
                 </button>
               )}
@@ -269,6 +273,7 @@ export function FileCard({
                 aria-label={`Remove ${job.file.name}`}
                 className={styles.action}
               >
+                <X aria-hidden="true" size={13} strokeWidth={2} />
                 Remove
               </button>
             </>

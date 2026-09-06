@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { TOOL_ICONS } from "@/components/ToolIcon";
 import {
   CATEGORY_LABELS,
   CATEGORY_ORDER,
@@ -51,6 +52,23 @@ describe("the tool registry", () => {
   it("gives every tool a description long enough to serve as a meta description", () => {
     for (const tool of TOOLS) {
       expect(tool.description.length, tool.slug).toBeGreaterThan(tool.tagline.length);
+    }
+  });
+});
+
+describe("tool icons", () => {
+  it("resolve to a lucide component for every tool", () => {
+    for (const tool of TOOLS) {
+      expect(TOOL_ICONS[tool.icon], `${tool.slug} has no icon for "${tool.icon}"`).toBeTypeOf(
+        "object",
+      );
+    }
+  });
+
+  it("has no mapping left over for an icon no tool uses", () => {
+    const used = new Set(TOOLS.map((tool) => tool.icon));
+    for (const key of Object.keys(TOOL_ICONS)) {
+      expect(used, `TOOL_ICONS."${key}" is unused`).toContain(key);
     }
   });
 });

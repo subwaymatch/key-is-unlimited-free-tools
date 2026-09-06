@@ -1,8 +1,7 @@
 .panel {
   margin-top: 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--background);
+  border-radius: var(--radius);
+  background: var(--muted);
   padding: 0.75rem;
 }
 
@@ -15,10 +14,10 @@
 
 .fieldLabel {
   display: block;
-  font-size: 0.75rem;
-  line-height: 1rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
   font-weight: 500;
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 
 .input {
@@ -26,10 +25,10 @@
   width: 7rem;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
-  background: var(--surface);
+  background: var(--background);
   padding: 0.25rem 0.5rem;
-  font-size: 0.875rem;
-  line-height: 1.25rem;
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
   font-variant-numeric: tabular-nums;
 }
 
@@ -41,10 +40,10 @@
 
 .button {
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius);
   padding: 0.25rem 0.5rem;
-  font-size: 0.75rem;
-  line-height: 1rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
   font-weight: 500;
   transition:
     border-color 150ms,
@@ -52,8 +51,8 @@
 }
 
 .button:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--primary);
+  color: var(--foreground);
 }
 
 .button:disabled {
@@ -61,14 +60,14 @@
 }
 
 .clear {
-  font-size: 0.75rem;
-  line-height: 1rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
   color: var(--subtle);
   text-underline-offset: 2px;
 }
 
 .clear:hover:not(:disabled) {
-  color: var(--muted);
+  color: var(--muted-foreground);
   text-decoration: underline;
 }
 
@@ -78,22 +77,22 @@
 
 .note {
   margin-top: 0.5rem;
-  font-size: 0.75rem;
-  line-height: 1rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
   color: var(--subtle);
 }
 
 .problem {
   margin-top: 0.5rem;
-  font-size: 0.75rem;
-  line-height: 1rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
   color: var(--warning);
 }
 
 .detail {
   margin-top: 0.25rem;
-  font-size: 0.75rem;
-  line-height: 1rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
   color: var(--subtle);
 }
 
@@ -106,17 +105,17 @@
 }
 
 .extractLabel {
-  font-size: 0.75rem;
-  line-height: 1rem;
-  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--muted-foreground);
 }
 
 .chip {
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius);
   padding: 0.125rem 0.5rem;
-  font-size: 0.75rem;
-  line-height: 1rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
   font-weight: 500;
   transition:
     border-color 150ms,
@@ -124,8 +123,8 @@
 }
 
 .chip:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--primary);
+  color: var(--foreground);
 }
 
 .chip:disabled {

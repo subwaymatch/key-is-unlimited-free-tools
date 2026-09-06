@@ -7,16 +7,16 @@
 }
 
 .legend {
-  font-size: 0.875rem;
-  line-height: 1.25rem;
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
   font-weight: 500;
 }
 
 .intro {
   margin-top: 0.25rem;
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-  color: var(--muted);
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+  color: var(--muted-foreground);
 }
 
 .grid {
@@ -47,8 +47,8 @@
   gap: 0.75rem;
   cursor: pointer;
   border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  background: var(--surface);
+  border-radius: var(--radius-lg);
+  background: var(--background);
   padding: 0.75rem;
   transition:
     border-color 150ms,
@@ -61,8 +61,8 @@
 
 .optionChecked,
 .optionChecked:hover {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  border-color: var(--primary);
+  background: var(--muted);
 }
 
 .optionDisabled,
@@ -77,7 +77,7 @@
   width: 1rem;
   height: 1rem;
   flex: none;
-  accent-color: var(--accent);
+  accent-color: var(--primary);
 }
 
 .optionBody {
@@ -92,24 +92,24 @@
 
 .optionLabel {
   display: block;
-  font-size: 0.875rem;
-  line-height: 1.25rem;
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
   font-weight: 500;
 }
 
 .optionBlurb {
   display: block;
   margin-top: 0.125rem;
-  font-size: 0.75rem;
-  line-height: 1rem;
-  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--muted-foreground);
 }
 
 .badge {
   border-radius: var(--radius-sm);
   background: var(--success-soft);
   padding: 0.125rem 0.375rem;
-  font-size: 10px;
+  font-size: var(--text-sm);
   line-height: 1.2;
   font-weight: 600;
   text-transform: uppercase;
@@ -119,8 +119,8 @@
 
 .warning {
   margin-top: 0.5rem;
-  font-size: 0.75rem;
-  line-height: 1rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
   color: var(--warning);
 }
 
@@ -128,9 +128,8 @@
 
 .panel {
   margin-top: 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  background: var(--surface);
+  border-radius: var(--radius);
+  background: var(--muted);
   padding: 0.75rem;
 }
 
@@ -143,10 +142,10 @@
 
 .fieldLabel {
   display: block;
-  font-size: 0.75rem;
-  line-height: 1rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
   font-weight: 500;
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 
 .input {
@@ -154,10 +153,10 @@
   width: 7rem;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
-  background: var(--background);
+  background: var(--muted);
   padding: 0.25rem 0.5rem;
-  font-size: 0.875rem;
-  line-height: 1.25rem;
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
   font-variant-numeric: tabular-nums;
 }
 
@@ -165,21 +164,21 @@
   margin-top: 0.25rem;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
-  background: var(--background);
+  background: var(--muted);
   padding: 0.25rem 0.5rem;
-  font-size: 0.875rem;
-  line-height: 1.25rem;
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
 }
 
 .hint {
-  font-size: 0.75rem;
-  line-height: 1rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
   color: var(--subtle);
 }
 
 .panelNote {
   margin-top: 0.5rem;
-  font-size: 0.75rem;
-  line-height: 1rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
   color: var(--subtle);
 }

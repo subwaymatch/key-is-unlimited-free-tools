@@ -2,6 +2,8 @@ import Link from "next/link";
 
 import { relatedTools, toolPath } from "@/lib/tools";
 
+import { ToolIcon } from "./ToolIcon";
+
 import styles from "./RelatedTools.module.css";
 
 interface RelatedToolsProps {
@@ -28,7 +30,10 @@ export function RelatedTools({ slug }: RelatedToolsProps) {
         {tools.map((tool) => (
           <li key={tool.slug}>
             <Link href={toolPath(tool)} className={styles.card}>
-              <span className={styles.name}>{tool.name}</span>
+              <span className={styles.cardHead}>
+                <ToolIcon name={tool.icon} className={styles.icon} />
+                <span className={styles.name}>{tool.name}</span>
+              </span>
               <span className={styles.tagline}>{tool.tagline}</span>
             </Link>
           </li>

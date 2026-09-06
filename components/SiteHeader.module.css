@@ -1,6 +1,5 @@
 .header {
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--background);
 }
 
 .inner {
@@ -16,7 +15,7 @@
 
 .wordmark {
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: var(--tracking-tight);
 }
 
 .list {
@@ -27,8 +26,8 @@
 }
 
 .link {
-  color: var(--muted);
-  font-size: 0.875rem;
+  color: var(--muted-foreground);
+  font-size: var(--text-base);
 }
 
 .link:hover {

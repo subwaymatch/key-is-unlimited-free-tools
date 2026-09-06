@@ -17,27 +17,20 @@
 }
 
 .title {
-  font-size: 1.5rem;
-  line-height: 2rem;
+  font-size: var(--text-xl);
+  line-height: var(--leading-xl);
   font-weight: 600;
-  letter-spacing: -0.025em;
-}
-
-@media (min-width: 640px) {
-  .title {
-    font-size: 1.875rem;
-    line-height: 2.25rem;
-  }
+  letter-spacing: var(--tracking-tight);
 }
 
 .reason {
   margin-top: 0.75rem;
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 
 .qualifier {
   margin-top: 0.5rem;
-  font-size: 0.875rem;
+  font-size: var(--text-base);
   color: var(--subtle);
 }
 
@@ -46,7 +39,7 @@
 }
 
 .groupTitle {
-  font-size: 0.75rem;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--subtle);
   margin-bottom: 0.75rem;
@@ -54,7 +47,7 @@
 
 .list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
   gap: 0.75rem;
   margin: 0;
 }
@@ -65,13 +58,26 @@
   gap: 0.25rem;
   height: 100%;
   padding: 1rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface);
+  border-radius: var(--radius);
 }
 
 .card:hover {
-  border-color: var(--border-strong);
+  background: var(--muted);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.icon {
+  flex: none;
+  color: var(--muted-foreground);
+}
+
+.card:hover .icon {
+  color: var(--foreground);
 }
 
 .name {
@@ -79,12 +85,12 @@
 }
 
 .tagline {
-  font-size: 0.875rem;
-  color: var(--muted);
+  font-size: var(--text-base);
+  color: var(--muted-foreground);
 }
 
 .accepts {
   margin-top: 0.25rem;
-  font-size: 0.75rem;
+  font-size: var(--text-sm);
   color: var(--subtle);
 }

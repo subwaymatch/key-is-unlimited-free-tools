@@ -3,7 +3,7 @@
 }
 
 .title {
-  font-size: 0.75rem;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--subtle);
   margin-bottom: 0.75rem;
@@ -11,7 +11,7 @@
 
 .list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
   gap: 0.75rem;
   margin: 0;
 }
@@ -22,13 +22,26 @@
   gap: 0.25rem;
   height: 100%;
   padding: 0.875rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface);
+  border-radius: var(--radius);
 }
 
 .card:hover {
-  border-color: var(--border-strong);
+  background: var(--muted);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.icon {
+  flex: none;
+  color: var(--muted-foreground);
+}
+
+.card:hover .icon {
+  color: var(--foreground);
 }
 
 .name {
@@ -36,6 +49,6 @@
 }
 
 .tagline {
-  font-size: 0.875rem;
-  color: var(--muted);
+  font-size: var(--text-base);
+  color: var(--muted-foreground);
 }

@@ -666,12 +666,14 @@ const inter = Inter({
 });
 ```
 
-`opsz` is Inter 4's optical-size axis. Next 15.5's bundled font data lists
-it for Inter with a 14-32 range, so the option is valid and the browser will
-pick the tighter display cut automatically at `--text-lg` (20px) and
-`--text-xl` (28px). At body size, 15px, it is effectively neutral, which is
-why the tracking token below still does the work there. Confirm the emitted
-`@font-face` carries the axis after the first build; the data says it will.
+`opsz` is Inter 4's optical-size axis. **Confirmed in the built output**: the
+woff2 files Next emits carry `fvar` axes `opsz` (14 to 32) and `wght` (100 to
+900), so the browser picks the tighter display cut automatically at
+`--text-lg` and `--text-xl`. No CSS is needed to engage it, because
+`font-optical-sizing: auto` is the initial value; the absence of
+`font-variation-settings` in the emitted stylesheet is expected and not a
+symptom. At body size the axis is close to neutral, which is why the tracking
+token below still does the work there.
 
 Tracking is tightened slightly, not dramatically:
 
@@ -715,14 +717,23 @@ drop zone is above the fold.
 
 ### 7.8 What this plan deliberately leaves out
 
-- Icon sets. An icon per tool is a maintenance surface and a visual noise
-  source; the tool name is the identifier.
 - "Coming soon" entries, for the reasons in 7.1.
 - Badges, pills and ticks for the promise, for the reasons in 7.3.
 - The Swiss grid: the baseline grid, uppercase tracked labels and the
   `clamp()` display size from the reverted commit. Inter and the tracking
   survive; the grid system does not.
 - A theme toggle. The OS preference is enough.
+
+Reversed since: **icon sets**. This plan originally left them out, on the
+grounds that an icon per tool is a maintenance surface and the tool name is the
+identifier. Overruled by the owner, and implemented with lucide-react: a
+registry key per tool resolved to a component by `components/ToolIcon.tsx`, so
+`lib/tools.ts` stays free of React and `app/sitemap.ts` does not pull icons into
+its graph. A test asserts the key set and the map agree in both directions. The
+maintenance concern was real but small; the cost measured out at under a
+kilobyte, since Next lists lucide-react in `optimizePackageImports` by default.
+Icons also replaced two hand-drawn SVG paths that were already in the
+components, so the change removed markup as well as adding it.
 
 ### 7.9 Sequence
 
@@ -757,8 +768,5 @@ retrofitted to it.
   Tier A first; the SEO argument says breadth attracts more queries. Depth is
   the better bet while the differentiator is file size rather than feature
   count.
-- Does the emitted `@font-face` for Inter carry the `opsz` axis in the static
-  export? The font data says yes; confirm on the first build. If not, the
-  tracking tokens in 7.6 do the whole job and the `axes` option is dropped.
 - Which category gets the second tool? Section 4 says a Tier A video tool;
   section 7.1 is built so that the answer does not change the shell.
