@@ -1,15 +1,22 @@
 "use client";
 
+import { Download, Plus, RotateCcw, X } from "lucide-react";
+
+import { Button } from "./ui/Button";
 import { useMemo, useRef, useState } from "react";
 
-import { isFormatAvailable, OUTPUT_FORMATS, type OutputFormatId } from "@/lib/engine/formats";
+import {
+  getFormat,
+  isFormatAvailable,
+  OUTPUT_FORMATS,
+  type OutputFormatId,
+} from "@/lib/engine/formats";
 import { formatTimecode } from "@/lib/engine/trim";
-import type { EngineCapabilities, TrimRange } from "@/lib/engine/types";
+import type { EngineCapabilities, ProbeResult, TrimRange } from "@/lib/engine/types";
 import {
   describeAudio,
   formatBytes,
   formatDuration,
-  formatElapsed,
   formatPercent,
   isLikelyPlayable,
 } from "@/lib/format-utils";
@@ -25,7 +32,11 @@ interface FileCardProps {
   onCancel: (jobId: string) => void;
   onRemove: (jobId: string) => void;
   onRetry: (jobId: string) => void;
-  onAddFormat: (jobId: string, formatId: OutputFormatId, trim?: TrimRange | null) => void;
+  onAddFormat: (
+    jobId: string,
+    formatId: OutputFormatId,
+    trim?: TrimRange | null,
+  ) => void;
   onDetectSilence: (jobId: string) => void;
   onCancelOutput: (jobId: string, outputId: string) => void;
   onRetryOutput: (jobId: string, outputId: string) => void;
@@ -49,21 +60,44 @@ const STATUS_LABEL: Record<Job["status"], string> = {
   cancelled: "Cancelled",
 };
 
+/**
+ * Extension the output will carry.
+ *
+ * Read from the finished file when there is one and from the format plan
+ * before then, which is the same function that names the download, so the
+ * badge cannot promise one extension and deliver another. "Original" is the
+ * reason this is not simply the format id: its container depends on the
+ * source codec.
+ */
+function outputExtension(output: JobOutput, probe: ProbeResult | undefined): string | null {
+  const fromResult = output.result?.fileName.split(".").pop();
+  if (fromResult) return fromResult;
+  if (!probe) return null;
+  try {
+    return getFormat(output.formatId).plan(probe).extension;
+  } catch {
+    return null;
+  }
+}
+
 function OutputRow({
   output,
   durationSeconds,
+  extension,
   onCancel,
   onRetry,
 }: {
   output: JobOutput;
   durationSeconds: number | null;
+  /** File extension this output will carry, e.g. "mp3". Null before probing. */
+  extension: string | null;
   onCancel: () => void;
   onRetry: () => void;
 }) {
   const { result, trim } = output;
 
   const range = trim
-    ? `${formatTimecode(trim.startSeconds)}–${
+    ? `${formatTimecode(trim.startSeconds)}-${
         trim.endSeconds !== null
           ? formatTimecode(trim.endSeconds)
           : durationSeconds !== null
@@ -85,9 +119,10 @@ function OutputRow({
               {range}
             </span>
           )}
+          {extension && <span className={`${styles.tag} ${styles.tagExt}`}>.{extension}</span>}
           {result?.mode === "copy" && (
             <span
-              title="Copied without re-encoding — bit-for-bit identical audio"
+              title="Copied without re-encoding - bit-for-bit identical audio"
               className={`${styles.tag} ${styles.tagCopy}`}
             >
               Stream copy
@@ -98,9 +133,14 @@ function OutputRow({
         {output.status === "done" && result && (
           <div className={styles.rowState}>
             <span className={styles.rowMeta}>
-              {formatBytes(result.bytes)} · {formatElapsed(result.elapsedMs)}
+              {formatBytes(result.bytes)}
             </span>
-            <a href={output.url} download={result.fileName} className={styles.download}>
+            <a
+              href={output.url}
+              download={result.fileName}
+              className={styles.download}
+            >
+              <Download aria-hidden="true" size={14} strokeWidth={2} />
               Download
             </a>
           </div>
@@ -109,30 +149,22 @@ function OutputRow({
         {output.status === "running" && (
           <div className={styles.rowState}>
             <span className={styles.rowMeta}>
-              {output.ratio === null ? "Working…" : formatPercent(output.ratio)}
+              {output.ratio === null
+                ? "Working..."
+                : formatPercent(output.ratio)}
             </span>
-            <button
-              type="button"
-              onClick={onCancel}
-              aria-label={`Cancel ${output.label}`}
-              className={styles.rowButton}
-            >
+            <Button onClick={onCancel} aria-label={`Cancel ${output.label}`}>
               Cancel
-            </button>
+            </Button>
           </div>
         )}
 
         {output.status === "pending" && (
           <div className={styles.rowState}>
             <span className={styles.rowWaiting}>Waiting</span>
-            <button
-              type="button"
-              onClick={onCancel}
-              aria-label={`Cancel ${output.label}`}
-              className={styles.rowButton}
-            >
+            <Button onClick={onCancel} aria-label={`Cancel ${output.label}`}>
               Cancel
-            </button>
+            </Button>
           </div>
         )}
 
@@ -141,28 +173,29 @@ function OutputRow({
             {output.status === "cancelled" && (
               <span className={styles.rowWaiting}>Cancelled</span>
             )}
-            <button
-              type="button"
-              onClick={onRetry}
-              aria-label={`Retry ${output.label}`}
-              className={styles.rowButton}
-            >
+            <Button onClick={onRetry} aria-label={`Retry ${output.label}`}>
+              <RotateCcw aria-hidden="true" size={13} strokeWidth={2} />
               Retry
-            </button>
+            </Button>
           </div>
         )}
       </div>
 
       {output.status === "running" && (
         <div className={styles.rowBar}>
-          <ProgressBar ratio={output.ratio} label={`${output.label} conversion progress`} />
+          <ProgressBar
+            ratio={output.ratio}
+            label={`${output.label} conversion progress`}
+          />
         </div>
       )}
 
       {output.status === "error" && output.error && (
         <div className={styles.rowError}>
           <p className={styles.rowErrorMessage}>{output.error.message}</p>
-          {output.error.hint && <p className={styles.rowErrorHint}>{output.error.hint}</p>}
+          {output.error.hint && (
+            <p className={styles.rowErrorHint}>{output.error.hint}</p>
+          )}
         </div>
       )}
     </div>
@@ -181,18 +214,21 @@ export function FileCard({
   onRetryOutput,
 }: FileCardProps) {
   const [showLogs, setShowLogs] = useState(false);
-  const [showTrim, setShowTrim] = useState(false);
   const previewRef = useRef<HTMLAudioElement | null>(null);
 
   const isRunning = job.status === "preparing" || job.status === "converting";
-  const runningOutput = job.outputs.find((output) => output.status === "running");
+  const runningOutput = job.outputs.find(
+    (output) => output.status === "running",
+  );
 
   /** The first finished output a browser is likely to play inline. */
   const playable = useMemo(
     () =>
       job.outputs.find(
         (output) =>
-          output.status === "done" && output.url && isLikelyPlayable(output.result!.extension),
+          output.status === "done" &&
+          output.url &&
+          isLikelyPlayable(output.result!.extension),
       ),
     [job.outputs],
   );
@@ -220,59 +256,72 @@ export function FileCard({
     playable && playable.trim === null
       ? () => {
           const element = previewRef.current;
-          return element && Number.isFinite(element.currentTime) ? element.currentTime : null;
+          return element && Number.isFinite(element.currentTime)
+            ? element.currentTime
+            : null;
         }
       : null;
 
   return (
     <li className={styles.card}>
-      {/* The status sits in the card's left column: every record in the queue
-          announces itself at the same x, which is what makes the list scan. */}
-      <p className={`${styles.status} ${STATUS_STYLE[job.status]}`}>
-        {STATUS_LABEL[job.status]}
-      </p>
-
       <div className={styles.header}>
         <div className={styles.identity}>
-          <p className={styles.fileName} title={job.file.name}>
-            {job.file.name}
-          </p>
-          <p className={styles.meta}>
-            {formatBytes(job.file.size)}
-            {job.probe && (
-              <>
-                {" · "}
-                {formatDuration(job.probe.durationSeconds)}
-                {" · "}
-                {describeAudio(job.probe.audio)}
-              </>
-            )}
-            {job.probe && job.probe.audioStreams.length > 1 && (
-              <> {` · ${job.probe.audioStreams.length} audio tracks (using the first)`}</>
-            )}
-          </p>
+          {job.posterUrl && (
+            /*
+             * Decorative: the filename right beside it already identifies the
+             * file, so alt text here would only repeat it. eslint-disable is
+             * not needed - an empty alt is the correct markup for that.
+             */
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={job.posterUrl} alt="" className={styles.poster} />
+          )}
+          <div className={styles.identityText}>
+            <p className={styles.fileName} title={job.file.name}>
+              {job.file.name}
+            </p>
+            <p className={styles.meta}>
+              {formatBytes(job.file.size)}
+              {job.probe && (
+                <>
+                  {", "}
+                  {formatDuration(job.probe.durationSeconds)}
+                  {", "}
+                  {describeAudio(job.probe.audio)}
+                </>
+              )}
+              {job.probe && job.probe.audioStreams.length > 1 && (
+                <>
+                  {" "}
+                  {`, ${job.probe.audioStreams.length} audio tracks (using the first)`}
+                </>
+              )}
+            </p>
+          </div>
         </div>
 
         <div className={styles.actions}>
+          <span className={`${styles.status} ${STATUS_STYLE[job.status]}`}>
+            {STATUS_LABEL[job.status]}
+          </span>
+
           {isRunning ? (
-            <button type="button" onClick={() => onCancel(job.id)} className={styles.action}>
-              Cancel
-            </button>
+            <Button onClick={() => onCancel(job.id)}>Cancel</Button>
           ) : (
             <>
               {(job.status === "error" || job.status === "cancelled") && (
-                <button type="button" onClick={() => onRetry(job.id)} className={styles.action}>
+                <Button onClick={() => onRetry(job.id)}>
+                  <RotateCcw aria-hidden="true" size={13} strokeWidth={2} />
                   Retry
-                </button>
+                </Button>
               )}
-              <button
-                type="button"
+              <Button
                 onClick={() => onRemove(job.id)}
                 aria-label={`Remove ${job.file.name}`}
-                className={styles.action}
+                variant="ghost"
               >
+                <X aria-hidden="true" size={13} strokeWidth={2} />
                 Remove
-              </button>
+              </Button>
             </>
           )}
         </div>
@@ -311,7 +360,9 @@ export function FileCard({
       {job.status === "error" && job.error && (
         <div role="alert" className={styles.alert}>
           <p className={styles.alertMessage}>{job.error.message}</p>
-          {job.error.hint && <p className={styles.alertHint}>{job.error.hint}</p>}
+          {job.error.hint && (
+            <p className={styles.alertHint}>{job.error.hint}</p>
+          )}
         </div>
       )}
 
@@ -322,6 +373,7 @@ export function FileCard({
               <OutputRow
                 output={output}
                 durationSeconds={totalDuration}
+                extension={outputExtension(output, job.probe)}
                 onCancel={() => onCancelOutput(job.id, output.id)}
                 onRetry={() => onRetryOutput(job.id, output.id)}
               />
@@ -348,38 +400,26 @@ export function FileCard({
             <div className={styles.chips}>
               <span className={styles.chipsLabel}>Also convert to:</span>
               {remainingFormats.map((format) => (
-                <button
+                <Button
                   key={format.id}
-                  type="button"
                   onClick={() => onAddFormat(job.id, format.id, null)}
                   className={styles.chip}
                 >
+                  <Plus aria-hidden="true" size={13} strokeWidth={2} />
                   {format.label}
-                </button>
+                </Button>
               ))}
             </div>
           )}
 
-          <div className={styles.disclosure}>
-            <button
-              type="button"
-              onClick={() => setShowTrim((previous) => !previous)}
-              aria-expanded={showTrim}
-              className={styles.disclosureButton}
-            >
-              {showTrim ? "Hide" : "Trim or clip a range"}
-            </button>
-            {showTrim && (
-              <TrimPanel
-                job={job}
-                capabilities={capabilities}
-                onExtract={(formatId, trim) => onAddFormat(job.id, formatId, trim)}
-                onDetectSilence={() => onDetectSilence(job.id)}
-                getPreviewPosition={getPreviewPosition}
-                disabled={isRunning}
-              />
-            )}
-          </div>
+          <TrimPanel
+            job={job}
+            capabilities={capabilities}
+            onExtract={(formatId, trim) => onAddFormat(job.id, formatId, trim)}
+            onDetectSilence={() => onDetectSilence(job.id)}
+            getPreviewPosition={getPreviewPosition}
+            disabled={isRunning}
+          />
         </>
       )}
 

@@ -15,6 +15,7 @@ import type {
   ExtractOptions,
   ExtractOutput,
   ExtractProgress,
+  PosterFrame,
   ProbeResult,
   SilenceScanOptions,
   SilenceScanResult,
@@ -71,6 +72,8 @@ const fake = vi.hoisted(() => {
   class FakeSession {
     probe = PROBE;
     closed = false;
+    /** Set by a test to make the thumbnail step fail. */
+    posterFails = false;
     /** Every call the hook has made, in order; settled ones stay for the record. */
     calls: PendingCall[] = [];
 
@@ -105,6 +108,12 @@ const fake = vi.hoisted(() => {
       return this.#record("extract", formatId, options);
     }
 
+    /** Rejects when `posterFails` is set, to prove a bad frame is survivable. */
+    poster(): Promise<PosterFrame | null> {
+      if (this.posterFails) return Promise.reject(new Error("no frame"));
+      return Promise.resolve(null);
+    }
+
     detectSilence(
       options?: Partial<SilenceScanOptions>,
       onProgress?: (progress: ExtractProgress) => void,
@@ -129,7 +138,7 @@ const fake = vi.hoisted(() => {
     readonly id = "fake";
     loaded = false;
     terminated = false;
-    /** When set, `load` waits on it — for tests that act during the core download. */
+    /** When set, `load` waits on it - for tests that act during the core download. */
     loadGate: Deferred<void> | null = null;
     sessions: FakeSession[] = [];
     capabilities: EngineCapabilities | null = null;
@@ -165,7 +174,7 @@ const fake = vi.hoisted(() => {
     current: null as FakeEngine | null,
     capabilities: {
       // No pcm_s16le, so WAV is the format this core cannot produce.
-      encoders: new Set(["aac", "libmp3lame", "libopus", "flac"]),
+      encoders: new Set(["aac", "libmp3lame", "opus", "flac"]),
       supportsWorkerFs: true,
     } as EngineCapabilities,
   };
@@ -311,6 +320,29 @@ describe("a file through the queue", () => {
     expect(fake.state.engines).toHaveLength(1);
   });
 
+  /*
+   * A thumbnail is decoration. The engine already resolves to null on its own
+   * failures, and the queue catches the rest, so no way of failing to get a
+   * frame may take the conversion down with it.
+   */
+  it("still converts the file when the thumbnail cannot be taken", async () => {
+    const hook = setup();
+    await act(async () => {
+      hook.result.current.addFiles([file()]);
+    });
+
+    const first = await session();
+    first.posterFails = true;
+
+    const original = await nextCall(first);
+    await finish(original);
+    const mp3 = await nextCall(first);
+    await finish(mp3);
+
+    await waitFor(() => expect(job(hook).status).toBe("done"));
+    expect(job(hook).posterUrl).toBeUndefined();
+  });
+
   it("carries on with the other formats when one fails, and reports the failure on its row", async () => {
     const hook = setup();
     await act(async () => {
@@ -420,15 +452,15 @@ describe("cancelling", () => {
       hook.result.current.addFiles([file()]);
     });
     expect(job(hook).status).toBe("preparing");
-    expect(job(hook).phase).toBe("Loading the ffmpeg engine…");
+    expect(job(hook).phase).toBe("Loading the ffmpeg engine...");
 
     await act(async () => {
       hook.result.current.cancelJob(job(hook).id);
     });
-    // There was no worker to kill, so the download is left to finish — but the
+    // There was no worker to kill, so the download is left to finish - but the
     // card says what is going on rather than looking ignored.
     expect(job(hook).status).toBe("preparing");
-    expect(job(hook).phase).toBe("Cancelling…");
+    expect(job(hook).phase).toBe("Cancelling...");
 
     await act(async () => {
       gate.resolve();
@@ -568,8 +600,6 @@ describe("automatic trimming", () => {
     await act(async () => {
       hook.result.current.setTrimSettings({
         mode: "silence",
-        startText: "",
-        endText: "",
         silence: { thresholdDb: -40, minDurationSeconds: 0.3 },
       });
     });
@@ -581,7 +611,7 @@ describe("automatic trimming", () => {
     const scan = await nextCall(first);
     expect(scan.kind).toBe("silence");
     expect(scan.options).toEqual({ thresholdDb: -40, minDurationSeconds: 0.3 });
-    expect(job(hook).phase).toBe("Listening for silence…");
+    expect(job(hook).phase).toBe("Listening for silence...");
 
     const suggested = { startSeconds: 3.1, endSeconds: 110.4 };
     await act(async () => {

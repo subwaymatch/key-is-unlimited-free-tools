@@ -1,38 +1,51 @@
-/* A ruled bar: square ends, hairline height, no fill but the accent. */
+.root {
+  display: block;
+  width: 100%;
+}
+
 .track {
   position: relative;
-  height: 0.1875rem;
+  height: 0.375rem;
   width: 100%;
   overflow: hidden;
+  border-radius: 9999px;
   background: var(--border);
 }
 
+/*
+ * Base UI sizes the indicator itself from the value, so there is no inline
+ * width to set here. It is hidden outright when indeterminate, where the
+ * sweeping segment below stands in for it.
+ */
 .fill {
   height: 100%;
+  border-radius: 9999px;
+  background: var(--primary);
   transition: width 200ms ease-out;
 }
 
-.accent {
-  background: var(--accent);
-}
-
-.success {
+.root[data-tone="success"] .fill {
   background: var(--success);
 }
 
-.danger {
-  background: var(--danger);
+.root[data-tone="danger"] .fill {
+  background: var(--destructive);
+}
+
+.root[data-indeterminate] .fill {
+  display: none;
 }
 
 /*
  * A bar that cannot report a ratio still has to look alive, so a short segment
  * sweeps across the track instead.
  */
-.indeterminate::after {
+.root[data-indeterminate] .track::after {
   content: "";
   position: absolute;
   inset-block: 0;
   width: 25%;
-  background: var(--accent);
+  border-radius: inherit;
+  background: var(--primary);
   animation: indeterminate-slide 1.4s ease-in-out infinite;
 }

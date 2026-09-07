@@ -1,5 +1,9 @@
 "use client";
 
+import { Checkbox } from "@base-ui/react/checkbox";
+import { CheckboxGroup } from "@base-ui/react/checkbox-group";
+import { Check } from "lucide-react";
+
 import { isFormatAvailable, OUTPUT_FORMATS, type OutputFormatId } from "@/lib/engine/formats";
 import type { EngineCapabilities } from "@/lib/engine/types";
 
@@ -26,20 +30,23 @@ export function FormatPicker({
   capabilities,
   disabled = false,
 }: FormatPickerProps) {
-  const toggle = (id: OutputFormatId) => {
-    onChange(
-      selected.includes(id) ? selected.filter((entry) => entry !== id) : [...selected, id],
-    );
-  };
 
   return (
-    <fieldset disabled={disabled} className={styles.fieldset}>
-      <legend className={styles.legend}>Output formats</legend>
+    /*
+     * The visible legend duplicated the disclosure's own "Output formats &
+     * trim" heading, so it is a label rather than a legend now: the group
+     * keeps its name for a screen reader without repeating it on screen.
+     */
+    <fieldset aria-label="Output formats" disabled={disabled} className={styles.fieldset}>
       <p className={styles.intro}>
         Applied to files you add next. Each file can get more formats afterwards.
       </p>
 
-      <div className={styles.grid}>
+      <CheckboxGroup
+        value={selected}
+        onValueChange={(value) => onChange(value as OutputFormatId[])}
+        className={styles.grid}
+      >
         {OUTPUT_FORMATS.map((format) => {
           const unavailable = !isFormatAvailable(format, capabilities);
           const isChecked = selected.includes(format.id) && !unavailable;
@@ -51,13 +58,15 @@ export function FormatPicker({
                 unavailable || disabled ? styles.optionDisabled : ""
               }`}
             >
-              <input
-                type="checkbox"
-                checked={isChecked}
+              <Checkbox.Root
+                value={format.id}
                 disabled={unavailable || disabled}
-                onChange={() => toggle(format.id)}
                 className={styles.control}
-              />
+              >
+                <Checkbox.Indicator className={styles.controlIndicator}>
+                  <Check aria-hidden="true" size={12} strokeWidth={3} />
+                </Checkbox.Indicator>
+              </Checkbox.Root>
               <span className={styles.optionBody}>
                 <span className={styles.optionHead}>
                   <span className={styles.optionLabel}>{format.label}</span>
@@ -65,14 +74,14 @@ export function FormatPicker({
                 </span>
                 <span className={styles.optionBlurb}>
                   {unavailable
-                    ? `Unavailable — this ffmpeg build has no ${format.requiredEncoder} encoder`
+                    ? `Unavailable - this ffmpeg build has no ${format.requiredEncoder} encoder`
                     : format.blurb}
                 </span>
               </span>
             </label>
           );
         })}
-      </div>
+      </CheckboxGroup>
 
       {selected.length === 0 && (
         <p className={styles.warning}>

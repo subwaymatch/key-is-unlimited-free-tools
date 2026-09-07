@@ -26,7 +26,7 @@ export const CORE_VERSION = "0.12.10";
  *
  * The ESM build is required, not the UMD one. @ffmpeg/ffmpeg's class worker is
  * a module worker, so `importScripts` is unavailable and it falls back to
- * `(await import(coreURL)).default` — which is undefined for the UMD bundle,
+ * `(await import(coreURL)).default` - which is undefined for the UMD bundle,
  * and the assignment then clobbers the global the UMD script had just set,
  * surfacing as "failed to import ffmpeg-core.js".
  */
@@ -55,7 +55,7 @@ export const CLASS_WORKER_PATH = `/ffmpeg/${FFMPEG_VERSION}/worker.js`;
  * `FFmpeg.load()` spawns its worker with
  * `new Worker(new URL(classWorkerURL, import.meta.url), { type: "module" })`.
  * Next.js chunks are not ES modules, so webpack substitutes a build-time
- * `file:///…` literal for `import.meta.url`; a root-relative path resolved
+ * `file:///...` literal for `import.meta.url`; a root-relative path resolved
  * against that base becomes `file:///ffmpeg/worker.js` and the Worker
  * constructor throws a SecurityError. Handing it an already-absolute URL makes
  * the base irrelevant.

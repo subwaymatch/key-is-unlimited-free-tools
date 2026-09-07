@@ -23,7 +23,7 @@ import {
   isFormatAvailable,
   type OutputFormatId,
 } from "./engine/formats";
-import { DEFAULT_SILENCE_OPTIONS, parseTrimInputs, sameTrimRange } from "./engine/trim";
+import { DEFAULT_SILENCE_OPTIONS, sameTrimRange } from "./engine/trim";
 import { ExtractionError } from "./engine/types";
 import type {
   EngineCapabilities,
@@ -33,6 +33,7 @@ import type {
   SilenceScanOptions,
   SilenceScanResult,
   TrimRange,
+  WaveformData,
 } from "./engine/types";
 
 export type JobStatus = "queued" | "preparing" | "converting" | "done" | "error" | "cancelled";
@@ -49,7 +50,7 @@ export interface JobOutput {
    * Identity of this output.
    *
    * The format alone is not enough once a file can be clipped: "MP3 of the
-   * whole thing" and "MP3 of 1:30–2:15" are two outputs of the same format.
+   * whole thing" and "MP3 of 1:30-2:15" are two outputs of the same format.
    */
   id: string;
   formatId: OutputFormatId;
@@ -75,6 +76,13 @@ export interface Job {
   /** Progress of a phase that is not an output conversion, e.g. a silence scan. */
   phaseRatio: number | null;
   probe?: ProbeResult;
+  /**
+   * Object URL of a still frame from the video, revoked with the job.
+   *
+   * Absent for audio-only files, and absent when the frame could not be taken:
+   * a thumbnail is decoration, so failing to get one is not worth reporting.
+   */
+  posterUrl?: string;
   /** Range the trim panel currently proposes for new outputs. */
   trim: TrimRange | null;
   /** When true, the next run detects silence and derives `trim` from it. */
@@ -82,31 +90,64 @@ export interface Job {
   silenceOptions: SilenceScanOptions;
   /** Result of the last silence scan, once one has run. */
   silence?: SilenceScanResult;
+  /** Envelope for the clip panel, once someone has asked to see it. */
+  waveform?: WaveformData;
+  /** Set while a waveform has been asked for but not yet drawn. */
+  wantsWaveform?: boolean;
   outputs: JobOutput[];
   error?: JobFailure;
   logs: string[];
 }
 
-export type TrimMode = "full" | "silence" | "range";
+export type TrimMode = "full" | "silence";
 
 /**
  * Trim settings for files added next, alongside the format selection.
  *
- * The markers are kept as raw text rather than seconds: the file has not been
- * probed yet, so "2:30" cannot be validated against a duration, and echoing
- * back a reformatted number while someone is still typing is hostile.
+ * Clipping to an explicit range is deliberately not here. A range means
+ * nothing until the file has been probed and can be heard, so it belongs on
+ * the file card, where there is a duration to validate against and a preview
+ * to scrub. These settings only carry the two decisions that can be made
+ * before a file exists: take the whole track, or find the silence.
  */
 export interface TrimSettings {
   mode: TrimMode;
-  startText: string;
-  endText: string;
   silence: SilenceScanOptions;
+}
+
+/**
+ * Whether running this job would actually do anything.
+ *
+ * Every reason to wake the engine belongs here, and missing one does not fail
+ * loudly: the job settles straight back to the state it was in and whatever
+ * was asked for silently never happens.
+ *
+ * A wanted waveform is deliberately not on the list. It rides along with a run
+ * that was going to happen anyway rather than justifying one, so cancelling
+ * every format of a queued file still means that file is never mounted - which
+ * is the whole point of settling here instead of downloading a core and
+ * opening a file to produce nothing.
+ */
+function needsEngine(job: Job): boolean {
+  if (job.autoTrim) return true;
+  return job.outputs.some((output) => output.status === "pending");
+}
+
+/**
+ * Releases every object URL a job holds.
+ *
+ * There are three places a job can be discarded, so this exists to keep them
+ * from drifting: a URL added to Job needs freeing here and nowhere else.
+ */
+function releaseJobUrls(job: Job): void {
+  for (const output of job.outputs) {
+    if (output.url) URL.revokeObjectURL(output.url);
+  }
+  if (job.posterUrl) URL.revokeObjectURL(job.posterUrl);
 }
 
 export const DEFAULT_TRIM_SETTINGS: TrimSettings = {
   mode: "full",
-  startText: "",
-  endText: "",
   silence: DEFAULT_SILENCE_OPTIONS,
 };
 
@@ -255,13 +296,11 @@ export function useConversionQueue() {
       const job = jobsRef.current.find((entry) => entry.id === jobId);
       if (!job) return;
 
-      // Nothing pending and no scan asked for: settle without waking the
-      // engine. Cancelling every format of a file still in the queue lands
-      // here, and downloading the core and mounting the file only to then do
-      // nothing would be a long wait for no output.
-      const hasWork =
-        job.autoTrim || job.outputs.some((output) => output.status === "pending");
-      if (!hasWork) {
+      // Nothing to do: settle without waking the engine. Cancelling every
+      // format of a file still in the queue lands here, and downloading the
+      // core and mounting the file only to then do nothing would be a long
+      // wait for no output.
+      if (!needsEngine(job)) {
         patchJob(jobId, { ...summarizeOutputs(job.outputs), phaseRatio: null });
         return;
       }
@@ -270,7 +309,7 @@ export function useConversionQueue() {
       activeJobRef.current = jobId;
       patchJob(jobId, {
         status: "preparing",
-        phase: engine.loaded ? "Reading file details…" : "Loading the ffmpeg engine…",
+        phase: engine.loaded ? "Reading file details..." : "Loading the ffmpeg engine...",
         error: undefined,
       });
 
@@ -313,18 +352,40 @@ export function useConversionQueue() {
         setEngineState((previous) => ({ ...previous, stage: "ready", capabilities }));
         if (isCancelled()) throw new ExtractionError("Cancelled.");
 
-        patchJob(jobId, { phase: "Reading file details…" });
+        patchJob(jobId, { phase: "Reading file details..." });
         session = await engine.openSession(job.file);
         if (isCancelled()) throw new ExtractionError("Cancelled.");
 
         patchJob(jobId, { status: "converting", probe: session.probe });
 
+        /*
+         * The thumbnail is taken here, while the file is already mounted, so it
+         * costs one seek rather than a second mount later. It is deliberately
+         * not awaited for its errors: runPoster resolves to null on any
+         * failure, because a card without a picture is a much smaller problem
+         * than a conversion that did not run.
+         */
+        if (session.probe.hasVideo) {
+          try {
+            const poster = await session.poster();
+            if (poster && !isCancelled()) {
+              patchJob(jobId, { posterUrl: URL.createObjectURL(poster.blob) });
+            }
+          } catch {
+            // Decoration only. The engine already swallows its own failures
+            // here, and this catch covers the rest, so that no way of failing
+            // to get a picture can take the conversion down with it.
+          }
+        }
+        if (isCancelled()) throw new ExtractionError("Cancelled.");
+
+        const current = jobsRef.current.find((entry) => entry.id === jobId);
+
         // Automatic trimming has to happen here rather than at queue time: the
         // range is not knowable until the audio has been listened to, and the
         // outputs waiting behind it inherit whatever the scan finds.
-        const current = jobsRef.current.find((entry) => entry.id === jobId);
         if (current?.autoTrim) {
-          patchJob(jobId, { phase: "Listening for silence…", phaseRatio: 0 });
+          patchJob(jobId, { phase: "Listening for silence...", phaseRatio: 0 });
 
           let lastScanTick = 0;
           const silence = await session.detectSilence(current.silenceOptions, (progress) => {
@@ -359,7 +420,7 @@ export function useConversionQueue() {
 
           const format = getFormat(output.formatId);
           patchJob(jobId, {
-            phase: output.trim ? `Extracting ${format.label} clip…` : `Extracting ${format.label}…`,
+            phase: output.trim ? `Extracting ${format.label} clip...` : `Extracting ${format.label}...`,
           });
           patchOutput(jobId, output.id, { status: "running", ratio: 0, processedSeconds: 0 });
 
@@ -409,13 +470,40 @@ export function useConversionQueue() {
 
         if (isCancelled()) throw new ExtractionError("Cancelled.");
 
+        /*
+         * The envelope is drawn last, after every output. It costs a full
+         * decode, and the audio someone actually asked for should not wait
+         * behind a picture of it.
+         *
+         * Like the thumbnail it is presentational: failing to draw it must not
+         * fail the file, so the flag is cleared either way and the error goes
+         * no further than the panel.
+         */
+        const beforeWaveform = jobsRef.current.find((entry) => entry.id === jobId);
+        if (beforeWaveform?.wantsWaveform && !beforeWaveform.waveform) {
+          patchJob(jobId, { phase: "Reading the audio shape...", phaseRatio: 0 });
+          try {
+            let lastWaveTick = 0;
+            const waveform = await session.waveform((progress) => {
+              const now = Date.now();
+              if (now - lastWaveTick < PROGRESS_THROTTLE_MS) return;
+              lastWaveTick = now;
+              patchJob(jobId, { phaseRatio: progress.ratio });
+            });
+            patchJob(jobId, { waveform, wantsWaveform: false, phaseRatio: null });
+          } catch {
+            patchJob(jobId, { wantsWaveform: false, phaseRatio: null });
+          }
+          if (isCancelled()) throw new ExtractionError("Cancelled.");
+        }
+
         const outputs = jobsRef.current.find((entry) => entry.id === jobId)?.outputs ?? [];
 
         // The mount died with the worker, so formats that never got their turn
         // need a fresh session. Re-queueing hands the job straight back to the
         // pump, which is already looping.
         if (partialCancelRef.current.has(jobId) && outputs.some((o) => o.status === "pending")) {
-          patchJob(jobId, { status: "queued", phase: "Waiting…", phaseRatio: null });
+          patchJob(jobId, { status: "queued", phase: "Waiting...", phaseRatio: null });
         } else {
           patchJob(jobId, { ...summarizeOutputs(outputs), phaseRatio: null });
         }
@@ -476,23 +564,26 @@ export function useConversionQueue() {
         engineStateRef.current.capabilities,
       );
       const settings = trimSettingsRef.current;
-      // In silence mode the range is still unknown; the run fills it in for
-      // every pending output once it has listened to the file.
-      const trim =
-        settings.mode === "range"
-          ? parseTrimInputs(settings.startText, settings.endText).trim
-          : null;
+      /*
+       * Newly added files are never pre-clipped. A range is chosen per file on
+       * the card, where there is a duration to validate against; and in silence
+       * mode the range is not known yet either, because the run fills it in for
+       * every pending output once it has listened to the file.
+       */
+      const trim: TrimRange | null = null;
 
       const newJobs: Job[] = files.map((file) => ({
         id: nextJobId(),
         file,
         status: "queued",
-        phase: "Waiting…",
+        phase: "Waiting...",
         phaseRatio: null,
         trim,
         autoTrim: settings.mode === "silence",
         silenceOptions: settings.silence,
         outputs: makeOutputs(formatIds, trim),
+        // The clip panel is always open, so the envelope is always wanted.
+        wantsWaveform: true,
         logs: [],
       }));
       commit([...jobsRef.current, ...newJobs]);
@@ -511,7 +602,7 @@ export function useConversionQueue() {
     (jobId: string, formatId: OutputFormatId, trim: TrimRange | null = null) => {
       const job = jobsRef.current.find((entry) => entry.id === jobId);
       if (!job) return;
-      // Same format over the same range is the output that already exists — but
+      // Same format over the same range is the output that already exists - but
       // a cancelled one has no audio behind it, so it does not block a re-add.
       const duplicate = job.outputs.some(
         (output) =>
@@ -526,7 +617,7 @@ export function useConversionQueue() {
         trim,
         error: undefined,
         outputs: [...current.outputs, ...makeOutputs([formatId], trim)],
-        ...(isActive ? {} : { status: "queued" as const, phase: "Waiting…" }),
+        ...(isActive ? {} : { status: "queued" as const, phase: "Waiting..." }),
       }));
       if (!isActive) void pump();
     },
@@ -535,7 +626,7 @@ export function useConversionQueue() {
 
   /**
    * Runs a silence scan over a file that is already in the queue, without
-   * producing any audio — the point is the suggested range it comes back with.
+   * producing any audio - the point is the suggested range it comes back with.
    */
   const detectSilence = useCallback(
     (jobId: string, options?: Partial<SilenceScanOptions>) => {
@@ -544,7 +635,7 @@ export function useConversionQueue() {
 
       patchJob(jobId, {
         status: "queued",
-        phase: "Waiting…",
+        phase: "Waiting...",
         error: undefined,
         autoTrim: true,
         silence: undefined,
@@ -561,7 +652,7 @@ export function useConversionQueue() {
       if (!job) return;
       patchJob(jobId, {
         status: "queued",
-        phase: "Waiting…",
+        phase: "Waiting...",
         error: undefined,
         logs: [],
         outputs: job.outputs.map((output) =>
@@ -579,7 +670,7 @@ export function useConversionQueue() {
    * Stops one output without disturbing the others.
    *
    * ffmpeg blocks its worker for the whole of a command, so a conversion that
-   * has already started can only be stopped by killing the worker — there is no
+   * has already started can only be stopped by killing the worker - there is no
    * cooperative interrupt. That is survivable here because a finished output is
    * a JS Blob that never lived in the worker: the downloads already on the card
    * keep working. What the termination does cost is the mount, so any format
@@ -632,7 +723,7 @@ export function useConversionQueue() {
         );
         return isActive
           ? { outputs, error: undefined }
-          : { outputs, error: undefined, status: "queued" as const, phase: "Waiting…" };
+          : { outputs, error: undefined, status: "queued" as const, phase: "Waiting..." };
       });
 
       if (!isActive) void pump();
@@ -653,7 +744,7 @@ export function useConversionQueue() {
         // the moment the engine comes back. Say so now, so the card does not
         // look ignored in the meantime.
         cancelledRef.current.add(jobId);
-        patchJob(jobId, { phase: "Cancelling…", phaseRatio: null });
+        patchJob(jobId, { phase: "Cancelling...", phaseRatio: null });
         getEngine().terminate();
         return;
       }
@@ -679,9 +770,7 @@ export function useConversionQueue() {
       if (!job) return;
       if (activeJobRef.current === jobId) cancelJob(jobId);
       partialCancelRef.current.delete(jobId);
-      for (const output of job.outputs) {
-        if (output.url) URL.revokeObjectURL(output.url);
-      }
+      releaseJobUrls(job);
       commit(jobsRef.current.filter((entry) => entry.id !== jobId));
     },
     [cancelJob, commit],
@@ -693,9 +782,7 @@ export function useConversionQueue() {
       const isFinished =
         job.status === "done" || job.status === "cancelled" || job.status === "error";
       if (isFinished) {
-        for (const output of job.outputs) {
-          if (output.url) URL.revokeObjectURL(output.url);
-        }
+        releaseJobUrls(job);
       } else {
         remaining.push(job);
       }
@@ -706,11 +793,7 @@ export function useConversionQueue() {
   // Release every object URL when the page goes away.
   useEffect(
     () => () => {
-      for (const job of jobsRef.current) {
-        for (const output of job.outputs) {
-          if (output.url) URL.revokeObjectURL(output.url);
-        }
-      }
+      for (const job of jobsRef.current) releaseJobUrls(job);
     },
     [],
   );

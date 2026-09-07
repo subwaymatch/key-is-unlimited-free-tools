@@ -2,7 +2,7 @@
  * ffmpeg.wasm implementation of the AudioExtractor contract.
  *
  * The one load-bearing decision in this file is how the input file reaches
- * ffmpeg. The obvious API — `ffmpeg.writeFile(name, await fetchFile(file))` —
+ * ffmpeg. The obvious API - `ffmpeg.writeFile(name, await fetchFile(file))` -
  * copies the entire video into the core's in-memory filesystem, which lives in
  * a WebAssembly heap that tops out around 2 GB. That is the entire reason
  * ffmpeg.wasm is famous for a "2 GB limit".
@@ -15,7 +15,7 @@
  * MAX_SAFE_OUTPUT_BYTES in formats.ts).
  *
  * Note the imports: `@ffmpeg/ffmpeg` resolves to a throwing stub under Node's
- * export condition, so it must never be imported at module scope — a static
+ * export condition, so it must never be imported at module scope - a static
  * export build prerenders these modules in Node. Types are imported with
  * `import type` (erased at compile time) and the real module is pulled in
  * dynamically, in the browser, on first use.
@@ -52,13 +52,33 @@ import {
   type ExtractOutput,
   type ExtractProgress,
   type ExtractSession,
+  type PosterFrame,
   type ProbeResult,
   type SilenceScanOptions,
   type SilenceScanResult,
+  type WaveformData,
 } from "./types";
 
 /** Where the input file is mounted inside the core's filesystem. */
 const MOUNT_POINT = "/input";
+
+/**
+ * Thumbnail width in pixels. Twice the widest the card draws it, so the frame
+ * still looks sharp on a high-density screen.
+ */
+const POSTER_WIDTH = 320;
+
+/**
+ * Sample rate the waveform decode targets, in Hz.
+ *
+ * Low on purpose: the envelope is all that gets drawn, and at 1 kHz even a
+ * three-hour file lands around 20 MB of PCM instead of gigabytes. Decoding
+ * dominates the time either way, so a higher rate would buy nothing.
+ */
+const WAVEFORM_RATE = 1000;
+
+/** Buckets the envelope is reduced to. Comfortably more than the pixels drawn. */
+const WAVEFORM_BUCKETS = 600;
 
 /** Retained log lines per command, so a chatty run cannot grow without bound. */
 const MAX_LOG_LINES = 400;
@@ -70,7 +90,7 @@ const MAX_ENCODER_LOG_LINES = 2_000;
  * Silence events retained per scan.
  *
  * A conversation with a pause every few seconds produces thousands of them, and
- * the ones that matter are at both ends — so this cap is generous and the
+ * the ones that matter are at both ends - so this cap is generous and the
  * capture keeps only silencedetect's own lines rather than the whole log.
  */
 const MAX_SILENCE_EVENT_LINES = 20_000;
@@ -107,6 +127,37 @@ export function safeMountName(fileName: string): string {
 }
 
 /** Strips the extension so outputs can be named after the source file. */
+/**
+ * Reduces raw mono 16-bit PCM to one normalised peak per bucket.
+ *
+ * Peak rather than average, so a short loud moment still shows up as one. The
+ * result is scaled against the loudest bucket rather than full scale: a quiet
+ * recording should fill the panel, not draw a flat line along the bottom.
+ */
+export function reducePeaks(pcm: Uint8Array, buckets = WAVEFORM_BUCKETS): number[] {
+  const samples = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.length / 2));
+  if (samples.length === 0) return [];
+
+  const width = Math.max(1, Math.floor(samples.length / buckets));
+  const count = Math.min(buckets, Math.ceil(samples.length / width));
+  const peaks = new Array<number>(count).fill(0);
+
+  for (let bucket = 0; bucket < count; bucket += 1) {
+    const start = bucket * width;
+    const end = Math.min(start + width, samples.length);
+    let peak = 0;
+    for (let i = start; i < end; i += 1) {
+      const value = Math.abs(samples[i]);
+      if (value > peak) peak = value;
+    }
+    peaks[bucket] = peak;
+  }
+
+  const loudest = peaks.reduce((max, value) => (value > max ? value : max), 0);
+  if (loudest === 0) return peaks.map(() => 0);
+  return peaks.map((value) => value / loudest);
+}
+
 export function baseName(fileName: string): string {
   const lastDot = fileName.lastIndexOf(".");
   const stem = lastDot > 0 ? fileName.slice(0, lastDot) : fileName;
@@ -333,7 +384,7 @@ export class FFmpegEngine implements AudioExtractor {
     try {
       await ffmpeg.createDir(MOUNT_POINT);
     } catch {
-      // Already exists from a previous file — the expected path after job one.
+      // Already exists from a previous file - the expected path after job one.
     }
     // A run terminated mid-flight may have left something mounted here.
     await this.#safeUnmount(ffmpeg);
@@ -350,8 +401,8 @@ export class FFmpegEngine implements AudioExtractor {
   /**
    * Unmounts the input and confirms it is really gone.
    *
-   * WORKERFS never copies the video — a mounted entry is a node holding a
-   * reference to the `File`, read through `Blob.slice` on demand — so releasing
+   * WORKERFS never copies the video - a mounted entry is a node holding a
+   * reference to the `File`, read through `Blob.slice` on demand - so releasing
    * it is exactly this unmount. But that also means a silently failed unmount
    * would pin the user's file inside the worker for the life of the page, and
    * `unmount` has to stay best-effort because it is called speculatively before
@@ -409,7 +460,7 @@ export class FFmpegEngine implements AudioExtractor {
     return probe;
   }
 
-  /** @internal — driven by FFmpegSession. */
+  /** @internal - driven by FFmpegSession. */
   async runExtract(
     ffmpeg: FFmpeg,
     inputPath: string,
@@ -507,11 +558,11 @@ export class FFmpegEngine implements AudioExtractor {
   }
 
   /**
-   * @internal — driven by FFmpegSession.
+   * @internal - driven by FFmpegSession.
    *
    * Runs the audio through `silencedetect` with the null muxer: a full decode
    * of the audio stream that writes nothing. Video is never touched, so this
-   * costs far less than the name suggests, but it is still a whole pass — which
+   * costs far less than the name suggests, but it is still a whole pass - which
    * is why it happens only when someone asks for automatic trimming.
    */
   async runSilenceScan(
@@ -585,7 +636,160 @@ export class FFmpegEngine implements AudioExtractor {
     };
   }
 
-  /** @internal — driven by FFmpegSession. */
+  /**
+   * One frame from the video, as JPEG, for the file card.
+   *
+   * `-ss` goes before `-i` on purpose. Input seeking jumps the demuxer
+   * straight to the nearest keyframe instead of decoding everything up to the
+   * timestamp, which is the difference between a moment and minutes on a
+   * multi-gigabyte film.
+   *
+   * A tenth of the way in avoids the black frames and studio logos that open
+   * most videos, without landing so late that a short clip seeks past its own
+   * end. Failure is not an error worth surfacing: a missing thumbnail is a
+   * cosmetic loss, so this resolves to null rather than throwing and taking a
+   * conversion down with it.
+   */
+  async runPoster(
+    ffmpeg: FFmpeg,
+    inputPath: string,
+    probe: ProbeResult,
+  ): Promise<PosterFrame | null> {
+    if (!probe.hasVideo) return null;
+
+    const duration = probe.durationSeconds;
+    const atSeconds = duration && duration > 0 ? Math.min(duration * 0.1, duration - 0.1) : 0;
+    const outputPath = "poster.jpg";
+    const failureLog = this.#capture();
+
+    let exitCode: number;
+    try {
+      exitCode = await ffmpeg.exec([
+        "-hide_banner",
+        ...(atSeconds > 0 ? ["-ss", atSeconds.toFixed(3)] : []),
+        "-i",
+        inputPath,
+        "-map",
+        "0:v:0",
+        "-an",
+        "-sn",
+        "-dn",
+        "-frames:v",
+        "1",
+        // Fit the card without carrying a 4K frame around in memory. -2 keeps
+        // the height even, which the JPEG encoder needs for chroma subsampling.
+        "-vf",
+        `scale=${POSTER_WIDTH}:-2:flags=fast_bilinear`,
+        "-q:v",
+        "4",
+        "-f",
+        "mjpeg",
+        outputPath,
+      ]);
+    } catch {
+      failureLog.release();
+      return null;
+    } finally {
+      failureLog.release();
+    }
+
+    if (exitCode !== 0) return null;
+
+    try {
+      const data = await ffmpeg.readFile(outputPath);
+      if (typeof data === "string" || data.length === 0) return null;
+      return { blob: new Blob([data as BlobPart], { type: "image/jpeg" }), atSeconds };
+    } catch {
+      return null;
+    } finally {
+      // The frame lives in MEMFS, which is the same heap the next conversion
+      // needs, so it does not get to stay there.
+      try {
+        await ffmpeg.deleteFile(outputPath);
+      } catch {
+        // Never written, or already gone.
+      }
+    }
+  }
+
+  /**
+   * Decodes the audio down to an envelope for the clip panel to draw.
+   *
+   * One full decode, the same cost as a silence scan, so it is only run when
+   * someone opens the panel. The result is reduced to a fixed number of
+   * buckets here rather than in the component, because the intermediate PCM
+   * lives in the core's heap and the sooner it is gone the better.
+   */
+  async runWaveform(
+    ffmpeg: FFmpeg,
+    inputPath: string,
+    probe: ProbeResult,
+    onProgress?: (progress: ExtractProgress) => void,
+  ): Promise<WaveformData> {
+    const probedDuration = probe.durationSeconds;
+    let decodedSeconds = 0;
+
+    this.#progressSink = ({ time }) => {
+      const processedSeconds = Math.max(0, time / 1_000_000);
+      decodedSeconds = Math.max(decodedSeconds, processedSeconds);
+      onProgress?.({
+        processedSeconds,
+        ratio: probedDuration ? Math.min(1, processedSeconds / probedDuration) : null,
+      });
+    };
+
+    const outputPath = "waveform.pcm";
+    const failureLog = this.#capture();
+
+    let exitCode: number;
+    try {
+      exitCode = await ffmpeg.exec([
+        "-hide_banner",
+        "-i",
+        inputPath,
+        ...SELECT_AUDIO,
+        "-ac",
+        "1",
+        "-ar",
+        String(WAVEFORM_RATE),
+        "-f",
+        "s16le",
+        outputPath,
+      ]);
+    } finally {
+      failureLog.release();
+      this.#progressSink = null;
+    }
+
+    if (exitCode !== 0) {
+      throw new ExtractionError(
+        "Could not read the audio to draw it.",
+        summarizeFailure(failureLog.lines) ?? `ffmpeg exited with code ${exitCode}.`,
+      );
+    }
+
+    try {
+      const raw = await ffmpeg.readFile(outputPath);
+      if (typeof raw === "string") {
+        throw new ExtractionError("ffmpeg returned text where audio was expected.");
+      }
+      const peaks = reducePeaks(raw);
+      const seconds = raw.length / 2 / WAVEFORM_RATE;
+      onProgress?.({ processedSeconds: seconds, ratio: 1 });
+      return {
+        peaks,
+        durationSeconds: probedDuration ?? (seconds > 0 ? seconds : null),
+      };
+    } finally {
+      try {
+        await ffmpeg.deleteFile(outputPath);
+      } catch {
+        // Never written, or already gone.
+      }
+    }
+  }
+
+  /** @internal - driven by FFmpegSession. */
   async closeSession(ffmpeg: FFmpeg): Promise<void> {
     await this.#releaseInput(ffmpeg);
     this.#progressSink = null;
@@ -596,7 +800,7 @@ export class FFmpegEngine implements AudioExtractor {
    * Stops any in-flight command.
    *
    * ffmpeg runs synchronously inside its worker, so a conversion in progress
-   * cannot be interrupted cooperatively — killing the worker is the only way.
+   * cannot be interrupted cooperatively - killing the worker is the only way.
    * The next `load()` starts a fresh one; the core bytes are already cached, so
    * the restart costs a WebAssembly instantiation, not a 31 MB download.
    */
@@ -635,6 +839,18 @@ class FFmpegSession implements ExtractSession {
       this.probe,
       options,
     );
+  }
+
+  poster(): Promise<PosterFrame | null> {
+    if (this.#closed) return Promise.resolve(null);
+    return this.engine.runPoster(this.ffmpeg, this.inputPath, this.probe);
+  }
+
+  waveform(onProgress?: (progress: ExtractProgress) => void): Promise<WaveformData> {
+    if (this.#closed) {
+      return Promise.reject(new ExtractionError("This file is no longer open."));
+    }
+    return this.engine.runWaveform(this.ffmpeg, this.inputPath, this.probe, onProgress);
   }
 
   detectSilence(

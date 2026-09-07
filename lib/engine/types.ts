@@ -2,7 +2,7 @@
  * Engine-agnostic contract for audio extraction.
  *
  * The app talks to this interface only, so the ffmpeg.wasm implementation can
- * be swapped (or joined) by another engine — e.g. a WebCodecs-based one — with
+ * be swapped (or joined) by another engine - e.g. a WebCodecs-based one - with
  * no changes above `lib/`.
  *
  * The session shape (open once per file, extract many formats, close) exists
@@ -120,6 +120,30 @@ export interface ExtractOptions {
   onProgress?: (progress: ExtractProgress) => void;
 }
 
+/** A still frame lifted out of a video, for the file card. */
+export interface PosterFrame {
+  /** JPEG image. The caller owns the object URL it makes from this. */
+  blob: Blob;
+  /** Where in the source the frame was taken, in seconds. */
+  atSeconds: number;
+}
+
+/**
+ * The shape of a file's audio, for drawing.
+ *
+ * Peaks are normalised against the loudest bucket rather than full scale, so a
+ * quiet recording still fills the height instead of drawing a flat line.
+ */
+export interface WaveformData {
+  /** One peak per bucket, 0..1, left to right across the whole file. */
+  peaks: number[];
+  /**
+   * Seconds the peaks span. Taken from the decode when the container did not
+   * say, which is the case for anything a browser recorded.
+   */
+  durationSeconds: number | null;
+}
+
 /** One open file: mounted, probed, ready to produce outputs. */
 export interface ExtractSession {
   readonly probe: ProbeResult;
@@ -128,9 +152,23 @@ export interface ExtractSession {
    * Decodes the audio once to find where it is silent.
    *
    * This is a full pass over the audio stream, so it costs roughly what one
-   * re-encode costs — which is why it is a separate call the caller opts into
+   * re-encode costs - which is why it is a separate call the caller opts into
    * rather than something every extraction does.
    */
+  /**
+   * A single frame, for the card's thumbnail. Resolves to null when the file
+   * has no video to take one from.
+   */
+  poster(): Promise<PosterFrame | null>;
+
+  /**
+   * The audio envelope, for the clip panel to draw.
+   *
+   * Costs a full decode, like a silence scan, so it is asked for when someone
+   * opens the panel rather than for every file.
+   */
+  waveform(onProgress?: (progress: ExtractProgress) => void): Promise<WaveformData>;
+
   detectSilence(
     options?: Partial<SilenceScanOptions>,
     onProgress?: (progress: ExtractProgress) => void,

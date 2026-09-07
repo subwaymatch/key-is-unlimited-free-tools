@@ -54,7 +54,7 @@ const mib = (bytes) => `${(bytes / 1024 ** 2).toFixed(0)} MiB`;
 function ensureFixture() {
   if (existsSync(FIXTURE) && statSync(FIXTURE).size > WASM_HEAP_LIMIT) return;
   mkdirSync(dirname(FIXTURE), { recursive: true });
-  console.log(`Generating a >${gib(WASM_HEAP_LIMIT)} fixture (raw video, AAC audio)…`);
+  console.log(`Generating a >${gib(WASM_HEAP_LIMIT)} fixture (raw video, AAC audio)...`);
   execFileSync("ffmpeg", [
     "-y", "-v", "error",
     "-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=25",
@@ -88,7 +88,7 @@ function startServer() {
 async function main() {
   ensureFixture();
   const inputBytes = statSync(FIXTURE).size;
-  console.log(`Input: ${FIXTURE} — ${gib(inputBytes)}`);
+  console.log(`Input: ${FIXTURE} - ${gib(inputBytes)}`);
   if (inputBytes <= WASM_HEAP_LIMIT) {
     throw new Error("fixture is not larger than the WebAssembly heap limit; nothing is proven");
   }
@@ -119,7 +119,7 @@ async function main() {
     await page.getByRole("button", { name: /Output formats/ }).click();
     await page.getByLabel(/MP3/).uncheck();
 
-    console.log("Dropping the file…");
+    console.log("Dropping the file...");
     const startedAt = Date.now();
     await page.locator('input[type="file"]').setInputFiles(FIXTURE);
 
@@ -130,9 +130,9 @@ async function main() {
     const ticker = setInterval(async () => {
       await sampleHeap();
       const text = await card.innerText().catch(() => "");
-      const phase = text.split("\n").find((line) => /…|%/.test(line)) ?? "working";
+      const phase = text.split("\n").find((line) => /...|%/.test(line)) ?? "working";
       const elapsed = ((Date.now() - startedAt) / 1000).toFixed(0);
-      console.log(`  t=${elapsed}s  ${phase.trim()}  heap≈${mib(peakHeapBytes)}`);
+      console.log(`  t=${elapsed}s  ${phase.trim()}  heap~${mib(peakHeapBytes)}`);
     }, 15_000);
 
     try {
@@ -146,7 +146,7 @@ async function main() {
 
     // The session is closed by the time the card says Done, so the WORKERFS
     // mount holding the File is gone. Sampled after a forced collection: if any
-    // part of the input were retained — by the mount, or by a copy — it would
+    // part of the input were retained - by the mount, or by a copy - it would
     // still be resident here, and the input is larger than the heap allows.
     const settledHeapBytes = await page.evaluate(async () => {
       await new Promise((resolve) => setTimeout(resolve, 3000));
@@ -185,7 +185,7 @@ async function main() {
       ["output is tiny next to the input", outputBytes < inputBytes / 100,
         `${mib(outputBytes)} from ${gib(inputBytes)}`],
       ["browser heap stayed far below the file size", peakHeapBytes < 600 * 1024 ** 2,
-        `peak ≈ ${mib(peakHeapBytes)}`],
+        `peak ~ ${mib(peakHeapBytes)}`],
       ["nothing is retained once the input is unmounted", settledHeapBytes < 300 * 1024 ** 2,
         `${mib(settledHeapBytes)} after the session closed, from ${gib(inputBytes)} of input`],
     ];
@@ -193,7 +193,7 @@ async function main() {
     console.log("");
     let failures = 0;
     for (const [name, ok, detail] of results) {
-      console.log(`  ${ok ? "✓" : "✗"} ${name}${detail ? ` — ${detail}` : ""}`);
+      console.log(`  ${ok ? "PASS" : "FAIL"} ${name}${detail ? ` - ${detail}` : ""}`);
       if (!ok) failures += 1;
     }
 
@@ -203,7 +203,7 @@ async function main() {
     );
 
     if (failures > 0) {
-      console.error(`\n✗ ${failures} check(s) failed`);
+      console.error(`\nFAIL ${failures} check(s) failed`);
       process.exitCode = 1;
     }
   } finally {

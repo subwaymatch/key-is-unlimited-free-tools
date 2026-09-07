@@ -13,7 +13,7 @@
 
   // Both hostnames are declared here so `wrangler deploy` binds them to this
   // Worker, instead of the binding living only as hand-made records in the
-  // dashboard — where the apex silently kept pointing at an old host and
+  // dashboard - where the apex silently kept pointing at an old host and
   // served that host's 404 while www worked fine.
   //
   // `custom_domain: true` makes Cloudflare create and own the DNS record for

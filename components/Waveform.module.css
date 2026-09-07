@@ -1,0 +1,12 @@
+.canvas {
+  display: block;
+  width: 100%;
+  height: 4.5rem;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}

@@ -1,7 +1,7 @@
 /**
  * Downloads the ffmpeg core, verifies it, and hands back same-origin blob URLs.
  *
- * `@ffmpeg/util`'s `toBlobURL` does the same job, but silently — and this is a
+ * `@ffmpeg/util`'s `toBlobURL` does the same job, but silently - and this is a
  * ~31 MiB download that would otherwise be an unexplained pause the first time
  * someone drops a file. Fetching it by hand gives a real byte-level progress
  * bar for the UI.
@@ -73,7 +73,7 @@ async function downloadBytes(
   } catch (cause) {
     throw new ExtractionError(
       "Could not download the ffmpeg core.",
-      "Check your network connection — the ~31 MB core is fetched from a CDN the first time you convert a file.",
+      "Check your network connection - the ~31 MB core is fetched from a CDN the first time you convert a file.",
       { cause },
     );
   }

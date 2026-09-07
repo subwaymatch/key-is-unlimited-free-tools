@@ -1,5 +1,12 @@
 "use client";
 
+import {
+  ArrowRightFromLine,
+  ArrowRightToLine,
+  Plus,
+  ScanSearch,
+  X,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { isFormatAvailable, OUTPUT_FORMATS, type OutputFormatId } from "@/lib/engine/formats";
@@ -8,6 +15,8 @@ import type { EngineCapabilities, TrimRange } from "@/lib/engine/types";
 import { formatDuration } from "@/lib/format-utils";
 import type { Job } from "@/lib/useConversionQueue";
 
+import { Button } from "./ui/Button";
+import { Waveform } from "./Waveform";
 import styles from "./TrimPanel.module.css";
 
 interface TrimPanelProps {
@@ -48,7 +57,7 @@ export function TrimPanel({
   );
 
   // A silence scan is the one thing that changes the markers from outside this
-  // component, so its result — and only its result — is pulled into the fields.
+  // component, so its result - and only its result - is pulled into the fields.
   const suggested = job.silence?.suggested ?? null;
   useEffect(() => {
     if (!job.silence) return;
@@ -73,8 +82,43 @@ export function TrimPanel({
     if (position !== null && position !== undefined) setter(formatTimecode(position));
   };
 
+  const waveform = job.waveform;
+  const canDraw = duration !== null && duration > 0;
+
+  /*
+   * Dragging writes straight into the same text fields the inputs use, so the
+   * two ways of setting a range cannot disagree: there is one source of truth
+   * and the waveform is just another way to type into it.
+   */
+  const selectRange = (from: number, to: number | null) => {
+    setStartText(from <= 0 ? "" : formatTimecode(from));
+    setEndText(to === null || (duration !== null && to >= duration) ? "" : formatTimecode(to));
+  };
+
   return (
     <div role="group" aria-label="Clip markers" className={styles.panel}>
+      {canDraw && (
+        <div className={styles.waveform}>
+          {waveform && waveform.peaks.length > 0 ? (
+            <>
+              <Waveform
+                peaks={waveform.peaks}
+                durationSeconds={duration}
+                startSeconds={trim?.startSeconds ?? 0}
+                endSeconds={trim?.endSeconds ?? null}
+                onSelect={selectRange}
+                disabled={disabled}
+              />
+              <p className={styles.waveformHint}>
+                Drag across the waveform to select a range.
+              </p>
+            </>
+          ) : job.wantsWaveform ? (
+            <p className={styles.waveformHint}>Reading the audio to draw it...</p>
+          ) : null}
+        </div>
+      )}
+
       <div className={styles.row}>
         <label>
           <span className={styles.fieldLabel}>Start</span>
@@ -104,49 +148,46 @@ export function TrimPanel({
 
         {getPreviewPosition && (
           <div className={styles.markerButtons}>
-            <button
-              type="button"
+            <Button
               disabled={disabled}
               onClick={() => setFromPreview(setStartText)}
               title="Set the start marker to the preview's playback position"
-              className={styles.button}
             >
-              ⇱ Start here
-            </button>
-            <button
-              type="button"
+              <ArrowRightFromLine aria-hidden="true" size={13} strokeWidth={2} />
+              Start here
+            </Button>
+            <Button
               disabled={disabled}
               onClick={() => setFromPreview(setEndText)}
               title="Set the end marker to the preview's playback position"
-              className={styles.button}
             >
-              ⇲ End here
-            </button>
+              <ArrowRightToLine aria-hidden="true" size={13} strokeWidth={2} />
+              End here
+            </Button>
           </div>
         )}
 
-        <button
-          type="button"
+        <Button
           disabled={disabled}
           onClick={onDetectSilence}
           title="Decode the audio once to find leading and trailing silence"
-          className={styles.button}
         >
+          <ScanSearch aria-hidden="true" size={13} strokeWidth={2} />
           Detect silence
-        </button>
+        </Button>
 
         {(startText || endText) && (
-          <button
-            type="button"
+          <Button
             disabled={disabled}
             onClick={() => {
               setStartText("");
               setEndText("");
             }}
-            className={styles.clear}
+            variant="ghost"
           >
+            <X aria-hidden="true" size={13} strokeWidth={2} />
             Clear
-          </button>
+          </Button>
         )}
       </div>
 
@@ -163,7 +204,7 @@ export function TrimPanel({
       {job.silence && (
         <p className={styles.detail}>
           {job.silence.entirelySilent
-            ? "The audio is silent throughout — nothing to trim."
+            ? "The audio is silent throughout - nothing to trim."
             : suggested
               ? `Found ${job.silence.intervals.length} silent ${
                   job.silence.intervals.length === 1 ? "stretch" : "stretches"
@@ -185,16 +226,16 @@ export function TrimPanel({
                 sameTrimRange(output.trim, trim),
             );
             return (
-              <button
+              <Button
                 key={format.id}
-                type="button"
                 disabled={disabled || exists}
                 title={exists ? "Already extracted for this range" : undefined}
                 onClick={() => onExtract(format.id, trim)}
                 className={styles.chip}
               >
+                <Plus aria-hidden="true" size={13} strokeWidth={2} />
                 {format.label}
-              </button>
+              </Button>
             );
           })}
         </div>

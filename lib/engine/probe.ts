@@ -4,7 +4,7 @@
  * ffmpeg.wasm's core does not reliably ship `ffprobe`, so file metadata comes
  * from running `ffmpeg -i <input>` with no output file: ffmpeg prints the
  * stream table, then exits non-zero with "At least one output file must be
- * specified". That exit code is expected — the information we want is in the log.
+ * specified". That exit code is expected - the information we want is in the log.
  *
  * These functions are pure so they can be unit-tested without a browser.
  */

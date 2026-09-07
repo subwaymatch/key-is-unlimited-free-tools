@@ -67,7 +67,7 @@ for (const [file, hashName, sizeName] of [
   try {
     bytes = readFileSync(join(coreDist, file));
   } catch {
-    fail(`missing ${join(coreDist, file)} — run \`npm install\` first.`);
+    fail(`missing ${join(coreDist, file)} - run \`npm install\` first.`);
   }
 
   const sha256 = createHash("sha256").update(bytes).digest("hex");
@@ -94,7 +94,7 @@ let files;
 try {
   files = readdirSync(source).filter((f) => f.endsWith(".js"));
 } catch {
-  fail(`missing ${source} — run \`npm install\` first.`);
+  fail(`missing ${source} - run \`npm install\` first.`);
 }
 if (!files.includes("worker.js")) fail(`no worker.js in ${source}`);
 

@@ -1,0 +1,96 @@
+.page {
+  margin-inline: auto;
+  width: 100%;
+  max-width: 72rem;
+  padding: 2.5rem 1rem;
+}
+
+@media (min-width: 640px) {
+  .page {
+    padding-block: 3.5rem;
+  }
+}
+
+.header {
+  max-width: 42rem;
+  margin-bottom: 2.5rem;
+}
+
+.title {
+  font-size: var(--text-xl);
+  line-height: var(--leading-xl);
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
+}
+
+.reason {
+  margin-top: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.qualifier {
+  margin-top: 0.5rem;
+  font-size: var(--text-base);
+  color: var(--subtle);
+}
+
+.group {
+  margin-top: 2rem;
+}
+
+.groupTitle {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--subtle);
+  margin-bottom: 0.75rem;
+}
+
+.list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  height: 100%;
+  padding: 1rem;
+  border-radius: var(--radius);
+}
+
+.card:hover {
+  background: var(--muted);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.icon {
+  flex: none;
+  color: var(--muted-foreground);
+}
+
+.card:hover .icon {
+  color: var(--foreground);
+}
+
+.name {
+  font-weight: 500;
+}
+
+.tagline {
+  font-size: var(--text-base);
+  color: var(--muted-foreground);
+}
+
+.accepts {
+  margin-top: 0.25rem;
+  font-size: var(--text-sm);
+  color: var(--subtle);
+}

@@ -1,0 +1,60 @@
+/*
+ * One button, varied by data attribute. Base UI sets data-disabled itself, so
+ * the disabled treatment is selected the same way as the variants.
+ */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  border-radius: var(--radius);
+  font-weight: 500;
+  white-space: nowrap;
+  transition:
+    background-color 150ms,
+    color 150ms;
+}
+
+.button[data-size="sm"] {
+  padding: 0.25rem 0.625rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+}
+
+.button[data-size="md"] {
+  padding: 0.5rem 1rem;
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+}
+
+.button[data-variant="primary"] {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.button[data-variant="primary"]:hover:not([data-disabled]) {
+  background: var(--primary-hover);
+}
+
+.button[data-variant="secondary"] {
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+}
+
+.button[data-variant="secondary"]:hover:not([data-disabled]) {
+  background: var(--secondary-hover);
+}
+
+.button[data-variant="ghost"] {
+  color: var(--muted-foreground);
+}
+
+.button[data-variant="ghost"]:hover:not([data-disabled]) {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+
+.button[data-disabled] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}

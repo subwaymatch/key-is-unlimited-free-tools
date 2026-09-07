@@ -1,8 +1,11 @@
 "use client";
 
-import { parseTrimInputs } from "@/lib/engine/trim";
+import { Radio } from "@base-ui/react/radio";
+import { RadioGroup } from "@base-ui/react/radio-group";
+
 import type { TrimMode, TrimSettings } from "@/lib/useConversionQueue";
 
+import { Select } from "./ui/Select";
 import styles from "./Settings.module.css";
 
 interface TrimPickerProps {
@@ -22,11 +25,6 @@ const MODES: Array<{ id: TrimMode; label: string; blurb: string }> = [
     label: "Trim silence",
     blurb: "Listen first, then cut the quiet head and tail",
   },
-  {
-    id: "range",
-    label: "Clip a range",
-    blurb: "Extract between two markers",
-  },
 ];
 
 /**
@@ -42,17 +40,19 @@ const SENSITIVITIES = [
   { label: "Also room tone", thresholdDb: -40, minDurationSeconds: 0.3 },
 ];
 
+const SENSITIVITY_OPTIONS = SENSITIVITIES.map((entry, index) => ({
+  value: index,
+  label: `${entry.label} (${entry.thresholdDb} dB for ${entry.minDurationSeconds}s)`,
+}));
+
 /**
  * Trim settings for files added next.
  *
- * Ranges are typed rather than dragged: there is no waveform to drag on until
- * the file has been decoded, and by then the extraction has usually finished.
- * Per-file markers, where a preview exists to scrub, live on the file card.
+ * Only the two decisions that can be made before a file exists: take the whole
+ * track, or find the silence. Clipping to a range needs a duration to validate
+ * against and something to listen to, so it lives on the file card instead.
  */
 export function TrimPicker({ settings, onChange, disabled = false }: TrimPickerProps) {
-  const { error } = parseTrimInputs(settings.startText, settings.endText);
-  const rangeError = settings.mode === "range" ? error : null;
-
   const sensitivityIndex = SENSITIVITIES.findIndex(
     (entry) =>
       entry.thresholdDb === settings.silence.thresholdDb &&
@@ -66,7 +66,12 @@ export function TrimPicker({ settings, onChange, disabled = false }: TrimPickerP
         Applied to files you add next. Each file can be clipped again afterwards.
       </p>
 
-      <div className={`${styles.grid} ${styles.gridThree}`}>
+      <RadioGroup
+        value={settings.mode}
+        onValueChange={(value) => onChange({ ...settings, mode: value as TrimMode })}
+        disabled={disabled}
+        className={`${styles.grid} ${styles.gridThree}`}
+      >
         {MODES.map((mode) => {
           const isChecked = settings.mode === mode.id;
           return (
@@ -76,14 +81,9 @@ export function TrimPicker({ settings, onChange, disabled = false }: TrimPickerP
                 disabled ? styles.optionDisabled : ""
               }`}
             >
-              <input
-                type="radio"
-                name="trim-mode"
-                checked={isChecked}
-                disabled={disabled}
-                onChange={() => onChange({ ...settings, mode: mode.id })}
-                className={styles.control}
-              />
+              <Radio.Root value={mode.id} disabled={disabled} className={styles.controlRadio}>
+                <Radio.Indicator className={styles.controlRadioDot} />
+              </Radio.Root>
               <span className={styles.optionBody}>
                 <span className={styles.optionLabel}>{mode.label}</span>
                 <span className={styles.optionBlurb}>{mode.blurb}</span>
@@ -91,69 +91,30 @@ export function TrimPicker({ settings, onChange, disabled = false }: TrimPickerP
             </label>
           );
         })}
-      </div>
-
-      {settings.mode === "range" && (
-        <div className={styles.panel}>
-          <div className={styles.row}>
-            <label>
-              <span className={styles.fieldLabel}>Start</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={settings.startText}
-                placeholder="0:00"
-                onChange={(event) => onChange({ ...settings, startText: event.target.value })}
-                className={styles.input}
-              />
-            </label>
-            <label>
-              <span className={styles.fieldLabel}>End</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={settings.endText}
-                placeholder="end of file"
-                onChange={(event) => onChange({ ...settings, endText: event.target.value })}
-                className={styles.input}
-              />
-            </label>
-            <p className={styles.hint}>
-              <code>1:30</code>, <code>0:04.5</code> or <code>90</code>. Leave either blank for the
-              start or end of the file.
-            </p>
-          </div>
-          {rangeError && <p className={styles.warning}>{rangeError}</p>}
-        </div>
-      )}
+      </RadioGroup>
 
       {settings.mode === "silence" && (
         <div className={styles.panel}>
           <label>
             <span className={styles.fieldLabel}>What counts as silence</span>
-            <select
+            <Select
+              aria-label="What counts as silence"
               value={sensitivityIndex === -1 ? 1 : sensitivityIndex}
-              onChange={(event) =>
+              disabled={disabled}
+              options={SENSITIVITY_OPTIONS}
+              onValueChange={(index) =>
                 onChange({
                   ...settings,
                   silence: {
-                    thresholdDb: SENSITIVITIES[Number(event.target.value)].thresholdDb,
-                    minDurationSeconds:
-                      SENSITIVITIES[Number(event.target.value)].minDurationSeconds,
+                    thresholdDb: SENSITIVITIES[index].thresholdDb,
+                    minDurationSeconds: SENSITIVITIES[index].minDurationSeconds,
                   },
                 })
               }
-              className={styles.select}
-            >
-              {SENSITIVITIES.map((entry, index) => (
-                <option key={entry.label} value={index}>
-                  {entry.label} ({entry.thresholdDb} dB for {entry.minDurationSeconds}s)
-                </option>
-              ))}
-            </select>
+            />
           </label>
           <p className={styles.panelNote}>
-            Only silence at the very beginning and end is removed — pauses in the middle are left
+            Only silence at the very beginning and end is removed - pauses in the middle are left
             alone. Detection decodes the audio once first, so a long file takes noticeably longer.
           </p>
         </div>
