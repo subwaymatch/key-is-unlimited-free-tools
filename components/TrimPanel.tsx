@@ -1,5 +1,12 @@
 "use client";
 
+import {
+  ArrowRightFromLine,
+  ArrowRightToLine,
+  Plus,
+  ScanSearch,
+  X,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { isFormatAvailable, OUTPUT_FORMATS, type OutputFormatId } from "@/lib/engine/formats";
@@ -17,8 +24,6 @@ interface TrimPanelProps {
   capabilities: EngineCapabilities | null;
   onExtract: (formatId: OutputFormatId, trim: TrimRange | null) => void;
   onDetectSilence: () => void;
-  /** Asks the queue to decode the envelope behind this file. */
-  onLoadWaveform: () => void;
   /**
    * Playback position of the preview player, when one is showing untrimmed
    * audio. Null when there is no preview whose timeline matches the source.
@@ -39,7 +44,6 @@ export function TrimPanel({
   capabilities,
   onExtract,
   onDetectSilence,
-  onLoadWaveform,
   getPreviewPosition,
   disabled,
 }: TrimPanelProps) {
@@ -111,11 +115,7 @@ export function TrimPanel({
             </>
           ) : job.wantsWaveform ? (
             <p className={styles.waveformHint}>Reading the audio to draw it...</p>
-          ) : (
-            <Button disabled={disabled} onClick={onLoadWaveform} variant="secondary">
-              Show waveform
-            </Button>
-          )}
+          ) : null}
         </div>
       )}
 
@@ -153,6 +153,7 @@ export function TrimPanel({
               onClick={() => setFromPreview(setStartText)}
               title="Set the start marker to the preview's playback position"
             >
+              <ArrowRightFromLine aria-hidden="true" size={13} strokeWidth={2} />
               Start here
             </Button>
             <Button
@@ -160,6 +161,7 @@ export function TrimPanel({
               onClick={() => setFromPreview(setEndText)}
               title="Set the end marker to the preview's playback position"
             >
+              <ArrowRightToLine aria-hidden="true" size={13} strokeWidth={2} />
               End here
             </Button>
           </div>
@@ -170,6 +172,7 @@ export function TrimPanel({
           onClick={onDetectSilence}
           title="Decode the audio once to find leading and trailing silence"
         >
+          <ScanSearch aria-hidden="true" size={13} strokeWidth={2} />
           Detect silence
         </Button>
 
@@ -182,6 +185,7 @@ export function TrimPanel({
             }}
             variant="ghost"
           >
+            <X aria-hidden="true" size={13} strokeWidth={2} />
             Clear
           </Button>
         )}
@@ -229,6 +233,7 @@ export function TrimPanel({
                 onClick={() => onExtract(format.id, trim)}
                 className={styles.chip}
               >
+                <Plus aria-hidden="true" size={13} strokeWidth={2} />
                 {format.label}
               </Button>
             );

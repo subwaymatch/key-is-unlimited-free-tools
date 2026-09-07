@@ -118,14 +118,18 @@ export interface TrimSettings {
 /**
  * Whether running this job would actually do anything.
  *
- * Every reason to wake the engine belongs here. Missing one does not fail
+ * Every reason to wake the engine belongs here, and missing one does not fail
  * loudly: the job settles straight back to the state it was in and whatever
- * was asked for silently never happens, which is what a waveform requested on
- * an already-finished file did until this became a named list.
+ * was asked for silently never happens.
+ *
+ * A wanted waveform is deliberately not on the list. It rides along with a run
+ * that was going to happen anyway rather than justifying one, so cancelling
+ * every format of a queued file still means that file is never mounted - which
+ * is the whole point of settling here instead of downloading a core and
+ * opening a file to produce nothing.
  */
 function needsEngine(job: Job): boolean {
   if (job.autoTrim) return true;
-  if (job.wantsWaveform && !job.waveform) return true;
   return job.outputs.some((output) => output.status === "pending");
 }
 
@@ -377,29 +381,6 @@ export function useConversionQueue() {
 
         const current = jobsRef.current.find((entry) => entry.id === jobId);
 
-        /*
-         * The envelope costs a full decode, so it is only read when the clip
-         * panel has asked for one. Like the thumbnail it is presentational:
-         * failing to draw it must not fail the file, so the flag is cleared
-         * either way and the error goes no further than the panel.
-         */
-        if (current?.wantsWaveform && !current.waveform) {
-          patchJob(jobId, { phase: "Reading the audio shape...", phaseRatio: 0 });
-          try {
-            let lastWaveTick = 0;
-            const waveform = await session.waveform((progress) => {
-              const now = Date.now();
-              if (now - lastWaveTick < PROGRESS_THROTTLE_MS) return;
-              lastWaveTick = now;
-              patchJob(jobId, { phaseRatio: progress.ratio });
-            });
-            patchJob(jobId, { waveform, wantsWaveform: false, phaseRatio: null });
-          } catch {
-            patchJob(jobId, { wantsWaveform: false, phaseRatio: null });
-          }
-          if (isCancelled()) throw new ExtractionError("Cancelled.");
-        }
-
         // Automatic trimming has to happen here rather than at queue time: the
         // range is not knowable until the audio has been listened to, and the
         // outputs waiting behind it inherit whatever the scan finds.
@@ -489,6 +470,33 @@ export function useConversionQueue() {
 
         if (isCancelled()) throw new ExtractionError("Cancelled.");
 
+        /*
+         * The envelope is drawn last, after every output. It costs a full
+         * decode, and the audio someone actually asked for should not wait
+         * behind a picture of it.
+         *
+         * Like the thumbnail it is presentational: failing to draw it must not
+         * fail the file, so the flag is cleared either way and the error goes
+         * no further than the panel.
+         */
+        const beforeWaveform = jobsRef.current.find((entry) => entry.id === jobId);
+        if (beforeWaveform?.wantsWaveform && !beforeWaveform.waveform) {
+          patchJob(jobId, { phase: "Reading the audio shape...", phaseRatio: 0 });
+          try {
+            let lastWaveTick = 0;
+            const waveform = await session.waveform((progress) => {
+              const now = Date.now();
+              if (now - lastWaveTick < PROGRESS_THROTTLE_MS) return;
+              lastWaveTick = now;
+              patchJob(jobId, { phaseRatio: progress.ratio });
+            });
+            patchJob(jobId, { waveform, wantsWaveform: false, phaseRatio: null });
+          } catch {
+            patchJob(jobId, { wantsWaveform: false, phaseRatio: null });
+          }
+          if (isCancelled()) throw new ExtractionError("Cancelled.");
+        }
+
         const outputs = jobsRef.current.find((entry) => entry.id === jobId)?.outputs ?? [];
 
         // The mount died with the worker, so formats that never got their turn
@@ -574,6 +582,8 @@ export function useConversionQueue() {
         autoTrim: settings.mode === "silence",
         silenceOptions: settings.silence,
         outputs: makeOutputs(formatIds, trim),
+        // The clip panel is always open, so the envelope is always wanted.
+        wantsWaveform: true,
         logs: [],
       }));
       commit([...jobsRef.current, ...newJobs]);
@@ -630,32 +640,6 @@ export function useConversionQueue() {
         autoTrim: true,
         silence: undefined,
         silenceOptions: { ...job.silenceOptions, ...options },
-      });
-      void pump();
-    },
-    [patchJob, pump],
-  );
-
-  /**
-   * Asks for the envelope behind a file, drawing it when the engine is free.
-   *
-   * Queued rather than run on the spot: one worker holds the core, so a
-   * decode started while a conversion is running would be refused.
-   */
-  const loadWaveform = useCallback(
-    (jobId: string) => {
-      const job = jobsRef.current.find((entry) => entry.id === jobId);
-      if (!job || job.waveform || job.wantsWaveform) return;
-      if (job.status === "preparing" || job.status === "converting") {
-        // Already on the engine; the run picks the flag up on its way past.
-        patchJob(jobId, { wantsWaveform: true });
-        return;
-      }
-      patchJob(jobId, {
-        status: "queued",
-        phase: "Waiting...",
-        error: undefined,
-        wantsWaveform: true,
       });
       void pump();
     },
@@ -841,7 +825,6 @@ export function useConversionQueue() {
     addFiles,
     addFormatToJob,
     detectSilence,
-    loadWaveform,
     cancelOutput,
     retryOutput,
     cancelJob,

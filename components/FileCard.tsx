@@ -1,22 +1,22 @@
 "use client";
 
-import { Download, RotateCcw, X } from "lucide-react";
+import { Download, Plus, RotateCcw, X } from "lucide-react";
 
 import { Button } from "./ui/Button";
 import { useMemo, useRef, useState } from "react";
 
 import {
+  getFormat,
   isFormatAvailable,
   OUTPUT_FORMATS,
   type OutputFormatId,
 } from "@/lib/engine/formats";
 import { formatTimecode } from "@/lib/engine/trim";
-import type { EngineCapabilities, TrimRange } from "@/lib/engine/types";
+import type { EngineCapabilities, ProbeResult, TrimRange } from "@/lib/engine/types";
 import {
   describeAudio,
   formatBytes,
   formatDuration,
-  formatElapsed,
   formatPercent,
   isLikelyPlayable,
 } from "@/lib/format-utils";
@@ -38,7 +38,6 @@ interface FileCardProps {
     trim?: TrimRange | null,
   ) => void;
   onDetectSilence: (jobId: string) => void;
-  onLoadWaveform: (jobId: string) => void;
   onCancelOutput: (jobId: string, outputId: string) => void;
   onRetryOutput: (jobId: string, outputId: string) => void;
 }
@@ -61,14 +60,37 @@ const STATUS_LABEL: Record<Job["status"], string> = {
   cancelled: "Cancelled",
 };
 
+/**
+ * Extension the output will carry.
+ *
+ * Read from the finished file when there is one and from the format plan
+ * before then, which is the same function that names the download, so the
+ * badge cannot promise one extension and deliver another. "Original" is the
+ * reason this is not simply the format id: its container depends on the
+ * source codec.
+ */
+function outputExtension(output: JobOutput, probe: ProbeResult | undefined): string | null {
+  const fromResult = output.result?.fileName.split(".").pop();
+  if (fromResult) return fromResult;
+  if (!probe) return null;
+  try {
+    return getFormat(output.formatId).plan(probe).extension;
+  } catch {
+    return null;
+  }
+}
+
 function OutputRow({
   output,
   durationSeconds,
+  extension,
   onCancel,
   onRetry,
 }: {
   output: JobOutput;
   durationSeconds: number | null;
+  /** File extension this output will carry, e.g. "mp3". Null before probing. */
+  extension: string | null;
   onCancel: () => void;
   onRetry: () => void;
 }) {
@@ -97,6 +119,7 @@ function OutputRow({
               {range}
             </span>
           )}
+          {extension && <span className={`${styles.tag} ${styles.tagExt}`}>.{extension}</span>}
           {result?.mode === "copy" && (
             <span
               title="Copied without re-encoding - bit-for-bit identical audio"
@@ -110,7 +133,7 @@ function OutputRow({
         {output.status === "done" && result && (
           <div className={styles.rowState}>
             <span className={styles.rowMeta}>
-              {formatBytes(result.bytes)}, {formatElapsed(result.elapsedMs)}
+              {formatBytes(result.bytes)}
             </span>
             <a
               href={output.url}
@@ -187,12 +210,10 @@ export function FileCard({
   onRetry,
   onAddFormat,
   onDetectSilence,
-  onLoadWaveform,
   onCancelOutput,
   onRetryOutput,
 }: FileCardProps) {
   const [showLogs, setShowLogs] = useState(false);
-  const [showTrim, setShowTrim] = useState(false);
   const previewRef = useRef<HTMLAudioElement | null>(null);
 
   const isRunning = job.status === "preparing" || job.status === "converting";
@@ -352,6 +373,7 @@ export function FileCard({
               <OutputRow
                 output={output}
                 durationSeconds={totalDuration}
+                extension={outputExtension(output, job.probe)}
                 onCancel={() => onCancelOutput(job.id, output.id)}
                 onRetry={() => onRetryOutput(job.id, output.id)}
               />
@@ -383,35 +405,21 @@ export function FileCard({
                   onClick={() => onAddFormat(job.id, format.id, null)}
                   className={styles.chip}
                 >
+                  <Plus aria-hidden="true" size={13} strokeWidth={2} />
                   {format.label}
                 </Button>
               ))}
             </div>
           )}
 
-          <div className={styles.disclosure}>
-            <button
-              type="button"
-              onClick={() => setShowTrim((previous) => !previous)}
-              aria-expanded={showTrim}
-              className={styles.disclosureButton}
-            >
-              {showTrim ? "Hide" : "Trim or clip a range"}
-            </button>
-            {showTrim && (
-              <TrimPanel
-                job={job}
-                capabilities={capabilities}
-                onExtract={(formatId, trim) =>
-                  onAddFormat(job.id, formatId, trim)
-                }
-                onDetectSilence={() => onDetectSilence(job.id)}
-                onLoadWaveform={() => onLoadWaveform(job.id)}
-                getPreviewPosition={getPreviewPosition}
-                disabled={isRunning}
-              />
-            )}
-          </div>
+          <TrimPanel
+            job={job}
+            capabilities={capabilities}
+            onExtract={(formatId, trim) => onAddFormat(job.id, formatId, trim)}
+            onDetectSilence={() => onDetectSilence(job.id)}
+            getPreviewPosition={getPreviewPosition}
+            disabled={isRunning}
+          />
         </>
       )}
 

@@ -32,8 +32,12 @@ export function FormatPicker({
 }: FormatPickerProps) {
 
   return (
-    <fieldset disabled={disabled} className={styles.fieldset}>
-      <legend className={styles.legend}>Output formats</legend>
+    /*
+     * The visible legend duplicated the disclosure's own "Output formats &
+     * trim" heading, so it is a label rather than a legend now: the group
+     * keeps its name for a screen reader without repeating it on screen.
+     */
+    <fieldset aria-label="Output formats" disabled={disabled} className={styles.fieldset}>
       <p className={styles.intro}>
         Applied to files you add next. Each file can get more formats afterwards.
       </p>

@@ -1,8 +1,9 @@
+/*
+ * No fill and no padding: the waveform sits directly on the page, so the panel
+ * is a grouping rather than a box drawn around one.
+ */
 .panel {
-  margin-top: 0.75rem;
-  border-radius: var(--radius);
-  background: var(--muted);
-  padding: 0.75rem;
+  margin-top: 1.25rem;
 }
 
 .row {
