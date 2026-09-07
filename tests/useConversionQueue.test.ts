@@ -165,7 +165,7 @@ const fake = vi.hoisted(() => {
     current: null as FakeEngine | null,
     capabilities: {
       // No pcm_s16le, so WAV is the format this core cannot produce.
-      encoders: new Set(["aac", "libmp3lame", "libopus", "flac"]),
+      encoders: new Set(["aac", "libmp3lame", "opus", "flac"]),
       supportsWorkerFs: true,
     } as EngineCapabilities,
   };
@@ -568,8 +568,6 @@ describe("automatic trimming", () => {
     await act(async () => {
       hook.result.current.setTrimSettings({
         mode: "silence",
-        startText: "",
-        endText: "",
         silence: { thresholdDb: -40, minDurationSeconds: 0.3 },
       });
     });

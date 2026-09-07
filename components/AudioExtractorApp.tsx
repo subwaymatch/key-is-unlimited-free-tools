@@ -91,7 +91,6 @@ export function AudioExtractorApp() {
                     : `${selectedFormats.length} formats`
                   : "no format"}
                 {trimSettings.mode === "silence" && " - trim silence"}
-                {trimSettings.mode === "range" && " - clip a range"}
               </span>
             </span>
             <ChevronDown

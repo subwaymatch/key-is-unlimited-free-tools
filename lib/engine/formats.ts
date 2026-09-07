@@ -155,13 +155,32 @@ export const OUTPUT_FORMATS: readonly OutputFormat[] = [
   },
   {
     id: "opus",
+    /*
+     * ffmpeg's own Opus encoder, not libopus.
+     *
+     * libopus is compiled into @ffmpeg/core 0.12.10 and advertised by
+     * `-encoders`, but every invocation of it traps with "RuntimeError: memory
+     * access out of bounds" - at any bitrate, any channel count, into any
+     * container, and with or without an explicit mapping family. libvorbis,
+     * libmp3lame and flac in the same build are fine, so this is libopus
+     * specifically rather than the core or the Ogg muxer. 0.12.10 is the newest
+     * core published, so there is no upgrade to move to.
+     *
+     * The native encoder is marked experimental, hence `-strict -2`, and it
+     * only codes mono or stereo: a surround source is downmixed, which is what
+     * libmp3lame already does for MP3. It is lower quality than libopus at the
+     * same bitrate, which is the price of the format working at all.
+     *
+     * If a later core fixes libopus, this goes back to
+     * ["-c:a", "libopus", "-b:a", "128k"] and requiredEncoder to "libopus".
+     */
     label: "Opus",
-    blurb: "Best quality per byte, 128 kbps",
+    blurb: "Small files at 128 kbps, good for speech and music",
     lossless: false,
-    requiredEncoder: "libopus",
+    requiredEncoder: "opus",
     plan() {
       return {
-        args: [...SELECT_AUDIO, "-c:a", "libopus", "-b:a", "128k"],
+        args: [...SELECT_AUDIO, "-c:a", "opus", "-strict", "-2", "-b:a", "128k"],
         extension: "opus",
         mimeType: "audio/ogg",
         mode: "encode",

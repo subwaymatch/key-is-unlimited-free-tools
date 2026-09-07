@@ -178,38 +178,12 @@
   padding: 0.75rem;
 }
 
-.row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.75rem;
-}
-
 .fieldLabel {
   display: block;
   font-size: var(--text-sm);
   line-height: var(--leading-sm);
   font-weight: 500;
   color: var(--muted-foreground);
-}
-
-.input {
-  margin-top: 0.25rem;
-  width: 7rem;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-lg);
-  background: var(--muted);
-  padding: 0.25rem 0.5rem;
-  font-size: var(--text-base);
-  line-height: var(--leading-base);
-  font-variant-numeric: tabular-nums;
-}
-
-
-.hint {
-  font-size: var(--text-sm);
-  line-height: var(--leading-sm);
-  color: var(--subtle);
 }
 
 .panelNote {

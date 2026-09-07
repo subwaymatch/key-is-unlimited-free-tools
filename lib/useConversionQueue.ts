@@ -23,7 +23,7 @@ import {
   isFormatAvailable,
   type OutputFormatId,
 } from "./engine/formats";
-import { DEFAULT_SILENCE_OPTIONS, parseTrimInputs, sameTrimRange } from "./engine/trim";
+import { DEFAULT_SILENCE_OPTIONS, sameTrimRange } from "./engine/trim";
 import { ExtractionError } from "./engine/types";
 import type {
   EngineCapabilities,
@@ -87,26 +87,24 @@ export interface Job {
   logs: string[];
 }
 
-export type TrimMode = "full" | "silence" | "range";
+export type TrimMode = "full" | "silence";
 
 /**
  * Trim settings for files added next, alongside the format selection.
  *
- * The markers are kept as raw text rather than seconds: the file has not been
- * probed yet, so "2:30" cannot be validated against a duration, and echoing
- * back a reformatted number while someone is still typing is hostile.
+ * Clipping to an explicit range is deliberately not here. A range means
+ * nothing until the file has been probed and can be heard, so it belongs on
+ * the file card, where there is a duration to validate against and a preview
+ * to scrub. These settings only carry the two decisions that can be made
+ * before a file exists: take the whole track, or find the silence.
  */
 export interface TrimSettings {
   mode: TrimMode;
-  startText: string;
-  endText: string;
   silence: SilenceScanOptions;
 }
 
 export const DEFAULT_TRIM_SETTINGS: TrimSettings = {
   mode: "full",
-  startText: "",
-  endText: "",
   silence: DEFAULT_SILENCE_OPTIONS,
 };
 
@@ -476,12 +474,13 @@ export function useConversionQueue() {
         engineStateRef.current.capabilities,
       );
       const settings = trimSettingsRef.current;
-      // In silence mode the range is still unknown; the run fills it in for
-      // every pending output once it has listened to the file.
-      const trim =
-        settings.mode === "range"
-          ? parseTrimInputs(settings.startText, settings.endText).trim
-          : null;
+      /*
+       * Newly added files are never pre-clipped. A range is chosen per file on
+       * the card, where there is a duration to validate against; and in silence
+       * mode the range is not known yet either, because the run fills it in for
+       * every pending output once it has listened to the file.
+       */
+      const trim: TrimRange | null = null;
 
       const newJobs: Job[] = files.map((file) => ({
         id: nextJobId(),

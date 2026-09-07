@@ -122,9 +122,25 @@ describe("format plans", () => {
 
   it("uses the expected encoder for each lossy format", () => {
     expect(getFormat("mp3").plan(probe({})).args).toContain("libmp3lame");
-    expect(getFormat("opus").plan(probe({})).args).toContain("libopus");
+    expect(getFormat("opus").plan(probe({})).args).toContain("opus");
     expect(getFormat("flac").plan(probe({})).args).toContain("flac");
     expect(getFormat("wav").plan(probe({})).args).toContain("pcm_s16le");
+  });
+
+  /*
+   * libopus traps with "memory access out of bounds" on every invocation in
+   * @ffmpeg/core 0.12.10, so Opus goes through ffmpeg's own encoder instead.
+   * That encoder is experimental, so the strictness flag is what makes it run
+   * at all: drop it and every Opus job fails.
+   */
+  it("encodes Opus with the native encoder, not libopus", () => {
+    const { args } = getFormat("opus").plan(probe({}));
+
+    expect(args).not.toContain("libopus");
+    expect(args.join(" ")).toContain("-c:a opus");
+    expect(args).toContain("-strict");
+    expect(args).toContain("-2");
+    expect(getFormat("opus").requiredEncoder).toBe("opus");
   });
 
   it("rejects an unknown format id", () => {
