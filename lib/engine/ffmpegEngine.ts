@@ -52,6 +52,7 @@ import {
   type ExtractOutput,
   type ExtractProgress,
   type ExtractSession,
+  type PosterFrame,
   type ProbeResult,
   type SilenceScanOptions,
   type SilenceScanResult,
@@ -59,6 +60,12 @@ import {
 
 /** Where the input file is mounted inside the core's filesystem. */
 const MOUNT_POINT = "/input";
+
+/**
+ * Thumbnail width in pixels. Twice the widest the card draws it, so the frame
+ * still looks sharp on a high-density screen.
+ */
+const POSTER_WIDTH = 320;
 
 /** Retained log lines per command, so a chatty run cannot grow without bound. */
 const MAX_LOG_LINES = 400;
@@ -585,6 +592,82 @@ export class FFmpegEngine implements AudioExtractor {
     };
   }
 
+  /**
+   * One frame from the video, as JPEG, for the file card.
+   *
+   * `-ss` goes before `-i` on purpose. Input seeking jumps the demuxer
+   * straight to the nearest keyframe instead of decoding everything up to the
+   * timestamp, which is the difference between a moment and minutes on a
+   * multi-gigabyte film.
+   *
+   * A tenth of the way in avoids the black frames and studio logos that open
+   * most videos, without landing so late that a short clip seeks past its own
+   * end. Failure is not an error worth surfacing: a missing thumbnail is a
+   * cosmetic loss, so this resolves to null rather than throwing and taking a
+   * conversion down with it.
+   */
+  async runPoster(
+    ffmpeg: FFmpeg,
+    inputPath: string,
+    probe: ProbeResult,
+  ): Promise<PosterFrame | null> {
+    if (!probe.hasVideo) return null;
+
+    const duration = probe.durationSeconds;
+    const atSeconds = duration && duration > 0 ? Math.min(duration * 0.1, duration - 0.1) : 0;
+    const outputPath = "poster.jpg";
+    const failureLog = this.#capture();
+
+    let exitCode: number;
+    try {
+      exitCode = await ffmpeg.exec([
+        "-hide_banner",
+        ...(atSeconds > 0 ? ["-ss", atSeconds.toFixed(3)] : []),
+        "-i",
+        inputPath,
+        "-map",
+        "0:v:0",
+        "-an",
+        "-sn",
+        "-dn",
+        "-frames:v",
+        "1",
+        // Fit the card without carrying a 4K frame around in memory. -2 keeps
+        // the height even, which the JPEG encoder needs for chroma subsampling.
+        "-vf",
+        `scale=${POSTER_WIDTH}:-2:flags=fast_bilinear`,
+        "-q:v",
+        "4",
+        "-f",
+        "mjpeg",
+        outputPath,
+      ]);
+    } catch {
+      failureLog.release();
+      return null;
+    } finally {
+      failureLog.release();
+    }
+
+    if (exitCode !== 0) return null;
+
+    try {
+      const data = await ffmpeg.readFile(outputPath);
+      if (typeof data === "string" || data.length === 0) return null;
+      return { blob: new Blob([data as BlobPart], { type: "image/jpeg" }), atSeconds };
+    } catch {
+      return null;
+    } finally {
+      // The frame lives in MEMFS, which is the same heap the next conversion
+      // needs, so it does not get to stay there.
+      try {
+        await ffmpeg.deleteFile(outputPath);
+      } catch {
+        // Never written, or already gone.
+      }
+    }
+  }
+
   /** @internal - driven by FFmpegSession. */
   async closeSession(ffmpeg: FFmpeg): Promise<void> {
     await this.#releaseInput(ffmpeg);
@@ -635,6 +718,11 @@ class FFmpegSession implements ExtractSession {
       this.probe,
       options,
     );
+  }
+
+  poster(): Promise<PosterFrame | null> {
+    if (this.#closed) return Promise.resolve(null);
+    return this.engine.runPoster(this.ffmpeg, this.inputPath, this.probe);
   }
 
   detectSilence(

@@ -21,6 +21,14 @@
 .identity {
   min-width: 0;
   flex: 1 1 0%;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+}
+
+.identityText {
+  min-width: 0;
+  flex: 1 1 0%;
 }
 
 .fileName {
@@ -28,6 +36,20 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 500;
+}
+
+/*
+ * A 16:9 frame at the height of the two lines beside it. object-fit keeps a
+ * 4:3 or vertical source from stretching, and the muted fill covers the
+ * letterboxing that leaves.
+ */
+.poster {
+  flex: none;
+  width: 4rem;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-sm);
+  background: var(--muted);
+  object-fit: cover;
 }
 
 .meta {

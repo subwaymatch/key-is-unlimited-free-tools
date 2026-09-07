@@ -120,6 +120,14 @@ export interface ExtractOptions {
   onProgress?: (progress: ExtractProgress) => void;
 }
 
+/** A still frame lifted out of a video, for the file card. */
+export interface PosterFrame {
+  /** JPEG image. The caller owns the object URL it makes from this. */
+  blob: Blob;
+  /** Where in the source the frame was taken, in seconds. */
+  atSeconds: number;
+}
+
 /** One open file: mounted, probed, ready to produce outputs. */
 export interface ExtractSession {
   readonly probe: ProbeResult;
@@ -131,6 +139,12 @@ export interface ExtractSession {
    * re-encode costs - which is why it is a separate call the caller opts into
    * rather than something every extraction does.
    */
+  /**
+   * A single frame, for the card's thumbnail. Resolves to null when the file
+   * has no video to take one from.
+   */
+  poster(): Promise<PosterFrame | null>;
+
   detectSilence(
     options?: Partial<SilenceScanOptions>,
     onProgress?: (progress: ExtractProgress) => void,

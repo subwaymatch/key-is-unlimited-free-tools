@@ -15,6 +15,7 @@ import type {
   ExtractOptions,
   ExtractOutput,
   ExtractProgress,
+  PosterFrame,
   ProbeResult,
   SilenceScanOptions,
   SilenceScanResult,
@@ -71,6 +72,8 @@ const fake = vi.hoisted(() => {
   class FakeSession {
     probe = PROBE;
     closed = false;
+    /** Set by a test to make the thumbnail step fail. */
+    posterFails = false;
     /** Every call the hook has made, in order; settled ones stay for the record. */
     calls: PendingCall[] = [];
 
@@ -103,6 +106,12 @@ const fake = vi.hoisted(() => {
 
     extract(formatId: string, options?: ExtractOptions): Promise<ExtractOutput> {
       return this.#record("extract", formatId, options);
+    }
+
+    /** Rejects when `posterFails` is set, to prove a bad frame is survivable. */
+    poster(): Promise<PosterFrame | null> {
+      if (this.posterFails) return Promise.reject(new Error("no frame"));
+      return Promise.resolve(null);
     }
 
     detectSilence(
@@ -309,6 +318,29 @@ describe("a file through the queue", () => {
     expect(hook.result.current.activeCount).toBe(0);
     await waitFor(() => expect(first.closed).toBe(true));
     expect(fake.state.engines).toHaveLength(1);
+  });
+
+  /*
+   * A thumbnail is decoration. The engine already resolves to null on its own
+   * failures, and the queue catches the rest, so no way of failing to get a
+   * frame may take the conversion down with it.
+   */
+  it("still converts the file when the thumbnail cannot be taken", async () => {
+    const hook = setup();
+    await act(async () => {
+      hook.result.current.addFiles([file()]);
+    });
+
+    const first = await session();
+    first.posterFails = true;
+
+    const original = await nextCall(first);
+    await finish(original);
+    const mp3 = await nextCall(first);
+    await finish(mp3);
+
+    await waitFor(() => expect(job(hook).status).toBe("done"));
+    expect(job(hook).posterUrl).toBeUndefined();
   });
 
   it("carries on with the other formats when one fails, and reports the failure on its row", async () => {

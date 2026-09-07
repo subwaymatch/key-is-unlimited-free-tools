@@ -5,7 +5,11 @@ import { Download, RotateCcw, X } from "lucide-react";
 import { Button } from "./ui/Button";
 import { useMemo, useRef, useState } from "react";
 
-import { isFormatAvailable, OUTPUT_FORMATS, type OutputFormatId } from "@/lib/engine/formats";
+import {
+  isFormatAvailable,
+  OUTPUT_FORMATS,
+  type OutputFormatId,
+} from "@/lib/engine/formats";
 import { formatTimecode } from "@/lib/engine/trim";
 import type { EngineCapabilities, TrimRange } from "@/lib/engine/types";
 import {
@@ -28,7 +32,11 @@ interface FileCardProps {
   onCancel: (jobId: string) => void;
   onRemove: (jobId: string) => void;
   onRetry: (jobId: string) => void;
-  onAddFormat: (jobId: string, formatId: OutputFormatId, trim?: TrimRange | null) => void;
+  onAddFormat: (
+    jobId: string,
+    formatId: OutputFormatId,
+    trim?: TrimRange | null,
+  ) => void;
   onDetectSilence: (jobId: string) => void;
   onCancelOutput: (jobId: string, outputId: string) => void;
   onRetryOutput: (jobId: string, outputId: string) => void;
@@ -103,7 +111,11 @@ function OutputRow({
             <span className={styles.rowMeta}>
               {formatBytes(result.bytes)}, {formatElapsed(result.elapsedMs)}
             </span>
-            <a href={output.url} download={result.fileName} className={styles.download}>
+            <a
+              href={output.url}
+              download={result.fileName}
+              className={styles.download}
+            >
               <Download aria-hidden="true" size={14} strokeWidth={2} />
               Download
             </a>
@@ -113,7 +125,9 @@ function OutputRow({
         {output.status === "running" && (
           <div className={styles.rowState}>
             <span className={styles.rowMeta}>
-              {output.ratio === null ? "Working..." : formatPercent(output.ratio)}
+              {output.ratio === null
+                ? "Working..."
+                : formatPercent(output.ratio)}
             </span>
             <Button onClick={onCancel} aria-label={`Cancel ${output.label}`}>
               Cancel
@@ -145,14 +159,19 @@ function OutputRow({
 
       {output.status === "running" && (
         <div className={styles.rowBar}>
-          <ProgressBar ratio={output.ratio} label={`${output.label} conversion progress`} />
+          <ProgressBar
+            ratio={output.ratio}
+            label={`${output.label} conversion progress`}
+          />
         </div>
       )}
 
       {output.status === "error" && output.error && (
         <div className={styles.rowError}>
           <p className={styles.rowErrorMessage}>{output.error.message}</p>
-          {output.error.hint && <p className={styles.rowErrorHint}>{output.error.hint}</p>}
+          {output.error.hint && (
+            <p className={styles.rowErrorHint}>{output.error.hint}</p>
+          )}
         </div>
       )}
     </div>
@@ -175,14 +194,18 @@ export function FileCard({
   const previewRef = useRef<HTMLAudioElement | null>(null);
 
   const isRunning = job.status === "preparing" || job.status === "converting";
-  const runningOutput = job.outputs.find((output) => output.status === "running");
+  const runningOutput = job.outputs.find(
+    (output) => output.status === "running",
+  );
 
   /** The first finished output a browser is likely to play inline. */
   const playable = useMemo(
     () =>
       job.outputs.find(
         (output) =>
-          output.status === "done" && output.url && isLikelyPlayable(output.result!.extension),
+          output.status === "done" &&
+          output.url &&
+          isLikelyPlayable(output.result!.extension),
       ),
     [job.outputs],
   );
@@ -210,7 +233,9 @@ export function FileCard({
     playable && playable.trim === null
       ? () => {
           const element = previewRef.current;
-          return element && Number.isFinite(element.currentTime) ? element.currentTime : null;
+          return element && Number.isFinite(element.currentTime)
+            ? element.currentTime
+            : null;
         }
       : null;
 
@@ -218,23 +243,37 @@ export function FileCard({
     <li className={styles.card}>
       <div className={styles.header}>
         <div className={styles.identity}>
-          <p className={styles.fileName} title={job.file.name}>
-            {job.file.name}
-          </p>
-          <p className={styles.meta}>
-            {formatBytes(job.file.size)}
-            {job.probe && (
-              <>
-                {", "}
-                {formatDuration(job.probe.durationSeconds)}
-                {", "}
-                {describeAudio(job.probe.audio)}
-              </>
-            )}
-            {job.probe && job.probe.audioStreams.length > 1 && (
-              <> {`, ${job.probe.audioStreams.length} audio tracks (using the first)`}</>
-            )}
-          </p>
+          {job.posterUrl && (
+            /*
+             * Decorative: the filename right beside it already identifies the
+             * file, so alt text here would only repeat it. eslint-disable is
+             * not needed - an empty alt is the correct markup for that.
+             */
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={job.posterUrl} alt="" className={styles.poster} />
+          )}
+          <div className={styles.identityText}>
+            <p className={styles.fileName} title={job.file.name}>
+              {job.file.name}
+            </p>
+            <p className={styles.meta}>
+              {formatBytes(job.file.size)}
+              {job.probe && (
+                <>
+                  {", "}
+                  {formatDuration(job.probe.durationSeconds)}
+                  {", "}
+                  {describeAudio(job.probe.audio)}
+                </>
+              )}
+              {job.probe && job.probe.audioStreams.length > 1 && (
+                <>
+                  {" "}
+                  {`, ${job.probe.audioStreams.length} audio tracks (using the first)`}
+                </>
+              )}
+            </p>
+          </div>
         </div>
 
         <div className={styles.actions}>
@@ -298,7 +337,9 @@ export function FileCard({
       {job.status === "error" && job.error && (
         <div role="alert" className={styles.alert}>
           <p className={styles.alertMessage}>{job.error.message}</p>
-          {job.error.hint && <p className={styles.alertHint}>{job.error.hint}</p>}
+          {job.error.hint && (
+            <p className={styles.alertHint}>{job.error.hint}</p>
+          )}
         </div>
       )}
 
@@ -359,7 +400,9 @@ export function FileCard({
               <TrimPanel
                 job={job}
                 capabilities={capabilities}
-                onExtract={(formatId, trim) => onAddFormat(job.id, formatId, trim)}
+                onExtract={(formatId, trim) =>
+                  onAddFormat(job.id, formatId, trim)
+                }
                 onDetectSilence={() => onDetectSilence(job.id)}
                 getPreviewPosition={getPreviewPosition}
                 disabled={isRunning}

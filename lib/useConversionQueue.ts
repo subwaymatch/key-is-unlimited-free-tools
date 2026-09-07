@@ -75,6 +75,13 @@ export interface Job {
   /** Progress of a phase that is not an output conversion, e.g. a silence scan. */
   phaseRatio: number | null;
   probe?: ProbeResult;
+  /**
+   * Object URL of a still frame from the video, revoked with the job.
+   *
+   * Absent for audio-only files, and absent when the frame could not be taken:
+   * a thumbnail is decoration, so failing to get one is not worth reporting.
+   */
+  posterUrl?: string;
   /** Range the trim panel currently proposes for new outputs. */
   trim: TrimRange | null;
   /** When true, the next run detects silence and derives `trim` from it. */
@@ -101,6 +108,19 @@ export type TrimMode = "full" | "silence";
 export interface TrimSettings {
   mode: TrimMode;
   silence: SilenceScanOptions;
+}
+
+/**
+ * Releases every object URL a job holds.
+ *
+ * There are three places a job can be discarded, so this exists to keep them
+ * from drifting: a URL added to Job needs freeing here and nowhere else.
+ */
+function releaseJobUrls(job: Job): void {
+  for (const output of job.outputs) {
+    if (output.url) URL.revokeObjectURL(output.url);
+  }
+  if (job.posterUrl) URL.revokeObjectURL(job.posterUrl);
 }
 
 export const DEFAULT_TRIM_SETTINGS: TrimSettings = {
@@ -316,6 +336,27 @@ export function useConversionQueue() {
         if (isCancelled()) throw new ExtractionError("Cancelled.");
 
         patchJob(jobId, { status: "converting", probe: session.probe });
+
+        /*
+         * The thumbnail is taken here, while the file is already mounted, so it
+         * costs one seek rather than a second mount later. It is deliberately
+         * not awaited for its errors: runPoster resolves to null on any
+         * failure, because a card without a picture is a much smaller problem
+         * than a conversion that did not run.
+         */
+        if (session.probe.hasVideo) {
+          try {
+            const poster = await session.poster();
+            if (poster && !isCancelled()) {
+              patchJob(jobId, { posterUrl: URL.createObjectURL(poster.blob) });
+            }
+          } catch {
+            // Decoration only. The engine already swallows its own failures
+            // here, and this catch covers the rest, so that no way of failing
+            // to get a picture can take the conversion down with it.
+          }
+        }
+        if (isCancelled()) throw new ExtractionError("Cancelled.");
 
         // Automatic trimming has to happen here rather than at queue time: the
         // range is not knowable until the audio has been listened to, and the
@@ -678,9 +719,7 @@ export function useConversionQueue() {
       if (!job) return;
       if (activeJobRef.current === jobId) cancelJob(jobId);
       partialCancelRef.current.delete(jobId);
-      for (const output of job.outputs) {
-        if (output.url) URL.revokeObjectURL(output.url);
-      }
+      releaseJobUrls(job);
       commit(jobsRef.current.filter((entry) => entry.id !== jobId));
     },
     [cancelJob, commit],
@@ -692,9 +731,7 @@ export function useConversionQueue() {
       const isFinished =
         job.status === "done" || job.status === "cancelled" || job.status === "error";
       if (isFinished) {
-        for (const output of job.outputs) {
-          if (output.url) URL.revokeObjectURL(output.url);
-        }
+        releaseJobUrls(job);
       } else {
         remaining.push(job);
       }
@@ -705,11 +742,7 @@ export function useConversionQueue() {
   // Release every object URL when the page goes away.
   useEffect(
     () => () => {
-      for (const job of jobsRef.current) {
-        for (const output of job.outputs) {
-          if (output.url) URL.revokeObjectURL(output.url);
-        }
-      }
+      for (const job of jobsRef.current) releaseJobUrls(job);
     },
     [],
   );
