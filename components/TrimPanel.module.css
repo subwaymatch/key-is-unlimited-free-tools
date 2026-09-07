@@ -93,3 +93,14 @@
 .chip:disabled {
   opacity: 0.45;
 }
+
+.waveform {
+  margin-bottom: 0.75rem;
+}
+
+.waveformHint {
+  margin-top: 0.375rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--subtle);
+}

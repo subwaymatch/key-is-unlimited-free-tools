@@ -9,6 +9,7 @@ import { formatDuration } from "@/lib/format-utils";
 import type { Job } from "@/lib/useConversionQueue";
 
 import { Button } from "./ui/Button";
+import { Waveform } from "./Waveform";
 import styles from "./TrimPanel.module.css";
 
 interface TrimPanelProps {
@@ -16,6 +17,8 @@ interface TrimPanelProps {
   capabilities: EngineCapabilities | null;
   onExtract: (formatId: OutputFormatId, trim: TrimRange | null) => void;
   onDetectSilence: () => void;
+  /** Asks the queue to decode the envelope behind this file. */
+  onLoadWaveform: () => void;
   /**
    * Playback position of the preview player, when one is showing untrimmed
    * audio. Null when there is no preview whose timeline matches the source.
@@ -36,6 +39,7 @@ export function TrimPanel({
   capabilities,
   onExtract,
   onDetectSilence,
+  onLoadWaveform,
   getPreviewPosition,
   disabled,
 }: TrimPanelProps) {
@@ -74,8 +78,47 @@ export function TrimPanel({
     if (position !== null && position !== undefined) setter(formatTimecode(position));
   };
 
+  const waveform = job.waveform;
+  const canDraw = duration !== null && duration > 0;
+
+  /*
+   * Dragging writes straight into the same text fields the inputs use, so the
+   * two ways of setting a range cannot disagree: there is one source of truth
+   * and the waveform is just another way to type into it.
+   */
+  const selectRange = (from: number, to: number | null) => {
+    setStartText(from <= 0 ? "" : formatTimecode(from));
+    setEndText(to === null || (duration !== null && to >= duration) ? "" : formatTimecode(to));
+  };
+
   return (
     <div role="group" aria-label="Clip markers" className={styles.panel}>
+      {canDraw && (
+        <div className={styles.waveform}>
+          {waveform && waveform.peaks.length > 0 ? (
+            <>
+              <Waveform
+                peaks={waveform.peaks}
+                durationSeconds={duration}
+                startSeconds={trim?.startSeconds ?? 0}
+                endSeconds={trim?.endSeconds ?? null}
+                onSelect={selectRange}
+                disabled={disabled}
+              />
+              <p className={styles.waveformHint}>
+                Drag across the waveform to select a range.
+              </p>
+            </>
+          ) : job.wantsWaveform ? (
+            <p className={styles.waveformHint}>Reading the audio to draw it...</p>
+          ) : (
+            <Button disabled={disabled} onClick={onLoadWaveform} variant="secondary">
+              Show waveform
+            </Button>
+          )}
+        </div>
+      )}
+
       <div className={styles.row}>
         <label>
           <span className={styles.fieldLabel}>Start</span>

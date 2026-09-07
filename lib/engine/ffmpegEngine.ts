@@ -56,6 +56,7 @@ import {
   type ProbeResult,
   type SilenceScanOptions,
   type SilenceScanResult,
+  type WaveformData,
 } from "./types";
 
 /** Where the input file is mounted inside the core's filesystem. */
@@ -66,6 +67,18 @@ const MOUNT_POINT = "/input";
  * still looks sharp on a high-density screen.
  */
 const POSTER_WIDTH = 320;
+
+/**
+ * Sample rate the waveform decode targets, in Hz.
+ *
+ * Low on purpose: the envelope is all that gets drawn, and at 1 kHz even a
+ * three-hour file lands around 20 MB of PCM instead of gigabytes. Decoding
+ * dominates the time either way, so a higher rate would buy nothing.
+ */
+const WAVEFORM_RATE = 1000;
+
+/** Buckets the envelope is reduced to. Comfortably more than the pixels drawn. */
+const WAVEFORM_BUCKETS = 600;
 
 /** Retained log lines per command, so a chatty run cannot grow without bound. */
 const MAX_LOG_LINES = 400;
@@ -114,6 +127,37 @@ export function safeMountName(fileName: string): string {
 }
 
 /** Strips the extension so outputs can be named after the source file. */
+/**
+ * Reduces raw mono 16-bit PCM to one normalised peak per bucket.
+ *
+ * Peak rather than average, so a short loud moment still shows up as one. The
+ * result is scaled against the loudest bucket rather than full scale: a quiet
+ * recording should fill the panel, not draw a flat line along the bottom.
+ */
+export function reducePeaks(pcm: Uint8Array, buckets = WAVEFORM_BUCKETS): number[] {
+  const samples = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.length / 2));
+  if (samples.length === 0) return [];
+
+  const width = Math.max(1, Math.floor(samples.length / buckets));
+  const count = Math.min(buckets, Math.ceil(samples.length / width));
+  const peaks = new Array<number>(count).fill(0);
+
+  for (let bucket = 0; bucket < count; bucket += 1) {
+    const start = bucket * width;
+    const end = Math.min(start + width, samples.length);
+    let peak = 0;
+    for (let i = start; i < end; i += 1) {
+      const value = Math.abs(samples[i]);
+      if (value > peak) peak = value;
+    }
+    peaks[bucket] = peak;
+  }
+
+  const loudest = peaks.reduce((max, value) => (value > max ? value : max), 0);
+  if (loudest === 0) return peaks.map(() => 0);
+  return peaks.map((value) => value / loudest);
+}
+
 export function baseName(fileName: string): string {
   const lastDot = fileName.lastIndexOf(".");
   const stem = lastDot > 0 ? fileName.slice(0, lastDot) : fileName;
@@ -668,6 +712,83 @@ export class FFmpegEngine implements AudioExtractor {
     }
   }
 
+  /**
+   * Decodes the audio down to an envelope for the clip panel to draw.
+   *
+   * One full decode, the same cost as a silence scan, so it is only run when
+   * someone opens the panel. The result is reduced to a fixed number of
+   * buckets here rather than in the component, because the intermediate PCM
+   * lives in the core's heap and the sooner it is gone the better.
+   */
+  async runWaveform(
+    ffmpeg: FFmpeg,
+    inputPath: string,
+    probe: ProbeResult,
+    onProgress?: (progress: ExtractProgress) => void,
+  ): Promise<WaveformData> {
+    const probedDuration = probe.durationSeconds;
+    let decodedSeconds = 0;
+
+    this.#progressSink = ({ time }) => {
+      const processedSeconds = Math.max(0, time / 1_000_000);
+      decodedSeconds = Math.max(decodedSeconds, processedSeconds);
+      onProgress?.({
+        processedSeconds,
+        ratio: probedDuration ? Math.min(1, processedSeconds / probedDuration) : null,
+      });
+    };
+
+    const outputPath = "waveform.pcm";
+    const failureLog = this.#capture();
+
+    let exitCode: number;
+    try {
+      exitCode = await ffmpeg.exec([
+        "-hide_banner",
+        "-i",
+        inputPath,
+        ...SELECT_AUDIO,
+        "-ac",
+        "1",
+        "-ar",
+        String(WAVEFORM_RATE),
+        "-f",
+        "s16le",
+        outputPath,
+      ]);
+    } finally {
+      failureLog.release();
+      this.#progressSink = null;
+    }
+
+    if (exitCode !== 0) {
+      throw new ExtractionError(
+        "Could not read the audio to draw it.",
+        summarizeFailure(failureLog.lines) ?? `ffmpeg exited with code ${exitCode}.`,
+      );
+    }
+
+    try {
+      const raw = await ffmpeg.readFile(outputPath);
+      if (typeof raw === "string") {
+        throw new ExtractionError("ffmpeg returned text where audio was expected.");
+      }
+      const peaks = reducePeaks(raw);
+      const seconds = raw.length / 2 / WAVEFORM_RATE;
+      onProgress?.({ processedSeconds: seconds, ratio: 1 });
+      return {
+        peaks,
+        durationSeconds: probedDuration ?? (seconds > 0 ? seconds : null),
+      };
+    } finally {
+      try {
+        await ffmpeg.deleteFile(outputPath);
+      } catch {
+        // Never written, or already gone.
+      }
+    }
+  }
+
   /** @internal - driven by FFmpegSession. */
   async closeSession(ffmpeg: FFmpeg): Promise<void> {
     await this.#releaseInput(ffmpeg);
@@ -723,6 +844,13 @@ class FFmpegSession implements ExtractSession {
   poster(): Promise<PosterFrame | null> {
     if (this.#closed) return Promise.resolve(null);
     return this.engine.runPoster(this.ffmpeg, this.inputPath, this.probe);
+  }
+
+  waveform(onProgress?: (progress: ExtractProgress) => void): Promise<WaveformData> {
+    if (this.#closed) {
+      return Promise.reject(new ExtractionError("This file is no longer open."));
+    }
+    return this.engine.runWaveform(this.ffmpeg, this.inputPath, this.probe, onProgress);
   }
 
   detectSilence(

@@ -128,6 +128,22 @@ export interface PosterFrame {
   atSeconds: number;
 }
 
+/**
+ * The shape of a file's audio, for drawing.
+ *
+ * Peaks are normalised against the loudest bucket rather than full scale, so a
+ * quiet recording still fills the height instead of drawing a flat line.
+ */
+export interface WaveformData {
+  /** One peak per bucket, 0..1, left to right across the whole file. */
+  peaks: number[];
+  /**
+   * Seconds the peaks span. Taken from the decode when the container did not
+   * say, which is the case for anything a browser recorded.
+   */
+  durationSeconds: number | null;
+}
+
 /** One open file: mounted, probed, ready to produce outputs. */
 export interface ExtractSession {
   readonly probe: ProbeResult;
@@ -144,6 +160,14 @@ export interface ExtractSession {
    * has no video to take one from.
    */
   poster(): Promise<PosterFrame | null>;
+
+  /**
+   * The audio envelope, for the clip panel to draw.
+   *
+   * Costs a full decode, like a silence scan, so it is asked for when someone
+   * opens the panel rather than for every file.
+   */
+  waveform(onProgress?: (progress: ExtractProgress) => void): Promise<WaveformData>;
 
   detectSilence(
     options?: Partial<SilenceScanOptions>,

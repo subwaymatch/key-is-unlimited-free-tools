@@ -38,6 +38,7 @@ interface FileCardProps {
     trim?: TrimRange | null,
   ) => void;
   onDetectSilence: (jobId: string) => void;
+  onLoadWaveform: (jobId: string) => void;
   onCancelOutput: (jobId: string, outputId: string) => void;
   onRetryOutput: (jobId: string, outputId: string) => void;
 }
@@ -186,6 +187,7 @@ export function FileCard({
   onRetry,
   onAddFormat,
   onDetectSilence,
+  onLoadWaveform,
   onCancelOutput,
   onRetryOutput,
 }: FileCardProps) {
@@ -404,6 +406,7 @@ export function FileCard({
                   onAddFormat(job.id, formatId, trim)
                 }
                 onDetectSilence={() => onDetectSilence(job.id)}
+                onLoadWaveform={() => onLoadWaveform(job.id)}
                 getPreviewPosition={getPreviewPosition}
                 disabled={isRunning}
               />

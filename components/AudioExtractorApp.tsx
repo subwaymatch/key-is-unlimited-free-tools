@@ -30,6 +30,7 @@ export function AudioExtractorApp() {
     addFiles,
     addFormatToJob,
     detectSilence,
+    loadWaveform,
     cancelOutput,
     retryOutput,
     cancelJob,
@@ -140,6 +141,7 @@ export function AudioExtractorApp() {
                   onRetry={retryJob}
                   onAddFormat={addFormatToJob}
                   onDetectSilence={detectSilence}
+                  onLoadWaveform={loadWaveform}
                   onCancelOutput={cancelOutput}
                   onRetryOutput={retryOutput}
                 />
