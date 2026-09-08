@@ -1,0 +1,8 @@
+<!-- Concept: "key.is" wordmark in Inter semibold, with the dot drawn as a small key bow -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 64" width="240" height="64">
+  <g font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-weight="600" font-size="48" letter-spacing="-1" fill="#0a0a0a">
+    <text x="132" y="45" text-anchor="end">key</text>
+    <text x="152" y="45">is</text>
+  </g>
+  <circle cx="142" cy="40" r="4.5" fill="none" stroke="#0a0a0a" stroke-width="3"/>
+</svg>

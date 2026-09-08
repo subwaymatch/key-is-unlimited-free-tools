@@ -1,0 +1,8 @@
+<!-- Concept: K monogram whose spine is an upright key shaft, bow at the foot and two teeth at the top -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <g fill="none" stroke="#0a0a0a" stroke-width="6">
+    <circle cx="24" cy="51" r="8"/>
+    <path stroke-linecap="round" stroke-linejoin="round" d="M24 43V6M24 26l22-22M24 26l22 18"/>
+    <path stroke-width="5" d="M24 9h-9M24 18h-7"/>
+  </g>
+</svg>
