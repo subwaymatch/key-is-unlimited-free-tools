@@ -1,5 +1,5 @@
 /*
- * AudioExtractorApp owns its own <main> and page width, so anything rendered
+ * ToolApp owns its own <main> and page width, so anything rendered
  * after it needs the same constraints to line up with the tool above it.
  * Step 2 of the plan moves this width into a shared container token.
  */

@@ -5,21 +5,24 @@ import { Download, Plus, RotateCcw, X } from "lucide-react";
 import { Button } from "./ui/Button";
 import { useMemo, useRef, useState } from "react";
 
-import {
-  getFormat,
-  isFormatAvailable,
-  OUTPUT_FORMATS,
-  type OutputFormatId,
-} from "@/lib/engine/formats";
+import { isFormatAvailable } from "@/lib/engine/formats";
 import { formatTimecode } from "@/lib/engine/trim";
-import type { EngineCapabilities, ProbeResult, TrimRange } from "@/lib/engine/types";
+import type {
+  EngineCapabilities,
+  OutputFormat,
+  OutputKind,
+  TrimRange,
+} from "@/lib/engine/types";
 import {
   describeAudio,
+  describeVideo,
   formatBytes,
   formatDuration,
   formatPercent,
   isLikelyPlayable,
+  isLikelyPlayableVideo,
 } from "@/lib/format-utils";
+import type { ToolFeatures } from "@/lib/toolFeatures";
 import type { Job, JobOutput } from "@/lib/useConversionQueue";
 
 import { ProgressBar } from "./ProgressBar";
@@ -28,15 +31,14 @@ import styles from "./FileCard.module.css";
 
 interface FileCardProps {
   job: Job;
+  /** The tool's catalogue, for the "also" chips and the clip panel. */
+  formats: readonly OutputFormat[];
+  features: ToolFeatures;
   capabilities: EngineCapabilities | null;
   onCancel: (jobId: string) => void;
   onRemove: (jobId: string) => void;
   onRetry: (jobId: string) => void;
-  onAddFormat: (
-    jobId: string,
-    formatId: OutputFormatId,
-    trim?: TrimRange | null,
-  ) => void;
+  onAddFormat: (jobId: string, formatId: string, trim?: TrimRange | null) => void;
   onDetectSilence: (jobId: string) => void;
   onCancelOutput: (jobId: string, outputId: string) => void;
   onRetryOutput: (jobId: string, outputId: string) => void;
@@ -46,6 +48,7 @@ const STATUS_STYLE: Record<Job["status"], string> = {
   queued: styles.statusIdle,
   preparing: styles.statusBusy,
   converting: styles.statusBusy,
+  ready: styles.statusIdle,
   done: styles.statusDone,
   error: styles.statusError,
   cancelled: styles.statusIdle,
@@ -55,6 +58,7 @@ const STATUS_LABEL: Record<Job["status"], string> = {
   queued: "Queued",
   preparing: "Preparing",
   converting: "Converting",
+  ready: "Ready",
   done: "Done",
   error: "Failed",
   cancelled: "Cancelled",
@@ -69,15 +73,23 @@ const STATUS_LABEL: Record<Job["status"], string> = {
  * reason this is not simply the format id: its container depends on the
  * source codec.
  */
-function outputExtension(output: JobOutput, probe: ProbeResult | undefined): string | null {
+function outputExtension(output: JobOutput, job: Job): string | null {
   const fromResult = output.result?.fileName.split(".").pop();
   if (fromResult) return fromResult;
-  if (!probe) return null;
+  if (!job.probe) return null;
   try {
-    return getFormat(output.formatId).plan(probe).extension;
+    return output.format.plan(job.probe, { trim: output.trim, fileBytes: job.file.size })
+      .extension;
   } catch {
     return null;
   }
+}
+
+/** Whether the browser can be expected to show this finished output inline. */
+function isPreviewable(kind: OutputKind, extension: string): boolean {
+  if (kind === "image") return true;
+  if (kind === "video") return isLikelyPlayableVideo(extension);
+  return isLikelyPlayable(extension);
 }
 
 function OutputRow({
@@ -122,7 +134,7 @@ function OutputRow({
           {extension && <span className={`${styles.tag} ${styles.tagExt}`}>.{extension}</span>}
           {result?.mode === "copy" && (
             <span
-              title="Copied without re-encoding - bit-for-bit identical audio"
+              title="Copied without re-encoding - bit-for-bit identical streams"
               className={`${styles.tag} ${styles.tagCopy}`}
             >
               Stream copy
@@ -204,6 +216,8 @@ function OutputRow({
 
 export function FileCard({
   job,
+  formats,
+  features,
   capabilities,
   onCancel,
   onRemove,
@@ -214,53 +228,76 @@ export function FileCard({
   onRetryOutput,
 }: FileCardProps) {
   const [showLogs, setShowLogs] = useState(false);
-  const previewRef = useRef<HTMLAudioElement | null>(null);
+  // One of these holds the preview, depending on what the tool shows.
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const isRunning = job.status === "preparing" || job.status === "converting";
   const runningOutput = job.outputs.find(
     (output) => output.status === "running",
   );
 
-  /** The first finished output a browser is likely to play inline. */
+  /** The first finished output a browser is likely to show inline. */
   const playable = useMemo(
     () =>
       job.outputs.find(
         (output) =>
           output.status === "done" &&
           output.url &&
-          isLikelyPlayable(output.result!.extension),
+          isPreviewable(output.result!.kind, output.result!.extension),
       ),
     [job.outputs],
   );
 
+  /**
+   * The source itself, for tools that cut before they have produced anything.
+   * Once a whole-file output exists it takes over, since it is the thing the
+   * visitor is about to download.
+   */
+  const showSource =
+    job.sourceUrl !== undefined &&
+    job.probe !== undefined &&
+    (playable === undefined || playable.trim !== null);
+
   /** Formats with no full-file output yet; clips are offered by the trim panel. */
-  const remainingFormats = OUTPUT_FORMATS.filter((format) => {
-    const covered = job.outputs.some(
-      (output) =>
-        output.formatId === format.id &&
-        output.trim === null &&
-        // A cancelled output produced nothing, so the format is still on offer.
-        output.status !== "cancelled",
-    );
-    return !covered && isFormatAvailable(format, capabilities);
-  });
+  const remainingFormats = features.requireTrim
+    ? []
+    : formats.filter((format) => {
+        const covered = job.outputs.some(
+          (output) =>
+            output.formatId === format.id &&
+            output.trim === null &&
+            // A cancelled output produced nothing, so the format is still on offer.
+            output.status !== "cancelled",
+        );
+        return !covered && isFormatAvailable(format, capabilities);
+      });
 
   const totalDuration = job.probe?.durationSeconds ?? null;
 
   /**
    * Markers can only be read off the preview when the preview is the whole
-   * track. A clip's timeline starts at its own zero, so its playback position
+   * file. A clip's timeline starts at its own zero, so its playback position
    * does not name a point in the source.
    */
-  const getPreviewPosition =
-    playable && playable.trim === null
-      ? () => {
-          const element = previewRef.current;
-          return element && Number.isFinite(element.currentTime)
-            ? element.currentTime
-            : null;
-        }
-      : null;
+  const previewIsWhole =
+    showSource || (playable !== undefined && playable.trim === null && playable.result!.kind !== "image");
+  const getPreviewPosition = previewIsWhole
+    ? () => {
+        const element = videoRef.current ?? audioRef.current;
+        return element && Number.isFinite(element.currentTime)
+          ? element.currentTime
+          : null;
+      }
+    : null;
+
+  const meta = [formatBytes(job.file.size)];
+  if (job.probe) {
+    meta.push(formatDuration(job.probe.durationSeconds));
+    if (job.probe.video) meta.push(describeVideo(job.probe.video));
+    if (job.probe.audio) meta.push(describeAudio(job.probe.audio));
+    else if (!job.probe.video) meta.push("No audio");
+  }
 
   return (
     <li className={styles.card}>
@@ -280,15 +317,7 @@ export function FileCard({
               {job.file.name}
             </p>
             <p className={styles.meta}>
-              {formatBytes(job.file.size)}
-              {job.probe && (
-                <>
-                  {", "}
-                  {formatDuration(job.probe.durationSeconds)}
-                  {", "}
-                  {describeAudio(job.probe.audio)}
-                </>
-              )}
+              {meta.join(", ")}
               {job.probe && job.probe.audioStreams.length > 1 && (
                 <>
                   {" "}
@@ -373,7 +402,7 @@ export function FileCard({
               <OutputRow
                 output={output}
                 durationSeconds={totalDuration}
-                extension={outputExtension(output, job.probe)}
+                extension={outputExtension(output, job)}
                 onCancel={() => onCancelOutput(job.id, output.id)}
                 onRetry={() => onRetryOutput(job.id, output.id)}
               />
@@ -382,9 +411,33 @@ export function FileCard({
         </ul>
       )}
 
-      {playable?.url && (
+      {showSource && (
+        <video
+          ref={videoRef}
+          controls
+          preload="metadata"
+          src={job.sourceUrl}
+          className={styles.videoPreview}
+        >
+          Your browser cannot play this video.
+        </video>
+      )}
+
+      {!showSource && playable?.url && playable.result!.kind === "video" && (
+        <video
+          ref={videoRef}
+          controls
+          preload="metadata"
+          src={playable.url}
+          className={styles.videoPreview}
+        >
+          Your browser cannot play this video format.
+        </video>
+      )}
+
+      {!showSource && playable?.url && playable.result!.kind === "audio" && (
         <audio
-          ref={previewRef}
+          ref={audioRef}
           controls
           preload="metadata"
           src={playable.url}
@@ -394,15 +447,21 @@ export function FileCard({
         </audio>
       )}
 
+      {!showSource && playable?.url && playable.result!.kind === "image" && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={playable.url} alt="" className={styles.imagePreview} />
+      )}
+
       {!isRunning && job.probe && (
         <>
           {remainingFormats.length > 0 && (
             <div className={styles.chips}>
-              <span className={styles.chipsLabel}>Also convert to:</span>
+              <span className={styles.chipsLabel}>{features.alsoLabel}</span>
               {remainingFormats.map((format) => (
                 <Button
                   key={format.id}
                   onClick={() => onAddFormat(job.id, format.id, null)}
+                  title={format.blurb}
                   className={styles.chip}
                 >
                   <Plus aria-hidden="true" size={13} strokeWidth={2} />
@@ -412,14 +471,18 @@ export function FileCard({
             </div>
           )}
 
-          <TrimPanel
-            job={job}
-            capabilities={capabilities}
-            onExtract={(formatId, trim) => onAddFormat(job.id, formatId, trim)}
-            onDetectSilence={() => onDetectSilence(job.id)}
-            getPreviewPosition={getPreviewPosition}
-            disabled={isRunning}
-          />
+          {features.trim && (
+            <TrimPanel
+              job={job}
+              formats={formats}
+              features={features}
+              capabilities={capabilities}
+              onExtract={(formatId, trim) => onAddFormat(job.id, formatId, trim)}
+              onDetectSilence={() => onDetectSilence(job.id)}
+              getPreviewPosition={getPreviewPosition}
+              disabled={isRunning}
+            />
+          )}
         </>
       )}
 

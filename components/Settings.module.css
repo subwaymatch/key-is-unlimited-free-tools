@@ -190,3 +190,16 @@
   line-height: var(--leading-sm);
   color: var(--subtle);
 }
+
+/* A short numeric field inside a panel, for the one setting with no preset. */
+.input {
+  margin-top: 0.25rem;
+  width: 7rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  padding: 0.25rem 0.5rem;
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+  font-variant-numeric: tabular-nums;
+}

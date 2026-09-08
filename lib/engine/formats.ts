@@ -11,29 +11,21 @@
  *    subtitles and data, so muxers never reject an unsupported companion stream.
  */
 import { trimDuration } from "./trim";
-import type { EngineCapabilities, ExtractMode, ProbeResult, TrimRange } from "./types";
+import type {
+  EngineCapabilities,
+  FormatBlocker,
+  OutputFormat,
+  ProbeResult,
+  TrimRange,
+} from "./types";
+
+export type { FormatPlan, OutputFormat } from "./types";
 
 export type OutputFormatId = "original" | "m4a" | "mp3" | "wav" | "opus" | "flac";
 
-export interface FormatPlan {
-  args: string[];
-  extension: string;
-  mimeType: string;
-  mode: ExtractMode;
-}
-
-export interface OutputFormat {
+/** An audio format: the shared shape, with the id narrowed to this catalogue. */
+export interface AudioFormat extends OutputFormat {
   id: OutputFormatId;
-  label: string;
-  blurb: string;
-  /** Whether the result preserves the source audio bit-for-bit or losslessly. */
-  lossless: boolean;
-  /**
-   * Encoder that must exist in the loaded core for this format to work.
-   * Null means the format is (or can be) a pure stream copy.
-   */
-  requiredEncoder: string | null;
-  plan(probe: ProbeResult): FormatPlan;
 }
 
 /** Drop video, subtitles and data; take the first audio stream only. */
@@ -97,7 +89,7 @@ export function copyTargetForCodec(codec: string | null): {
  */
 const MP4_COPYABLE = new Set(["aac"]);
 
-export const OUTPUT_FORMATS: readonly OutputFormat[] = [
+export const OUTPUT_FORMATS: readonly AudioFormat[] = [
   {
     id: "original",
     label: "Original",
@@ -216,15 +208,32 @@ export const OUTPUT_FORMATS: readonly OutputFormat[] = [
         mode: "encode",
       };
     },
+    blocker(probe, { trim }) {
+      const estimated = estimateOutputBytes("wav", probe, trim);
+      if (estimated === null || estimated <= MAX_SAFE_OUTPUT_BYTES) return null;
+      const gib = (estimated / 1024 ** 3).toFixed(1);
+      return {
+        message: `WAV would be about ${gib} GB`,
+        hint: "ffmpeg.wasm builds its output in memory, which caps out near 1.5 GB. Choose FLAC for lossless audio at roughly half the size, or trim the range down.",
+      };
+    },
   },
 ];
 
 export const DEFAULT_FORMAT_IDS: OutputFormatId[] = ["original", "mp3"];
 
-export function getFormat(id: string): OutputFormat {
+export function getFormat(id: string): AudioFormat {
   const format = OUTPUT_FORMATS.find((entry) => entry.id === id);
   if (!format) throw new Error(`Unknown output format: ${id}`);
   return format;
+}
+
+/** Looks a format up in any catalogue, or returns undefined for an unknown id. */
+export function findFormat(
+  formats: readonly OutputFormat[],
+  id: string,
+): OutputFormat | undefined {
+  return formats.find((entry) => entry.id === id);
 }
 
 /**
@@ -277,19 +286,15 @@ export function estimateOutputBytes(
 
 /**
  * Returns a reason the format cannot run for this file, or null when it can.
+ *
+ * Each format carries its own guard; this is the audio catalogue's view of
+ * them, by id, for the few callers that think in ids.
  */
 export function findFormatBlocker(
   formatId: OutputFormatId,
   probe: ProbeResult,
   trim: TrimRange | null = null,
-): { message: string; hint: string } | null {
-  const estimated = estimateOutputBytes(formatId, probe, trim);
-  if (estimated !== null && estimated > MAX_SAFE_OUTPUT_BYTES) {
-    const gib = (estimated / 1024 ** 3).toFixed(1);
-    return {
-      message: `WAV would be about ${gib} GB`,
-      hint: "ffmpeg.wasm builds its output in memory, which caps out near 1.5 GB. Choose FLAC for lossless audio at roughly half the size, or trim the range down.",
-    };
-  }
-  return null;
+  fileBytes = 0,
+): FormatBlocker | null {
+  return getFormat(formatId).blocker?.(probe, { trim, fileBytes }) ?? null;
 }

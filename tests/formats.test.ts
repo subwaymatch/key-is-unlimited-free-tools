@@ -27,10 +27,23 @@ function probe(
       }
     : null;
 
+  const video = {
+    codec: "h264",
+    profile: "High",
+    pixelFormat: "yuv420p",
+    width: 1920,
+    height: 1080,
+    fps: 30,
+    bitrateKbps: 4500,
+  };
+
   return {
     durationSeconds,
+    bitrateKbps: 4700,
     audioStreams: stream ? [stream] : [],
     audio: stream,
+    videoStreams: [video],
+    video,
     hasVideo: true,
     formatName: "mov,mp4,m4a,3gp,3g2,mj2",
     log: [],

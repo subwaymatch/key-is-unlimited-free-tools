@@ -11,6 +11,8 @@
  * agent-outputs/browser-tool-catalogue-and-build-order.md.
  */
 
+import type { Metadata } from "next";
+
 export type ToolCategory = "video" | "audio" | "subtitles" | "images" | "documents" | "data";
 
 /*
@@ -148,4 +150,20 @@ export function relatedTools(slug: string, limit = 6): ToolMeta[] {
 
 export function toolPath(tool: ToolMeta): string {
   return `/${tool.slug}`;
+}
+
+/**
+ * The page metadata for a tool, from its registry entry.
+ *
+ * `title` is bare because the root layout wraps it in the site template, so a
+ * page stays responsible for naming itself and nothing repeats the site name
+ * by hand.
+ */
+export function toolMetadata(slug: string): Metadata {
+  const tool = requireTool(slug);
+  return {
+    title: tool.name,
+    description: tool.description,
+    alternates: { canonical: toolPath(tool) },
+  };
 }

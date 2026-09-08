@@ -22,13 +22,32 @@ export interface AudioStreamInfo {
   bitrateKbps: number | null;
 }
 
+export interface VideoStreamInfo {
+  /** ffmpeg codec name, e.g. "h264", "hevc", "vp9". */
+  codec: string;
+  /** Human-readable profile, e.g. "High", "Main 10", when ffmpeg reports one. */
+  profile: string | null;
+  /** Pixel format, e.g. "yuv420p". What decides whether a browser can play it. */
+  pixelFormat: string | null;
+  width: number | null;
+  height: number | null;
+  fps: number | null;
+  bitrateKbps: number | null;
+}
+
 export interface ProbeResult {
   /** Media duration in seconds, or null when ffmpeg reports "N/A". */
   durationSeconds: number | null;
+  /** Overall bitrate from the Duration line, in kb/s, or null when absent. */
+  bitrateKbps: number | null;
   /** Every audio stream ffmpeg found, in file order. */
   audioStreams: AudioStreamInfo[];
   /** First audio stream (the one extracted), or null when the file has none. */
   audio: AudioStreamInfo | null;
+  /** Every real video stream, in file order. Embedded cover art is not one. */
+  videoStreams: VideoStreamInfo[];
+  /** First video stream (the one the video tools work on), or null. */
+  video: VideoStreamInfo | null;
   hasVideo: boolean;
   /** Container/format name(s) ffmpeg detected, e.g. "mov,mp4,m4a,3gp,3g2,mj2". */
   formatName: string | null;
@@ -62,6 +81,9 @@ export interface ExtractProgress {
 
 export type ExtractMode = "copy" | "encode";
 
+/** What a finished output is, which decides how the card previews it. */
+export type OutputKind = "audio" | "video" | "image";
+
 /**
  * A slice of the source timeline, in seconds measured from the start of the
  * file. `endSeconds` is null for "run to the end", which lets a start-only trim
@@ -70,6 +92,106 @@ export type ExtractMode = "copy" | "encode";
 export interface TrimRange {
   startSeconds: number;
   endSeconds: number | null;
+}
+
+/**
+ * What a format knows about the job beyond the probe when it builds its plan.
+ *
+ * A target-size compressor needs the length of the clip, not of the file, to
+ * turn megabytes into a bitrate; and a guard against re-compressing something
+ * already small needs the size of the file.
+ */
+export interface PlanContext {
+  trim: TrimRange | null;
+  fileBytes: number;
+}
+
+/**
+ * One concrete ffmpeg invocation, or a short sequence of them.
+ *
+ * The engine builds the command line around this:
+ *
+ *   ffmpeg [seek] [inputArgs] -i <input> <pass args> [length] <output>
+ *
+ * with the seek and the length coming from the trim, so a plan never has to
+ * know where the file is mounted or how a clip is expressed.
+ */
+export interface FormatPlan {
+  /** Output options: everything between the input and the output path. */
+  args: string[];
+  /** Options that belong before `-i`, such as a forced input format. */
+  inputArgs?: string[];
+  /**
+   * Passes to run before the final one, each written to the null muxer.
+   *
+   * Two-pass encoding puts its analysis pass here. The engine adds the pass
+   * log location itself and removes the log afterwards, so a plan only has to
+   * say `-pass 1` and `-pass 2`.
+   */
+  analysisPasses?: string[][];
+  extension: string;
+  mimeType: string;
+  mode: ExtractMode;
+  /** Defaults to "audio", which is what every format was until the video tools. */
+  kind?: OutputKind;
+  /**
+   * Added to the source name, before any clip range: "-compressed", "-muted".
+   * A tool whose output keeps the source extension needs one, or the download
+   * would land in the folder under the very name it started from.
+   */
+  fileSuffix?: string;
+}
+
+export interface FormatBlocker {
+  message: string;
+  hint: string;
+}
+
+/**
+ * Something a tool can produce from an open file.
+ *
+ * The audio formats, the video containers, "the same file without its audio"
+ * and "a GIF of this range at 15 fps" are all one of these: a label for the
+ * card, a plan the engine can run, and an optional guard that says no before
+ * a long run rather than after it.
+ */
+export interface OutputFormat {
+  /**
+   * Identity within one tool's catalogue. Where settings change the plan, they
+   * belong in the id too, so "25 MB" and "8 MB" are two outputs of one file.
+   */
+  id: string;
+  label: string;
+  blurb: string;
+  /** Whether the result preserves the source bit-for-bit or losslessly. */
+  lossless: boolean;
+  /**
+   * Encoder that must exist in the loaded core for this format to work.
+   * Null means the format is (or can be) a pure stream copy.
+   */
+  requiredEncoder: string | null;
+  plan(probe: ProbeResult, context?: PlanContext): FormatPlan;
+  /**
+   * A reason this format cannot run on this file, or null when it can.
+   *
+   * Checked before anything expensive happens, so a WAV that would overflow
+   * the heap or a target size too small for the length is reported at once.
+   */
+  blocker?(probe: ProbeResult, context: PlanContext): FormatBlocker | null;
+}
+
+/**
+ * Which stream a tool needs the file to have.
+ *
+ * The audio extractor cannot do anything with a silent video, and a video
+ * converter has nothing to convert in an MP3; "media" is for tools that work
+ * on whatever is there, such as stripping metadata.
+ */
+export type MediaExpectation = "audio" | "video" | "media";
+
+export interface OpenSessionOptions {
+  /** Defaults to "audio". */
+  expects?: MediaExpectation;
 }
 
 export interface SilenceScanOptions {
@@ -110,6 +232,7 @@ export interface ExtractOutput {
   bytes: number;
   elapsedMs: number;
   mode: ExtractMode;
+  kind: OutputKind;
   /** The portion of the source this output covers; null when it is all of it. */
   trim: TrimRange | null;
 }
@@ -147,7 +270,7 @@ export interface WaveformData {
 /** One open file: mounted, probed, ready to produce outputs. */
 export interface ExtractSession {
   readonly probe: ProbeResult;
-  extract(formatId: string, options?: ExtractOptions): Promise<ExtractOutput>;
+  extract(format: OutputFormat, options?: ExtractOptions): Promise<ExtractOutput>;
   /**
    * Decodes the audio once to find where it is silent.
    *
@@ -181,7 +304,7 @@ export interface AudioExtractor {
   readonly id: string;
   readonly capabilities: EngineCapabilities | null;
   load(onProgress?: (progress: EngineLoadProgress) => void): Promise<EngineCapabilities>;
-  openSession(file: File): Promise<ExtractSession>;
+  openSession(file: File, options?: OpenSessionOptions): Promise<ExtractSession>;
   /** Hard-stops in-flight work; the engine reloads lazily on next use. */
   terminate(): void;
 }

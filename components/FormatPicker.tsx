@@ -4,17 +4,21 @@ import { Checkbox } from "@base-ui/react/checkbox";
 import { CheckboxGroup } from "@base-ui/react/checkbox-group";
 import { Check } from "lucide-react";
 
-import { isFormatAvailable, OUTPUT_FORMATS, type OutputFormatId } from "@/lib/engine/formats";
-import type { EngineCapabilities } from "@/lib/engine/types";
+import { isFormatAvailable } from "@/lib/engine/formats";
+import type { EngineCapabilities, OutputFormat } from "@/lib/engine/types";
 
 import styles from "./Settings.module.css";
 
 interface FormatPickerProps {
-  selected: OutputFormatId[];
-  onChange: (formats: OutputFormatId[]) => void;
+  /** The tool's catalogue, in the order it should be offered. */
+  formats: readonly OutputFormat[];
+  selected: string[];
+  onChange: (formats: string[]) => void;
   /** Null until the engine has loaded and reported what it can encode. */
   capabilities: EngineCapabilities | null;
   disabled?: boolean;
+  /** Sentence above the options. */
+  intro?: string;
 }
 
 /**
@@ -25,10 +29,12 @@ interface FormatPickerProps {
  * loaded, everything is offered: the capability list is not knowable yet.
  */
 export function FormatPicker({
+  formats,
   selected,
   onChange,
   capabilities,
   disabled = false,
+  intro = "Applied to files you add next. Each file can get more formats afterwards.",
 }: FormatPickerProps) {
 
   return (
@@ -38,16 +44,14 @@ export function FormatPicker({
      * keeps its name for a screen reader without repeating it on screen.
      */
     <fieldset aria-label="Output formats" disabled={disabled} className={styles.fieldset}>
-      <p className={styles.intro}>
-        Applied to files you add next. Each file can get more formats afterwards.
-      </p>
+      <p className={styles.intro}>{intro}</p>
 
       <CheckboxGroup
         value={selected}
-        onValueChange={(value) => onChange(value as OutputFormatId[])}
+        onValueChange={(value) => onChange(value as string[])}
         className={styles.grid}
       >
-        {OUTPUT_FORMATS.map((format) => {
+        {formats.map((format) => {
           const unavailable = !isFormatAvailable(format, capabilities);
           const isChecked = selected.includes(format.id) && !unavailable;
 

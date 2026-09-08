@@ -9,7 +9,18 @@ interface DropZoneProps {
   onFiles: (files: File[]) => void;
   /** Rendered inside the zone; lets the page show queue state in the same space. */
   compact?: boolean;
+  /** The file input's accept list. */
+  accept?: string;
+  /** Accessible name of the file input. */
+  inputLabel?: string;
+  headline?: string;
+  /** Shown under the headline; what happens once a file lands. */
+  subhead?: string;
 }
+
+/** Every container ffmpeg reads that a browser may not label as video/*. */
+export const VIDEO_ACCEPT =
+  "video/*,audio/*,.mkv,.mov,.avi,.webm,.m4v,.ts,.mts,.m2ts,.flv,.wmv";
 
 /**
  * Drag-and-drop target that also accepts drops anywhere on the page.
@@ -27,7 +38,14 @@ interface DropZoneProps {
  * spans rather than paragraphs, and why the button is a span - a real button
  * would swallow the click instead of activating the input.
  */
-export function DropZone({ onFiles, compact = false }: DropZoneProps) {
+export function DropZone({
+  onFiles,
+  compact = false,
+  accept = VIDEO_ACCEPT,
+  inputLabel = "Choose video files",
+  headline = "Drop video files here",
+  subhead = "Conversion starts automatically, multi-gigabyte files supported",
+}: DropZoneProps) {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   // dragenter/dragleave fire for every child element, so nesting is counted
   // rather than treating the first dragleave as "the pointer left".
@@ -91,8 +109,8 @@ export function DropZone({ onFiles, compact = false }: DropZoneProps) {
       <input
         type="file"
         multiple
-        aria-label="Choose video files"
-        accept="video/*,audio/*,.mkv,.mov,.avi,.webm,.m4v,.ts,.mts,.m2ts,.flv,.wmv"
+        aria-label={inputLabel}
+        accept={accept}
         className="visually-hidden"
         onChange={(event) => {
           handleFiles(event.target.files);
@@ -105,11 +123,9 @@ export function DropZone({ onFiles, compact = false }: DropZoneProps) {
 
       <span>
         <span className={styles.headline}>
-          {isDraggingOver ? "Drop to start converting" : "Drop video files here"}
+          {isDraggingOver ? "Drop to add the files" : headline}
         </span>
-        <span className={styles.subhead}>
-          Conversion starts automatically, multi-gigabyte files supported
-        </span>
+        <span className={styles.subhead}>{subhead}</span>
       </span>
 
       <span className={styles.button}>Choose files</span>

@@ -9,10 +9,11 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { isFormatAvailable, OUTPUT_FORMATS, type OutputFormatId } from "@/lib/engine/formats";
+import { isFormatAvailable } from "@/lib/engine/formats";
 import { formatTimecode, parseTrimInputs, resolveTrim, sameTrimRange } from "@/lib/engine/trim";
-import type { EngineCapabilities, TrimRange } from "@/lib/engine/types";
+import type { EngineCapabilities, OutputFormat, TrimRange } from "@/lib/engine/types";
 import { formatDuration } from "@/lib/format-utils";
+import type { ToolFeatures } from "@/lib/toolFeatures";
 import type { Job } from "@/lib/useConversionQueue";
 
 import { Button } from "./ui/Button";
@@ -21,12 +22,15 @@ import styles from "./TrimPanel.module.css";
 
 interface TrimPanelProps {
   job: Job;
+  /** The tool's catalogue: what a range can be turned into. */
+  formats: readonly OutputFormat[];
+  features: ToolFeatures;
   capabilities: EngineCapabilities | null;
-  onExtract: (formatId: OutputFormatId, trim: TrimRange | null) => void;
+  onExtract: (formatId: string, trim: TrimRange | null) => void;
   onDetectSilence: () => void;
   /**
-   * Playback position of the preview player, when one is showing untrimmed
-   * audio. Null when there is no preview whose timeline matches the source.
+   * Playback position of the preview player, when one is showing the whole
+   * source. Null when there is no preview whose timeline matches the source.
    */
   getPreviewPosition: (() => number | null) | null;
   disabled: boolean;
@@ -36,11 +40,13 @@ interface TrimPanelProps {
  * Per-file markers.
  *
  * This panel only appears once a file has been probed, which is what makes it
- * more useful than the global setting: the duration is known, the audio can be
- * played, and "set the end marker to where I am listening" becomes possible.
+ * more useful than the global setting: the duration is known, the media can be
+ * played, and "set the end marker to where I am watching" becomes possible.
  */
 export function TrimPanel({
   job,
+  formats: catalogue,
+  features,
   capabilities,
   onExtract,
   onDetectSilence,
@@ -75,7 +81,7 @@ export function TrimPanel({
       ? duration
       : (trim.endSeconds ?? duration ?? 0) - trim.startSeconds;
 
-  const formats = OUTPUT_FORMATS.filter((format) => isFormatAvailable(format, capabilities));
+  const formats = catalogue.filter((format) => isFormatAvailable(format, capabilities));
 
   const setFromPreview = (setter: (value: string) => void) => {
     const position = getPreviewPosition?.();
@@ -94,6 +100,9 @@ export function TrimPanel({
     setStartText(from <= 0 ? "" : formatTimecode(from));
     setEndText(to === null || (duration !== null && to >= duration) ? "" : formatTimecode(to));
   };
+
+  // A tool that only cuts has nothing to offer for the whole file.
+  const offerFormats = !problem && (trim !== null || !features.requireTrim);
 
   return (
     <div role="group" aria-label="Clip markers" className={styles.panel}>
@@ -167,14 +176,16 @@ export function TrimPanel({
           </div>
         )}
 
-        <Button
-          disabled={disabled}
-          onClick={onDetectSilence}
-          title="Decode the audio once to find leading and trailing silence"
-        >
-          <ScanSearch aria-hidden="true" size={13} strokeWidth={2} />
-          Detect silence
-        </Button>
+        {features.silence && (
+          <Button
+            disabled={disabled}
+            onClick={onDetectSilence}
+            title="Decode the audio once to find leading and trailing silence"
+          >
+            <ScanSearch aria-hidden="true" size={13} strokeWidth={2} />
+            Detect silence
+          </Button>
+        )}
 
         {(startText || endText) && (
           <Button
@@ -196,7 +207,9 @@ export function TrimPanel({
       ) : (
         <p className={styles.note}>
           {trim === null
-            ? "The whole track. Set a marker to clip it."
+            ? features.requireTrim
+              ? "Set a start or end marker to choose the range to keep."
+              : "The whole file. Set a marker to clip it."
             : `Clip is ${formatDuration(clipLength)} long.`}
         </p>
       )}
@@ -213,10 +226,10 @@ export function TrimPanel({
         </p>
       )}
 
-      {!problem && (
+      {offerFormats && (
         <div className={styles.extract}>
           <span className={styles.extractLabel}>
-            {trim === null ? "Extract as:" : "Extract this clip as:"}
+            {trim === null ? features.wholeLabel : features.clipLabel}
           </span>
           {formats.map((format) => {
             const exists = job.outputs.some(
@@ -229,7 +242,7 @@ export function TrimPanel({
               <Button
                 key={format.id}
                 disabled={disabled || exists}
-                title={exists ? "Already extracted for this range" : undefined}
+                title={exists ? "Already produced for this range" : format.blurb}
                 onClick={() => onExtract(format.id, trim)}
                 className={styles.chip}
               >
