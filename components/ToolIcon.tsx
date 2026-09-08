@@ -1,4 +1,15 @@
-import { AudioLines, RefreshCw, Shrink } from "lucide-react";
+import {
+  AudioLines,
+  Captions,
+  Gauge,
+  ImagePlay,
+  Merge,
+  RefreshCw,
+  Scissors,
+  ShieldCheck,
+  Shrink,
+  VolumeX,
+} from "lucide-react";
 
 import type { ToolIconName } from "@/lib/tools";
 
@@ -13,6 +24,13 @@ export const TOOL_ICONS = {
   audio: AudioLines,
   compress: Shrink,
   convert: RefreshCw,
+  trim: Scissors,
+  gif: ImagePlay,
+  mute: VolumeX,
+  clean: ShieldCheck,
+  speed: Gauge,
+  merge: Merge,
+  subtitles: Captions,
 } as const satisfies Record<ToolIconName, unknown>;
 
 interface ToolIconProps {
