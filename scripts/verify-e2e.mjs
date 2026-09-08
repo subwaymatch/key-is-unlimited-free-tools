@@ -435,7 +435,8 @@ async function main() {
 
     // ---- Engine-level assertions -----------------------------------------
     log("\nEngine:");
-    const footer = await page.locator("footer").innerText();
+    // The tool's own footer, not the site footer below it.
+    const footer = await page.locator("main footer").innerText();
     check("no uncaught page errors", pageErrors.length === 0, pageErrors.slice(0, 2).join(" | "));
     check(
       "footer reports the pinned versions",

@@ -237,15 +237,29 @@ export function FileCard({
     (output) => output.status === "running",
   );
 
-  /** The first finished output a browser is likely to show inline. */
+  /** The first finished audio or video output a browser is likely to play inline. */
   const playable = useMemo(
     () =>
       job.outputs.find(
         (output) =>
           output.status === "done" &&
           output.url &&
+          output.result!.kind !== "image" &&
           isPreviewable(output.result!.kind, output.result!.extension),
       ),
+    [job.outputs],
+  );
+
+  /**
+   * The newest finished image, shown whatever else is on the card: a GIF is
+   * the thing the visitor came for, and it never replaces the source preview
+   * they pick the next range from.
+   */
+  const latestImage = useMemo(
+    () =>
+      [...job.outputs]
+        .reverse()
+        .find((output) => output.status === "done" && output.url && output.result!.kind === "image"),
     [job.outputs],
   );
 
@@ -280,8 +294,7 @@ export function FileCard({
    * file. A clip's timeline starts at its own zero, so its playback position
    * does not name a point in the source.
    */
-  const previewIsWhole =
-    showSource || (playable !== undefined && playable.trim === null && playable.result!.kind !== "image");
+  const previewIsWhole = showSource || (playable !== undefined && playable.trim === null);
   const getPreviewPosition = previewIsWhole
     ? () => {
         const element = videoRef.current ?? audioRef.current;
@@ -447,9 +460,9 @@ export function FileCard({
         </audio>
       )}
 
-      {!showSource && playable?.url && playable.result!.kind === "image" && (
+      {latestImage?.url && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={playable.url} alt="" className={styles.imagePreview} />
+        <img src={latestImage.url} alt="" className={styles.imagePreview} />
       )}
 
       {!isRunning && job.probe && (
