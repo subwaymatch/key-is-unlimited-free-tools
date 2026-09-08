@@ -1,0 +1,21 @@
+<!-- Concept: the keyhole tile extruded downwards, so the far wall shows inside the hole -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <path id="tile" fill-rule="evenodd" d="M18 4h28a12 12 0 0 1 12 12v24a12 12 0 0 1-12 12H18A12 12 0 0 1 6 40V16A12 12 0 0 1 18 4zM27.5 27.5a6 6 0 1 1 9 0l2.5 15.5h-14z"/>
+  </defs>
+  <g fill="#737373">
+    <use href="#tile" y="6"/>
+    <use href="#tile" y="5.5"/>
+    <use href="#tile" y="5"/>
+    <use href="#tile" y="4.5"/>
+    <use href="#tile" y="4"/>
+    <use href="#tile" y="3.5"/>
+    <use href="#tile" y="3"/>
+    <use href="#tile" y="2.5"/>
+    <use href="#tile" y="2"/>
+    <use href="#tile" y="1.5"/>
+    <use href="#tile" y="1"/>
+    <use href="#tile" y="0.5"/>
+  </g>
+  <use href="#tile" fill="#0a0a0a"/>
+</svg>

@@ -1,0 +1,16 @@
+<!-- Concept: the geometric key as an isometric slab, four units thick, side faces drawn explicitly -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <g transform="translate(0 -2)">
+    <g fill="#737373">
+      <path d="M11 24A11 6.4 0 0 0 33 24v4A11 6.4 0 0 1 11 28z"/>
+      <path d="M16.5 24A5.5 3.2 0 0 1 27.5 24v4A5.5 3.2 0 0 0 16.5 28z"/>
+      <path d="M54 39.5L48.8 42.5v4L54 43.5z"/>
+      <path d="M48.8 42.5L27.2 30v4L48.8 46.5z"/>
+      <path d="M43.65 39.5L38.45 42.5v4L43.65 43.5z"/>
+      <path d="M38.45 42.5L35 40.5v4L38.45 46.5z"/>
+      <path d="M48.8 42.5L43.65 45.5v4L48.8 46.5z"/>
+      <path d="M43.65 45.5L40.2 43.5v4L43.65 49.5z"/>
+    </g>
+    <path fill="#0a0a0a" d="M33 24A11 6.4 0 1 1 11 24A11 6.4 0 1 1 33 24ZM27.5 24A5.5 3.2 0 1 0 16.5 24A5.5 3.2 0 1 0 27.5 24ZM32.4 27L54 39.5L48.8 42.5L27.2 30ZM40.2 37.5L43.65 39.5L38.45 42.5L35 40.5ZM45.4 40.5L48.8 42.5L43.65 45.5L40.2 43.5Z"/>
+  </g>
+</svg>

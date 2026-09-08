@@ -1,15 +1,18 @@
 # Logo candidates for key.is
 
-Eight minimal SVG marks for the "key.is" / "Key" brand. Every file is a
-standalone SVG with an explicit viewBox, no external references, no scripts and
-no raster images, drawn on a 64 px grid (240 x 64 for the wordmark) so each one
-can be scaled to a 16 px favicon or a 256 px app icon without redrawing.
+Fourteen minimal SVG marks for the "key.is" / "Key" brand: eight flat ones
+(01-08) and six with depth (09-14), built from layers and extrusion. Every file
+is a standalone SVG with an explicit viewBox, no external references, no
+scripts and no raster images, drawn on a 64 px grid (240 x 64 for the wordmark)
+so each one can be scaled to a 16 px favicon or a 256 px app icon without
+redrawing.
 
-Colours come from `app/globals.css` and nothing else: foreground `#0a0a0a` on a
-transparent background for all marks, plus `#ffffff` for the knocked-out K in
-08. Muted `#737373`, subtle `#a3a3a3` and border `#e5e5e5` are reserved for a
-secondary treatment (for example, recolouring the ".is" of the wordmark) and
-are not used in the files as shipped.
+Colours come from `app/globals.css` and nothing else. The flat marks are
+foreground `#0a0a0a` on a transparent background, plus `#ffffff` for the
+knocked-out K in 08. The depth marks add muted `#737373` for side faces,
+subtle `#a3a3a3` and border-strong `#d4d4d4` for the layers behind, and
+`#ffffff` for a keyhole cut into a dark face; nothing is shaded with a
+gradient, so each mark is at most four flat tones.
 
 ## Candidates
 
@@ -56,11 +59,53 @@ are not used in the files as shipped.
   touch icon, GitHub or social profile. Pairs with the wordmark in 04; carries
   no key reference on its own.
 
+## Candidates with depth
+
+Still minimal: the third dimension comes from a few flat shapes, never from
+gradients or shadows. Side faces are drawn as their own polygons where an
+edge is diagonal (09, 11), since stacking shifted copies leaves stair-steps
+there; the straight-down extrusion in 14 is stacked copies at half-unit steps,
+which is smooth at every size.
+
+- `09-isometric-key.svg` - The geometric key laid flat in isometric
+  projection and extruded four units down: the bow becomes an ellipse, the
+  shaft runs to the lower right, and the far wall of the bow shows inside the
+  hole. The most "object"-like mark. Best at 32 px and up; at 16 px the
+  teeth blur, so pair it with 12 or 14 for the favicon.
+
+- `10-layered-key.svg` - The flat key from 01 three times, each layer offset
+  up and to the right and a step lighter behind. Reads as depth and as
+  "layers of tools" at once, and survives 16 px because the front layer is
+  the full flat mark. Good for the index and social cards.
+
+- `11-extruded-k.svg` - A heavy geometric K extruded diagonally, six units
+  down and right, in one mid grey. The K stands on its own without a key
+  reference, so it pairs with the wordmark rather than replacing it. Strong at
+  every size, including 16 px.
+
+- `12-keyhole-cube.svg` - An isometric cube in three tones, light top, mid
+  left, dark right, with a keyhole cut into the dark face in the face's own
+  skew. The tidiest favicon of the depth set: a solid block at 16 px that is
+  still recognisably a keyhole. Works on light surfaces only, since the top
+  face is the lightest grey.
+
+- `13-stacked-tiles.svg` - Three rounded tiles fanned along the diagonal like
+  a stack of files, lightest at the back, with the keyhole on the front one.
+  Says "many tools, one key". Reads at every size; at 16 px it is a keyhole
+  tile with a hint of a stack behind it.
+
+- `14-extruded-keyhole-tile.svg` - The keyhole tile from 02 given a six-unit
+  edge below it, so it sits on the page like a button and the far wall of
+  the keyhole shows inside the cut. The closest to an app icon; reads at
+  16 px exactly as 02 does.
+
 ## Suggested pairings
 
 - Favicon plus header: 02 or 08 as the favicon, 04 as the header wordmark.
 - One mark everywhere: 03 (letter and key in one) or 07 (abstract key).
 - Social card: 04 wordmark large, with 06 or 01 as the illustration.
+- With depth: 14 as the favicon and app icon, 10 or 13 as the larger mark on
+  the index and social cards, 11 beside the wordmark in the header.
 
 ## Preview
 

@@ -1,0 +1,12 @@
+<!-- Concept: a heavy geometric K extruded six units down and right, side faces drawn explicitly -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <g fill="#737373">
+    <path d="M22 8v44l6 6V14z"/>
+    <path d="M12 52h10l6 6H18z"/>
+    <path d="M53 8L33 34l6 6L59 14z"/>
+    <path d="M33 34H22l6 6h11z"/>
+    <path d="M33 28l20 24 6 6-20-24z"/>
+    <path d="M53 52H42l6 6h11z"/>
+  </g>
+  <path fill="#0a0a0a" d="M12 8h10v44H12zM22 34L42 8h11L33 34zM22 28h11l20 24H42z"/>
+</svg>
