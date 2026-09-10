@@ -6,6 +6,9 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { SITE_NAME, SITE_URL } from "@/lib/site";
 import "./globals.css";
 
+const SITE_DESCRIPTION =
+  "Convert, compress and edit files entirely in your browser. Nothing is uploaded, so there is no file size limit and nothing to pay.";
+
 /*
  * Inter, self-hosted by next/font: the files are fetched at build time and
  * served from this origin, so no request leaves the visitor's browser for a
@@ -30,9 +33,21 @@ export const metadata: Metadata = {
     default: "Free browser tools with no file size limit",
     template: `%s | ${SITE_NAME}`,
   },
-  description:
-    "Convert, compress and edit files entirely in your browser. Nothing is uploaded, so there is no file size limit and nothing to pay.",
+  description: SITE_DESCRIPTION,
   alternates: { canonical: "/" },
+  applicationName: SITE_NAME,
+  openGraph: {
+    type: "website",
+    url: "/",
+    siteName: SITE_NAME,
+    title: `${SITE_NAME}: free browser tools with no file size limit`,
+    description: SITE_DESCRIPTION,
+  },
+  twitter: {
+    card: "summary",
+    title: `${SITE_NAME}: free browser tools with no file size limit`,
+    description: SITE_DESCRIPTION,
+  },
 };
 
 export const viewport: Viewport = {

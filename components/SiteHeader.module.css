@@ -18,6 +18,10 @@
   letter-spacing: var(--tracking-tight);
 }
 
+.nav {
+  min-width: 0;
+}
+
 .list {
   display: flex;
   flex-wrap: wrap;
@@ -28,8 +32,52 @@
 .link {
   color: var(--muted-foreground);
   font-size: var(--text-base);
+  white-space: nowrap;
 }
 
 .link:hover {
   color: var(--foreground);
+}
+
+/*
+ * The tool being used, marked. `aria-current="page"` on the anchor carries the
+ * same fact to a screen reader; this is it for everyone else.
+ */
+.linkCurrent {
+  color: var(--foreground);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 5px;
+}
+
+/*
+ * Seven links wrapped to three lines on a phone, which is a third of the
+ * screen spent on navigation before the tool starts. One scrollable row
+ * instead: the first two links are visible, the rest are a swipe away, and the
+ * page begins where it should.
+ */
+@media (max-width: 640px) {
+  .inner {
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .nav {
+    flex: 1 1 auto;
+    overflow-x: auto;
+    /* Leaves room for the scrollbar some platforms draw over the text. */
+    padding-bottom: 0.125rem;
+    scrollbar-width: none;
+  }
+
+  .nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .list {
+    flex-wrap: nowrap;
+    gap: 1rem;
+  }
 }

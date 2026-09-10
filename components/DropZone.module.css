@@ -34,6 +34,16 @@
   background: var(--muted);
 }
 
+/* Settings that cannot start a job: the panel above says which and why. */
+.disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.disabled:hover {
+  border-color: var(--border-strong);
+}
+
 .icon {
   width: 3rem;
   height: 3rem;

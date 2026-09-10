@@ -108,11 +108,58 @@
   gap: 2rem;
 }
 
-.total {
+.totalRow {
   margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+}
+
+.total {
   font-size: var(--text-sm);
   line-height: var(--leading-sm);
   color: var(--subtle);
+}
+
+/* ---- Settings extras --------------------------------------------------- */
+
+/* Why the tool cannot start a job with the settings as they stand. */
+.settingsError {
+  padding: 0 1rem 0.75rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--destructive);
+}
+
+.checkboxRow {
+  margin-top: 0.75rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  cursor: pointer;
+}
+
+.checkboxRow input {
+  margin-top: 0.2rem;
+  flex: none;
+  accent-color: var(--primary);
+}
+
+.checkboxLabel {
+  display: block;
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+  font-weight: 500;
+}
+
+.checkboxBlurb {
+  display: block;
+  margin-top: 0.125rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--muted-foreground);
 }
 
 /* ---- Footer ------------------------------------------------------------ */

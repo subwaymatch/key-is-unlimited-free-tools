@@ -13,7 +13,7 @@ The live tools, each on its own route:
 | `/convert-video` | Turn MOV, MKV, AVI, WebM or anything else into an MP4 that plays anywhere (or WebM, or an MKV remux) | Copies an H.264 track and an AAC track when the source already has them; encodes only what does not fit |
 | `/compress-video` | Shrink a video to a target size: 8 MB, 25 MB, 100 MB or any number | Bitrate computed from the probed length, two-pass H.264, automatic downscaling when the bitrate cannot fill the frame |
 | `/trim-video` | Cut a range out of a video | A fast cut copies the streams and lands on the nearest keyframe; a precise cut re-encodes to the frame |
-| `/video-to-gif` | Turn a range into a looping GIF | `palettegen` and `paletteuse` in one filter graph, at a chosen frame rate and width |
+| `/video-to-gif` | Turn a range into a looping GIF | `palettegen` and `paletteuse` in one filter graph, at a chosen frame rate and longest side |
 | `/remove-audio` | Mute a video | `-an` with the video stream copied |
 | `/remove-metadata` | Strip tags, dates, location, chapters and data tracks from a video or audio file | `-map_metadata -1` with every stream copied |
 
@@ -95,6 +95,8 @@ components/
   *.module.css       plain CSS modules; no utility-class framework
 lib/useConversionQueue.ts   sequential job runner, progress + cancellation, per-tool options
 lib/toolFeatures.ts  what a tool's cards offer: clip panel, silence detection, whole-file chips
+lib/mediaTypes.ts    the cheap first pass: is this even a media file, and what an input accepts
+lib/persist.ts       remembering a tool's settings between visits, without a hydration mismatch
 lib/engine/
   types.ts           the engine contract, and the OutputFormat shape every tool's catalogue uses
   ffmpegEngine.ts    ffmpeg.wasm implementation - mount, probe, run a plan (one pass or two), scan
@@ -109,6 +111,13 @@ lib/engine/
 Files convert **one at a time**. There is a single ffmpeg worker with a single heap, so concurrency
 would multiply peak memory without making anything faster - the work is I/O- and codec-bound, not
 parallel.
+
+The queue's state lives in a module-level store keyed by tool, not in the component. Two things
+need that: the async pump runs outside the render cycle and must never read a stale snapshot, and
+moving between tools unmounts the page. Trimming a file, glancing at the GIF maker and pressing
+Back used to lose the file, the markers and both finished cuts without a word, because the state
+and the object URLs went with the component. The component is now a view onto a store that outlives
+it, and object URLs are released when a file is removed rather than when a page is left.
 
 The UI talks only to the engine interface in `types.ts`. ffmpeg.wasm has been in caretaker mode
 since early 2025, so if it needs replacing (or a WebCodecs engine is wanted for speed), that is a
@@ -148,8 +157,23 @@ The converter copies what fits. An H.264 track in 8-bit 4:2:0 and an AAC track g
 they are, which turns a MOV, MKV or TS that only needed repackaging into a few-second job; 10-bit
 H.264, HEVC, VP9, ProRes and the rest are encoded with `libx264 -preset veryfast`, since the
 encoder runs single-threaded in WebAssembly and `medium` is roughly two and a half times slower for
-a few percent smaller output. WebM copies VP8 and VP9 and otherwise encodes VP9, slowly; MKV
-repackages every stream untouched.
+a few percent smaller output. WebM copies VP8 and VP9 and otherwise encodes **VP8**; MKV repackages
+every stream untouched.
+
+VP8 rather than VP9 is not a preference. `libvpx-vp9` is compiled into @ffmpeg/core 0.12.10 and
+advertised by `-encoders`, and every invocation of it traps with `RuntimeError: memory access out
+of bounds` a fraction of a second in - at any resolution, with or without audio, in
+constant-quality or constrained mode, and with row threading and multithreading both off. Worse,
+the trap took the whole instance with it: every later command in that worker failed, including a
+probe of a completely different file, until the page was reloaded. `libvpx` (VP8) in the same build
+encodes the same input without complaint. See [Surviving a crash](#surviving-a-crash) for the other
+half of that fix.
+
+The tools that only copy streams keep the source container. A MOV stays a MOV, an MKV stays an MKV,
+and only a container that genuinely cannot hold the streams is changed - dropping the audio from a
+file is one change, and turning it into an MP4 at the same time is a second one nobody asked for.
+ffmpeg's format name cannot tell a MOV from an MP4 (both probe as `mov,mp4,m4a,3gp,3g2,mj2`), so
+the plan is given the source file's extension along with the probe.
 
 The compressor turns a byte budget and the probed length into a bitrate, gives audio a slice that
 shrinks as the budget does (128 kbps down to 48), and refuses a target that would leave the
@@ -165,9 +189,14 @@ keep the packets between the keyframe and the marker and drift out of sync.
 
 ### Stream copy vs re-encode
 
-"Original" and "M4A" copy the audio track without decoding it whenever the source codec already
-fits the target container - bit-for-bit identical output, and seconds instead of minutes on a large
-file. The UI labels these outputs `STREAM COPY`. Everything else re-encodes.
+Every audio format copies the track without decoding it whenever the source codec already matches -
+bit-for-bit identical output, and seconds instead of minutes on a large file. The UI labels these
+outputs `STREAM COPY`. Re-encoding an MP3 to an MP3, or an Opus to an Opus, throws quality away to
+arrive at the format that was already there, which is never what "MP3" was asked for.
+
+Where two formats would then produce the same file - "Original" and "M4A (AAC)" of an AAC source
+are both a stream copy into an `.m4a` - "Original" adds `-original` to the name, so two downloads
+do not land in the folder as `clip.m4a` and `clip (1).m4a` with no way to tell them apart.
 
 "Original" picks the container from the codec: AAC and ALAC go to M4A; MP3, Opus, Vorbis, FLAC and
 the Dolby codecs to their native files; little-endian PCM to WAV; and anything else to Matroska
@@ -181,13 +210,24 @@ already offers the lossless copy.
 An output is a format *and* a range, so one file can produce "the whole thing as MP3" and
 "1:30-2:15 as MP3" side by side. Each clipped output is badged with its range in the UI and carries
 it in the filename (`holiday-1m30s-2m15s.mp3`), so several clips of one video do not all land in
-Downloads under the same name.
+Downloads under the same name. The trimmer's two cuts add `-fast` and `-precise` for the same
+reason: they are the same range of the same file and would otherwise share one name.
+
+A fast cut can only begin on a keyframe, so a cut from 0:03 routinely starts seconds earlier.
+Nothing on the way in knows by how much - finding out would mean a pass over the source looking for
+keyframes - but the finished file does, because it is longer than the range that was asked for by
+exactly the overshoot. The engine probes the output before reading it back and the row reports
+where the cut really landed, instead of presenting the requested range as if it were exact.
 
 There are two ways to set the range:
 
 - **Markers.** Type start and end timecodes (`1:30`, `0:04.5`, `90`). Per-file markers appear on
   the card once the file has been probed, where the duration is known and - when the preview is of
-  the untrimmed track - its playback position can be dropped straight into either field.
+  the untrimmed track - its playback position can be dropped straight into either field. A bare
+  number is a count of seconds and may be anything, but once there is a colon the fields are a
+  clock: `9:99` is a typo, not 10:39, and is refused rather than quietly cut somewhere else. An end
+  past the end of the file is clamped, and the panel says so rather than showing one range and
+  producing another.
 - **Automatic silence trimming.** ffmpeg's `silencedetect` filter runs over the audio, and the
   leading and trailing silences it reports become the range. Only the head and tail are cut: pauses
   in the middle are left alone, since removing those would re-time the audio, which is a different
@@ -210,6 +250,30 @@ Silence detection is a full decode of the audio stream (via the null muxer, whic
 so it costs roughly one re-encode and is only ever run when asked for. It reports progress like any
 other phase. Files with no duration in their container - a browser's MediaRecorder never writes
 one - are measured by the decode itself, so a trailing silence can still be told apart from a pause.
+
+### Surviving a crash
+
+ffmpeg's own refusals come back as a non-zero exit code with a readable line in the log, and cost
+one output. A *rejection* is different: the WebAssembly module trapped, the heap is in an undefined
+state, and everything afterwards in that worker fails - which is how one bad codec used to take a
+tab's entire session with it.
+
+Every command goes through one place that tells the two apart. A trap marks the instance poisoned,
+so later commands fail immediately rather than one at a time with errors that make no sense on the
+card; the queue then fails only the output that crashed, throws the engine away, rebuilds it, and
+re-runs whatever was still pending. The core is already cached, so the rebuild is a WebAssembly
+instantiation rather than a 31 MB download, and the banner says once that it happened.
+
+### Metadata
+
+Every tool strips the source's metadata from its output by default: titles, artist and comments,
+the recording date, the location a phone stamped into the file, chapter lists, and the muxer's own
+encoder tag. A clip from a phone carries a GPS fix, and a site whose whole promise is that files
+stay on your device has no business writing one into the file you are about to send someone.
+
+It is the engine's job rather than each plan's - the same four arguments for every format, appended
+last so they win over anything a plan mapped - and the "Output options" panel on every tool turns
+it off for the case where the tags are the point, such as the title and artist of a music file.
 
 ### Cancelling one format
 
@@ -337,11 +401,24 @@ where the core came from, only that it is the pinned build.
 
 ### Headers
 
-`public/_headers` sets cache headers only. Cross-origin isolation (COOP/COEP) is **not** required,
-because the app uses the single-threaded core. The multithreaded core would need
-`SharedArrayBuffer` - and therefore those headers - while offering nothing here: audio extraction
-is dominated by demuxing rather than parallel codec work, and `@ffmpeg/core-mt` has a *smaller*
-fixed 1 GB heap. The commented-out block in `_headers` is there if that trade-off ever changes.
+`public/_headers` sets cache headers and the security headers: a Content-Security-Policy, HSTS,
+`nosniff`, a Referrer-Policy, a Permissions-Policy that turns off the APIs this site has no use
+for, and `frame-ancestors 'none'`.
+
+Two entries in the CSP look wrong until you know why they are there, and both are commented in the
+file. `script-src` needs `'wasm-unsafe-eval'` because ffmpeg *is* WebAssembly, and `'unsafe-inline'`
+because the App Router emits inline bootstrap scripts and a static export has no server to stamp a
+per-response nonce into them. `connect-src` has to allow `cdn.jsdelivr.net`, which is where the
+core is fetched from - a policy that omits it looks tighter and breaks every conversion.
+
+`public/_redirects` catches the short aliases people type (`/compress`, `/gif`, `/mp4`) and sends
+them to the canonical verb-object routes.
+
+Cross-origin isolation (COOP/COEP) is **not** required, because the app uses the single-threaded
+core. The multithreaded core would need `SharedArrayBuffer` - and therefore those headers - while
+offering nothing here: audio extraction is dominated by demuxing rather than parallel codec work,
+and `@ffmpeg/core-mt` has a *smaller* fixed 1 GB heap. The commented-out block in `_headers` is
+there if that trade-off ever changes.
 
 ## Implementation notes
 
@@ -393,11 +470,13 @@ on its own (`npx playwright install chromium`), or any Chrome/Chromium binary na
 `CHROMIUM_PATH`.
 
 `verify-video-tools.mjs` drives Chromium and the pinned core through every video tool: an MP4
-converted by stream copy and an AVI converted by encoding, a remux to MKV, an audio file refused
-by a video tool; a 19 MB file compressed to under 8 MB in two passes and a file already under the
-target refused up front; a video muted; a tagged MP4 and a tagged MP3 stripped; a fast cut and a
-precise cut of the same range; and a two-second GIF at 15 fps and 480 px. Every download is
-checked with `ffprobe`.
+converted by stream copy and an AVI converted by encoding, a remux to MKV, a WebM encoded (the
+conversion that used to trap and take the engine with it), an audio file refused by a video tool;
+a 19 MB file compressed to under 8 MB in two passes and a file already under the target reported as
+a note rather than a failure; a video muted; a tagged MP4 and a tagged MP3 stripped; a fast cut and
+a precise cut of the same range, under names that tell them apart; a switch to another tool and
+back, which has to find the queue where it was left; and a two-second GIF at 15 fps bounded to
+480 px on its longest side. Every download is checked with `ffprobe`.
 
 `verify-e2e.mjs` drives a real Chromium through the audio extractor's seven cases - an MP4 with AAC, a video with no
 audio track, an MKV with 5.1 FLAC, a hand-set 1s-3s clip, an 8s file padded with two seconds of
@@ -424,8 +503,14 @@ calling large-file support universal.
   fragments to the File System Access API is the plan in section 6 of the catalogue and is not
   built yet.
 - Video encoding runs on one core. Expect real time or slower for 1080p H.264, twice that with two
-  passes, and much slower for VP9. The multithreaded core would need cross-origin isolation, which
+  passes, and slower again for VP8. The multithreaded core would need cross-origin isolation, which
   is a decision the catalogue asks to be made deliberately.
+- WebM output is VP8, because `libvpx-vp9` traps in the pinned core (see
+  [The video tools](#the-video-tools-and-the-output-ceiling)). A VP9 source is still copied rather
+  than re-encoded, which is the case where VP9 in a WebM was actually wanted.
+- A fast cut's row reports the range the file really covers, measured from the finished output, but
+  the cut still lands on the keyframe at or before the marker. Snapping the marker to keyframes up
+  front would mean a pass over the source looking for them.
 - The source preview on the trimmer and GIF maker only appears for containers the browser itself
   can play (MP4, WebM, MOV); an MKV or AVI is trimmed by timecode and, on the trimmer, by the
   waveform.

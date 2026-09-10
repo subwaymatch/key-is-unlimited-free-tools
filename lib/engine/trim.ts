@@ -259,6 +259,11 @@ export function suggestTrimFromSilence(
  * Parses a timecode into seconds; null when the text is not one.
  *
  * Accepts what people actually type: `90`, `1:30`, `1:02:03.5`.
+ *
+ * A bare number is a count of seconds and may be anything - `90` is a minute
+ * and a half. Once there is a colon the fields are a clock, so `9:99` is not a
+ * time any more than 9:99pm is: it is a typo, and reading it as 10:39 would
+ * cut somewhere the person never asked for.
  */
 export function parseTimecode(value: string): number | null {
   const text = value.trim();
@@ -268,8 +273,10 @@ export function parseTimecode(value: string): number | null {
   if (parts.length > 3) return null;
 
   let seconds = 0;
-  for (const part of parts) {
+  for (const [index, part] of parts.entries()) {
     if (!/^\d+(?:\.\d+)?$|^\.\d+$/.test(part)) return null;
+    // Only the leading field is unbounded; the rest are clock fields.
+    if (index > 0 && Number(part) >= 60) return null;
     seconds = seconds * 60 + Number(part);
   }
 

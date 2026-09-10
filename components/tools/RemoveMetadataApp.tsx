@@ -1,6 +1,7 @@
 "use client";
 
 import { STRIP_FORMAT } from "@/lib/engine/video";
+import { MEDIA_ACCEPT } from "@/lib/mediaTypes";
 import type { ToolFeatures } from "@/lib/toolFeatures";
 import { requireTool } from "@/lib/tools";
 import type { QueueOptions } from "@/lib/useConversionQueue";
@@ -10,6 +11,7 @@ import { ToolApp } from "../ToolApp";
 const tool = requireTool("remove-metadata");
 
 const QUEUE: QueueOptions = {
+  key: "remove-metadata",
   formats: [STRIP_FORMAT],
   defaultFormatIds: [STRIP_FORMAT.id],
   expects: "media",
@@ -21,9 +23,9 @@ const FEATURES: ToolFeatures = {
   trim: false,
   silence: false,
   requireTrim: false,
-  wholeLabel: "",
   clipLabel: "",
   alsoLabel: "Produce:",
+  busyLabel: "Removing the metadata",
 };
 
 /**
@@ -41,11 +43,12 @@ export function RemoveMetadataApp() {
       queue={QUEUE}
       features={FEATURES}
       dropZone={{
+        accept: MEDIA_ACCEPT,
         inputLabel: "Choose video or audio files",
         headline: "Drop video or audio files here",
-        subhead: "The metadata is removed automatically; multi-gigabyte files supported",
+        subhead: "The metadata is removed automatically; there is no upload limit",
       }}
-      note="This removes what the container says about the file. It does not alter the picture or the sound, so anything visible or audible - a burned-in timestamp, a name spoken aloud - is still there."
+      note="This removes what the container says about the file. It does not alter the picture or the sound, so anything visible or audible - a burned-in timestamp, a name spoken aloud - is still there. The container itself is kept: a MOV stays a MOV and an MKV stays an MKV, so the only thing that changes is what the file says about you."
     />
   );
 }

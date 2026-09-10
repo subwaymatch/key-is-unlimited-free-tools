@@ -54,6 +54,7 @@ import {
   type ProbeResult,
   type SilenceScanOptions,
   type SilenceScanResult,
+  type TrimRange,
   type WaveformData,
 } from "./types";
 
@@ -90,6 +91,62 @@ const WAVEFORM_BUCKETS = 600;
 
 /** Retained log lines per command, so a chatty run cannot grow without bound. */
 const MAX_LOG_LINES = 400;
+
+/**
+ * Arguments that leave an output carrying nothing about where it came from.
+ *
+ * `-map_metadata -1` drops the container's tags (title, artist, comment, the
+ * recording date, the GPS fix a phone writes into every clip) and
+ * `-map_chapters -1` the chapter list. `-fflags +bitexact` stops the muxer
+ * signing its own name into the file it was just asked to clean.
+ */
+export const STRIP_METADATA_ARGS = [
+  "-map_metadata",
+  "-1",
+  "-map_chapters",
+  "-1",
+  "-fflags",
+  "+bitexact",
+];
+
+/**
+ * How much longer than the requested range a copy may be before it is worth
+ * reporting. Container rounding and the duration of the last packet account
+ * for a fraction of a second on their own; a keyframe overshoot is seconds.
+ */
+const KEYFRAME_OVERSHOOT_TOLERANCE_SECONDS = 0.25;
+
+/**
+ * Failures that leave the WebAssembly instance unusable.
+ *
+ * ffmpeg's own errors come back as a non-zero exit code with a readable line
+ * in the log. These are different: the module trapped, so the heap is in an
+ * undefined state and *every* later command in that worker fails - including a
+ * probe of a completely different file. There is no recovering the instance,
+ * only replacing it, so the failure is flagged and the queue rebuilds.
+ */
+const FATAL_RUNTIME_FAILURE =
+  /memory access out of bounds|out of bounds memory access|unreachable|RuntimeError|\bAborted\b|abort\(|null function or function signature mismatch|table index is out of bounds|Cannot enlarge memory|out of memory|terminated/i;
+
+/** Whatever detail a rejection carries, as one line worth showing. */
+function describeCause(cause: unknown): string {
+  if (typeof cause === "string") return cause;
+  if (cause instanceof Error) return `${cause.name}: ${cause.message}`;
+  return String(cause);
+}
+
+/** True when this rejection means the ffmpeg instance has to be thrown away. */
+export function isFatalRuntimeFailure(cause: unknown): boolean {
+  if (cause instanceof ExtractionError) return cause.fatal;
+  return FATAL_RUNTIME_FAILURE.test(describeCause(cause));
+}
+
+/** Lower-case extension of a filename, without the dot, or null. */
+export function extensionOf(fileName: string): string | null {
+  const lastDot = fileName.lastIndexOf(".");
+  if (lastDot <= 0 || lastDot === fileName.length - 1) return null;
+  return fileName.slice(lastDot + 1).toLowerCase();
+}
 
 /** `ffmpeg -encoders` prints several hundred rows; none of them may be dropped. */
 const MAX_ENCODER_LOG_LINES = 2_000;
@@ -193,8 +250,21 @@ export class FFmpegEngine implements AudioExtractor {
   /** Set while a session holds the engine, so misuse fails loudly. */
   #busy = false;
 
+  /** Set once a command has trapped; nothing may run on this instance again. */
+  #poisoned = false;
+
   get capabilities(): EngineCapabilities | null {
     return this.#capabilities;
+  }
+
+  /**
+   * True once a wasm trap has made this instance unusable.
+   *
+   * The queue reads this to decide whether it can carry on with the next job
+   * or has to build a new engine first.
+   */
+  get poisoned(): boolean {
+    return this.#poisoned;
   }
 
   get loaded(): boolean {
@@ -339,6 +409,37 @@ export class FFmpegEngine implements AudioExtractor {
     };
   }
 
+  /**
+   * Runs one ffmpeg command, turning a wasm trap into a flagged failure.
+   *
+   * A non-zero exit code is returned as-is: that is ffmpeg refusing a job, and
+   * every caller has its own message for it. A *rejection* is the module
+   * dying, which is not this job's problem so much as the instance's, so it is
+   * marked and every later command short-circuits rather than failing one at a
+   * time with an error that reads like a bug in the file.
+   */
+  async #exec(ffmpeg: FFmpeg, args: string[]): Promise<number> {
+    if (this.#poisoned) {
+      throw new ExtractionError(
+        "The ffmpeg engine stopped unexpectedly and is being restarted.",
+        "An earlier job crashed the engine. This one will run on the new one.",
+        { fatal: true },
+      );
+    }
+
+    try {
+      return await ffmpeg.exec(args);
+    } catch (cause) {
+      if (!isFatalRuntimeFailure(cause)) throw cause;
+      this.#poisoned = true;
+      throw new ExtractionError(
+        "The ffmpeg engine stopped unexpectedly.",
+        "A codec in the WebAssembly build crashed on this file. The engine restarts automatically; other formats and files are unaffected.",
+        { cause, fatal: true },
+      );
+    }
+  }
+
   async openSession(file: File, options?: OpenSessionOptions): Promise<ExtractSession> {
     const capabilities = await this.load();
     if (this.#busy) {
@@ -450,8 +551,11 @@ export class FFmpegEngine implements AudioExtractor {
     const log = this.#capture();
     // No output file is given, so ffmpeg prints the stream table and exits
     // non-zero. The exit code carries no information here; the log does.
-    await ffmpeg.exec(["-hide_banner", "-i", inputPath]);
-    log.release();
+    try {
+      await this.#exec(ffmpeg, ["-hide_banner", "-i", inputPath]);
+    } finally {
+      log.release();
+    }
 
     const probe = parseProbeOutput(log.lines);
 
@@ -473,17 +577,20 @@ export class FFmpegEngine implements AudioExtractor {
         throw new ExtractionError(
           "This file could not be read as a media file.",
           reason ?? "ffmpeg could not parse the container.",
+          { retryable: false },
         );
       }
       if (expects === "video") {
         throw new ExtractionError(
           "No video track found.",
           "This file has no video stream to work on. It may be audio only.",
+          { retryable: false },
         );
       }
       throw new ExtractionError(
         "No audio track found.",
         "The video has no audio stream to extract.",
+        { retryable: false },
       );
     }
 
@@ -504,11 +611,21 @@ export class FFmpegEngine implements AudioExtractor {
     // Clamp the range to the file before anything expensive happens, so an
     // impossible clip is reported in milliseconds rather than after a long run.
     const { trim, problem } = resolveTrim(options?.trim, probe.durationSeconds);
-    if (problem) throw new ExtractionError(problem.message, problem.hint);
+    if (problem) throw new ExtractionError(problem.message, problem.hint, { retryable: false });
 
-    const context = { trim, fileBytes: file.size };
+    const context = {
+      trim,
+      fileBytes: file.size,
+      sourceExtension: extensionOf(file.name),
+    };
     const blocker = format.blocker?.(probe, context) ?? null;
-    if (blocker) throw new ExtractionError(blocker.message, blocker.hint);
+    if (blocker) {
+      throw new ExtractionError(blocker.message, blocker.hint, {
+        severity: blocker.severity ?? "error",
+        // A guard that said no before anything ran will say no again.
+        retryable: blocker.retryable ?? false,
+      });
+    }
 
     const plan = format.plan(probe, context);
 
@@ -531,6 +648,16 @@ export class FFmpegEngine implements AudioExtractor {
     const duration = trimDuration(trim, probe.durationSeconds);
     const { input: trimInput, output: trimOutput } = trimArgs(trim);
 
+    /*
+     * Dropping the source's tags is the engine's job rather than each plan's:
+     * it is the same four arguments for every format, it has to come last so
+     * it wins over anything a plan mapped, and a plan that already strips
+     * (the metadata remover) must not repeat them.
+     */
+    const metadataArgs =
+      options?.stripMetadata && !plan.stripsMetadata ? STRIP_METADATA_ARGS : [];
+    const finalArgs = [...plan.args, ...metadataArgs];
+
     const analysisPasses = plan.analysisPasses ?? [];
     const totalPasses = analysisPasses.length + 1;
     // Every pass reads the whole clip, so each gets an equal share of the bar.
@@ -551,7 +678,7 @@ export class FFmpegEngine implements AudioExtractor {
     const startedAt = performance.now();
 
     try {
-      for (const [index, passArgs] of [...analysisPasses, plan.args].entries()) {
+      for (const [index, passArgs] of [...analysisPasses, finalArgs].entries()) {
         const isFinal = index === analysisPasses.length;
 
         // ffmpeg's own `progress` ratio is unreliable when it cannot infer the
@@ -570,7 +697,8 @@ export class FFmpegEngine implements AudioExtractor {
         try {
           // The null muxer discards every packet and is AVFMT_NOFILE, so "-"
           // is never actually opened.
-          exitCode = await ffmpeg.exec(
+          exitCode = await this.#exec(
+            ffmpeg,
             command(passArgs, isFinal ? [outputPath] : ["-f", "null", "-"]),
           );
         } finally {
@@ -594,6 +722,16 @@ export class FFmpegEngine implements AudioExtractor {
         }
       }
     }
+
+    /*
+     * What the file actually covers, for a cut that could only land on a
+     * keyframe. Measured before the output is read, while it is still a file
+     * ffmpeg can open, and only for the plans that ask - it is one probe of
+     * something already in memory, but it is not free.
+     */
+    const actualTrim = plan.verifyDuration
+      ? await this.#measureActualTrim(ffmpeg, outputPath, trim, duration)
+      : null;
 
     const data = await ffmpeg.readFile(outputPath);
     // Free the core's copy immediately; the bytes now live in a JS Blob.
@@ -620,6 +758,49 @@ export class FFmpegEngine implements AudioExtractor {
       mode: plan.mode,
       kind: plan.kind ?? "audio",
       trim,
+      actualTrim,
+      warning: plan.warning,
+    };
+  }
+
+  /**
+   * Reads the finished file's length back, to find where the cut really began.
+   *
+   * A stream copy starts at the keyframe at or before the marker, which on a
+   * file with keyframes every few seconds can be a long way before it. Nothing
+   * on the way in knows how far - the plan does not, and finding out up front
+   * would mean a pass over the source looking for keyframes. The output knows:
+   * it is longer than the range that was asked for by exactly the overshoot.
+   */
+  async #measureActualTrim(
+    ffmpeg: FFmpeg,
+    outputPath: string,
+    trim: TrimRange | null,
+    requestedSeconds: number | null,
+  ): Promise<TrimRange | null> {
+    if (!trim || requestedSeconds === null || trim.startSeconds <= 0) return null;
+
+    const log = this.#capture();
+    try {
+      // No output file, so this prints the stream table and exits non-zero.
+      await this.#exec(ffmpeg, ["-hide_banner", "-i", outputPath]);
+    } catch (error) {
+      // A trap has to travel; anything else here costs only the extra detail.
+      if (isFatalRuntimeFailure(error)) throw error;
+      return null;
+    } finally {
+      log.release();
+    }
+
+    const measured = parseProbeOutput(log.lines).durationSeconds;
+    if (measured === null) return null;
+
+    const overshoot = measured - requestedSeconds;
+    if (overshoot <= KEYFRAME_OVERSHOOT_TOLERANCE_SECONDS) return null;
+
+    return {
+      startSeconds: Math.max(0, trim.startSeconds - overshoot),
+      endSeconds: trim.endSeconds,
     };
   }
 
@@ -664,7 +845,7 @@ export class FFmpegEngine implements AudioExtractor {
 
     let exitCode: number;
     try {
-      exitCode = await ffmpeg.exec([
+      exitCode = await this.#exec(ffmpeg, [
         "-hide_banner",
         "-i",
         inputPath,
@@ -730,7 +911,7 @@ export class FFmpegEngine implements AudioExtractor {
 
     let exitCode: number;
     try {
-      exitCode = await ffmpeg.exec([
+      exitCode = await this.#exec(ffmpeg, [
         "-hide_banner",
         ...(atSeconds > 0 ? ["-ss", atSeconds.toFixed(3)] : []),
         "-i",
@@ -752,8 +933,11 @@ export class FFmpegEngine implements AudioExtractor {
         "mjpeg",
         outputPath,
       ]);
-    } catch {
-      failureLog.release();
+    } catch (error) {
+      // A thumbnail is decoration and its failures are swallowed - but a trap
+      // has poisoned the engine, and pretending otherwise would leave every
+      // later command failing for reasons that make no sense on the card.
+      if (isFatalRuntimeFailure(error)) throw error;
       return null;
     } finally {
       failureLog.release();
@@ -809,7 +993,7 @@ export class FFmpegEngine implements AudioExtractor {
 
     let exitCode: number;
     try {
-      exitCode = await ffmpeg.exec([
+      exitCode = await this.#exec(ffmpeg, [
         "-hide_banner",
         "-i",
         inputPath,
@@ -857,7 +1041,10 @@ export class FFmpegEngine implements AudioExtractor {
 
   /** @internal - driven by FFmpegSession. */
   async closeSession(ffmpeg: FFmpeg): Promise<void> {
-    await this.#releaseInput(ffmpeg);
+    // A poisoned worker answers nothing, so an unmount would hang until the
+    // instance is discarded anyway. The caller replaces the engine, and the
+    // File reference dies with the worker.
+    if (!this.#poisoned) await this.#releaseInput(ffmpeg);
     this.#progressSink = null;
     this.#busy = false;
   }
@@ -871,7 +1058,11 @@ export class FFmpegEngine implements AudioExtractor {
    * the restart costs a WebAssembly instantiation, not a 31 MB download.
    */
   terminate(): void {
-    this.#ffmpeg?.terminate();
+    try {
+      this.#ffmpeg?.terminate();
+    } catch {
+      // A worker that already died cannot be killed twice.
+    }
     this.#ffmpeg = null;
     this.#loadPromise = null;
     this.#capabilities = null;
@@ -879,6 +1070,7 @@ export class FFmpegEngine implements AudioExtractor {
     this.#logSink = null;
     this.#progressSink = null;
     this.#busy = false;
+    this.#poisoned = false;
   }
 }
 
@@ -950,7 +1142,12 @@ export function getEngine(): FFmpegEngine {
   return sharedEngine;
 }
 
-/** Drops the shared engine after a hard cancel, so the next job starts clean. */
+/**
+ * Drops the shared engine after a hard cancel or a crash.
+ *
+ * The next `getEngine()` builds a fresh one, which reloads the core from the
+ * browser's cache: a WebAssembly instantiation rather than a 31 MB download.
+ */
 export function resetEngine(): void {
   sharedEngine?.terminate();
   sharedEngine = null;

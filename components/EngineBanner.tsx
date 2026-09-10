@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import { CORE_LABEL } from "@/lib/engine/coreLoader";
 import { formatBytes } from "@/lib/format-utils";
 import type { EngineState } from "@/lib/useConversionQueue";
@@ -18,6 +20,35 @@ interface EngineBannerProps {
  * unexplained pause. Once the engine is ready this collapses to nothing.
  */
 export function EngineBanner({ state }: EngineBannerProps) {
+  /*
+   * A crashed engine is rebuilt automatically, and the file that crashed it
+   * carries its own error on its own row. Without a word here, though, the
+   * restart shows up as a second core load out of nowhere. So it gets one
+   * line - shown only while there is nothing more urgent to say, and
+   * dismissible, because it is history rather than a state of the page.
+   */
+  const [acknowledged, setAcknowledged] = useState(0);
+  const restarted =
+    state.restarts > acknowledged && (state.stage === "idle" || state.stage === "ready");
+
+  if (restarted) {
+    return (
+      <p className={styles.restart}>
+        <span>
+          The ffmpeg engine crashed on an earlier job and has been restarted. Your other files and
+          formats are unaffected.
+        </span>
+        <button
+          type="button"
+          onClick={() => setAcknowledged(state.restarts)}
+          className={styles.dismiss}
+        >
+          Dismiss
+        </button>
+      </p>
+    );
+  }
+
   if (state.stage === "idle" || state.stage === "ready") return null;
 
   if (state.stage === "error") {
@@ -53,9 +84,7 @@ export function EngineBanner({ state }: EngineBannerProps) {
         />
       </div>
 
-      <p className={styles.note}>
-        {CORE_LABEL} is fetched once and then cached by your browser.
-      </p>
+      <p className={styles.note}>{CORE_LABEL} is fetched once and then cached by your browser.</p>
     </div>
   );
 }

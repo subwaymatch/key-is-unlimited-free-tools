@@ -1,7 +1,7 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
-import { useCallback, useState, type ReactNode } from "react";
+import { ChevronDown, DownloadCloud } from "lucide-react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { Button } from "./ui/Button";
 import { CORE_VERSION, FFMPEG_VERSION } from "@/lib/engine/constants";
@@ -13,6 +13,7 @@ import { useConversionQueue, type QueueOptions } from "@/lib/useConversionQueue"
 import { DropZone } from "./DropZone";
 import { EngineBanner } from "./EngineBanner";
 import { FileCard } from "./FileCard";
+import settingsStyles from "./Settings.module.css";
 import styles from "./ToolApp.module.css";
 
 /** Files this large rely on the WORKERFS mount path rather than an in-memory copy. */
@@ -26,6 +27,22 @@ export interface ToolSettings {
   /** One-line state shown beside the heading while the panel is closed. */
   summary: (queue: QueueApi) => string;
   render: (queue: QueueApi) => ReactNode;
+  /**
+   * Open the panel on arrival.
+   *
+   * For the tool whose whole point is a number the visitor has to choose. The
+   * compressor's target size lived behind a collapsed row below the fold,
+   * which meant most people started a job at whatever the default happened to
+   * be without ever seeing that there was a choice.
+   */
+  defaultOpen?: boolean;
+  /**
+   * Why the current settings cannot start a job, or null when they can.
+   *
+   * Shown in the panel and it disables the drop zone, so a half-typed custom
+   * size cannot quietly run at the previous one.
+   */
+  invalid?: (queue: QueueApi) => string | null;
 }
 
 export interface ToolDropZone {
@@ -64,10 +81,21 @@ export function ToolApp({
   settings,
   note,
 }: ToolAppProps) {
-  const queue = useConversionQueue(queueOptions);
+  /*
+   * The queue's own state lives in a module-level store keyed by tool, so a
+   * visit to another tool and a press of Back finds the files, the markers and
+   * the finished outputs where they were left.
+   */
+  const options = useMemo<QueueOptions>(
+    () => ({ ...queueOptions, key: queueOptions.key ?? tool.slug }),
+    [queueOptions, tool.slug],
+  );
+  const queue = useConversionQueue(options);
   const {
     jobs,
     engineState,
+    stripMetadata,
+    setStripMetadata,
     addFiles,
     addFormatToJob,
     detectSilence,
@@ -80,7 +108,22 @@ export function ToolApp({
     activeCount,
   } = queue;
 
-  const [showSettings, setShowSettings] = useState(false);
+  const [showSettings, setShowSettings] = useState(settings?.defaultOpen ?? false);
+
+  const invalid = settings?.invalid?.(queue) ?? null;
+
+  /*
+   * The metadata remover strips unconditionally - it is the whole tool - so
+   * offering a checkbox that changes nothing would only be confusing.
+   */
+  const stripsMetadataAnyway = options.formats.every(
+    (format) => format.alwaysStripsMetadata === true,
+  );
+  const metadataSummary = stripsMetadataAnyway
+    ? "metadata removed"
+    : stripMetadata
+      ? "metadata removed"
+      : "metadata kept";
 
   const handleFiles = useCallback(
     (files: File[]) => {
@@ -100,6 +143,28 @@ export function ToolApp({
     job.outputs.filter((output) => output.status === "done" && output.url),
   );
 
+  /**
+   * Saves every finished output, one click instead of one per file.
+   *
+   * A plain sequence of synthetic anchor clicks rather than a zip: no library,
+   * no second copy of every file in memory, and the browser's own downloads
+   * list is where they were going anyway. Chrome asks once for permission to
+   * save multiple files and remembers the answer; the small gap between clicks
+   * is what keeps it from treating the burst as a popup.
+   */
+  const downloadAll = useCallback(() => {
+    completedOutputs.forEach((output, index) => {
+      window.setTimeout(() => {
+        const link = document.createElement("a");
+        link.href = output.url!;
+        link.download = output.result?.fileName ?? "download";
+        document.body.append(link);
+        link.click();
+        link.remove();
+      }, index * 250);
+    });
+  }, [completedOutputs]);
+
   return (
     <main className={styles.page}>
       <header className={styles.header}>
@@ -110,9 +175,21 @@ export function ToolApp({
       <div className={styles.stack}>
         <EngineBanner state={engineState} />
 
-        <DropZone onFiles={handleFiles} compact={hasJobs} {...dropZone} />
+        <DropZone
+          onFiles={handleFiles}
+          compact={hasJobs}
+          disabled={invalid !== null}
+          {...dropZone}
+        />
 
-        {settings && (
+        {/*
+         * Every tool has a panel, because every tool has at least the metadata
+         * toggle to put in it - and a tool that stripped tags with no way to
+         * say otherwise would be as surprising as one that kept them silently.
+         * The exception is the metadata remover, which strips unconditionally
+         * and would otherwise get a disclosure that opens onto nothing.
+         */}
+        {(settings || !stripsMetadataAnyway) && (
           <div className={styles.settings}>
             <button
               type="button"
@@ -121,8 +198,10 @@ export function ToolApp({
               className={styles.settingsToggle}
             >
               <span className={styles.settingsTitle}>
-                {settings.title}
-                <span className={styles.settingsSummary}>{settings.summary(queue)}</span>
+                {settings?.title ?? "Output options"}
+                <span className={styles.settingsSummary}>
+                  {settings ? settings.summary(queue) : metadataSummary}
+                </span>
               </span>
               <ChevronDown
                 aria-hidden="true"
@@ -130,7 +209,42 @@ export function ToolApp({
                 className={`${styles.chevron} ${showSettings ? styles.chevronOpen : ""}`}
               />
             </button>
-            {showSettings && <div className={styles.settingsBody}>{settings.render(queue)}</div>}
+            {showSettings && (
+              <div className={styles.settingsBody}>
+                {settings?.render(queue)}
+                {!stripsMetadataAnyway && (
+                  <fieldset className={settingsStyles.fieldset}>
+                    <legend className={settingsStyles.legend}>Metadata</legend>
+                    <p className={settingsStyles.intro}>
+                      On by default. A clip from a phone carries the time it was taken, the model
+                      of the phone and the GPS fix of where you were standing, and none of that
+                      has any business riding along into a file you are about to send to someone.
+                    </p>
+                    <label className={styles.checkboxRow}>
+                      <input
+                        type="checkbox"
+                        checked={stripMetadata}
+                        onChange={(event) => setStripMetadata(event.target.checked)}
+                      />
+                      <span>
+                        <span className={styles.checkboxLabel}>
+                          Remove titles, dates, location and chapters from the output
+                        </span>
+                        <span className={styles.checkboxBlurb}>
+                          Turn this off to carry the source tags across, which is what you want
+                          when the title and artist of a music file are the point.
+                        </span>
+                      </span>
+                    </label>
+                  </fieldset>
+                )}
+              </div>
+            )}
+            {invalid && (
+              <p role="alert" className={styles.settingsError}>
+                {invalid}
+              </p>
+            )}
           </div>
         )}
 
@@ -157,7 +271,7 @@ export function ToolApp({
                 <FileCard
                   key={job.id}
                   job={job}
-                  formats={queueOptions.formats}
+                  formats={options.formats}
                   features={features}
                   capabilities={engineState.capabilities}
                   onCancel={cancelJob}
@@ -172,13 +286,22 @@ export function ToolApp({
             </ul>
 
             {completedOutputs.length > 1 && (
-              <p className={styles.total}>
-                {completedOutputs.length} files ready -{" "}
-                {formatBytes(
-                  completedOutputs.reduce((total, output) => total + (output.result?.bytes ?? 0), 0),
-                )}{" "}
-                total
-              </p>
+              <div className={styles.totalRow}>
+                <p className={styles.total}>
+                  {completedOutputs.length} files ready -{" "}
+                  {formatBytes(
+                    completedOutputs.reduce(
+                      (total, output) => total + (output.result?.bytes ?? 0),
+                      0,
+                    ),
+                  )}{" "}
+                  total
+                </p>
+                <Button onClick={downloadAll}>
+                  <DownloadCloud aria-hidden="true" size={14} strokeWidth={2} />
+                  Download all
+                </Button>
+              </div>
             )}
           </section>
         )}

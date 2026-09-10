@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isQuarterTurn,
   parseChannelCount,
   parseEncoders,
   parseProbeOutput,
@@ -196,6 +197,37 @@ describe("summarizeFailure", () => {
   it("returns null when there is nothing but noise", () => {
     expect(summarizeFailure(["ffmpeg version 6.0", "  configuration: --enable-gpl"])).toBeNull();
   });
+
+  it("does not surface the Emscripten runtime's own trap output", () => {
+    // What a wasm trap actually leaves in the log. "Aborted()" under an error
+    // that already explained itself reads as a second, cryptic failure.
+    const reason = summarizeFailure([
+      "/input/source.mp4: Invalid data found when processing input",
+      "Aborted()",
+    ]);
+
+    expect(reason).toBe("/input/source.mp4: Invalid data found when processing input");
+  });
+
+  it("returns null when the trap is the only thing in the log", () => {
+    expect(summarizeFailure(["Aborted(native code called abort())"])).toBeNull();
+  });
+});
+
+describe("isQuarterTurn", () => {
+  it("is true for the rotations that swap width and height", () => {
+    expect(isQuarterTurn(90)).toBe(true);
+    expect(isQuarterTurn(-90)).toBe(true);
+    expect(isQuarterTurn(270)).toBe(true);
+    expect(isQuarterTurn(-270)).toBe(true);
+  });
+
+  it("is false for upright, upside down and unknown", () => {
+    expect(isQuarterTurn(0)).toBe(false);
+    expect(isQuarterTurn(180)).toBe(false);
+    expect(isQuarterTurn(-180)).toBe(false);
+    expect(isQuarterTurn(null)).toBe(false);
+  });
 });
 
 describe("video streams", () => {
@@ -211,6 +243,7 @@ describe("video streams", () => {
       height: 1080,
       fps: 23.98,
       bitrateKbps: 4522,
+      rotationDegrees: null,
     });
     expect(bitrateKbps).toBe(4721);
   });
@@ -231,7 +264,40 @@ describe("video streams", () => {
       height: 2160,
       fps: 23.98,
       bitrateKbps: null,
+      rotationDegrees: null,
     });
+  });
+
+  it("attaches a display rotation to the stream it was printed under", () => {
+    const { video, videoStreams } = parseProbeOutput([
+      "Input #0, mov,mp4,m4a,3gp,3g2,mj2, from '/input/source.mov':",
+      "  Duration: 00:00:04.00, start: 0.000000, bitrate: 2000 kb/s",
+      "  Stream #0:0(und): Video: h264 (High), yuv420p, 1280x720, 30 fps, 30 tbr, 15360 tbn",
+      "    Metadata:",
+      "      handler_name    : VideoHandler",
+      "    Side data:",
+      "      displaymatrix: rotation of -90.00 degrees",
+      "  Stream #0:1(und): Audio: aac (LC), 48000 Hz, stereo, fltp, 128 kb/s",
+    ]);
+
+    expect(videoStreams).toHaveLength(1);
+    expect(video?.rotationDegrees).toBe(-90);
+    // The coded size is what ffmpeg printed; the rotation is what makes it a
+    // portrait clip, and describeVideo is what swaps them for display.
+    expect(video?.width).toBe(1280);
+    expect(video?.height).toBe(720);
+  });
+
+  it("does not attach a rotation to a later audio stream", () => {
+    const { video, audio } = parseProbeOutput([
+      "  Stream #0:0: Video: h264, yuv420p, 1280x720, 30 fps",
+      "  Stream #0:1: Audio: aac (LC), 48000 Hz, stereo, fltp, 128 kb/s",
+      "    Side data:",
+      "      displaymatrix: rotation of 90.00 degrees",
+    ]);
+
+    expect(video?.rotationDegrees).toBeNull();
+    expect(audio?.codec).toBe("aac");
   });
 
   it("reads Matroska's unbracketed aspect ratio line", () => {

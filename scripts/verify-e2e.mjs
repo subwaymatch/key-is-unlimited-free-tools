@@ -245,7 +245,13 @@ async function main() {
     const m4aPath = join(downloadDir, m4aDownload.suggestedFilename());
     await m4aDownload.saveAs(m4aPath);
 
-    check("stream copy lands in an .m4a container", m4aDownload.suggestedFilename() === "sample.m4a");
+    // "-original" keeps it apart from the M4A format, which for an AAC source
+    // is the same stream copy into the same container.
+    check(
+      "stream copy lands in an .m4a container under its own name",
+      m4aDownload.suggestedFilename() === "sample-original.m4a",
+      m4aDownload.suggestedFilename(),
+    );
     const m4a = ffprobeJson(m4aPath);
     const m4aAudio = m4a.streams.find((stream) => stream.codec_type === "audio");
     check("stream copy preserves the AAC codec", m4aAudio?.codec_name === "aac", `codec=${m4aAudio?.codec_name}`);
@@ -257,9 +263,19 @@ async function main() {
     log("\nCase 2 - MP4 with no audio track:");
     await page.locator('input[type="file"]').setInputFiles(fixtures.silent);
     const silentCard = page.locator("li", { hasText: "silent.mp4" }).first();
-    await silentCard.getByText("No audio track found.").waitFor({ timeout: 120_000 });
+    // The reason appears on the card and on every output row: none of them
+    // will ever run, so none of them may sit there saying "Waiting".
+    await silentCard.getByText("No audio track found.").first().waitFor({ timeout: 120_000 });
     check("explains that there is no audio to extract", true, "per-file error, queue continues");
     check("marks only that file as failed", (await silentCard.getByText("Failed").count()) >= 1);
+    check(
+      "settles every output row rather than leaving one waiting",
+      (await silentCard.getByText("Waiting", { exact: true }).count()) === 0,
+    );
+    check(
+      "offers no retry for a file that has no audio to find",
+      (await silentCard.getByRole("button", { name: /Retry/ }).count()) === 0,
+    );
 
     // ---- Case 3: MKV with 5.1 FLAC ---------------------------------------
     log("\nCase 3 - MKV with 5.1 FLAC:");
@@ -277,7 +293,11 @@ async function main() {
     ]);
     const flacPath = join(downloadDir, flacDownload.suggestedFilename());
     await flacDownload.saveAs(flacPath);
-    check("FLAC copy keeps its native container", flacDownload.suggestedFilename() === "surround.flac");
+    check(
+      "FLAC copy keeps its native container",
+      flacDownload.suggestedFilename() === "surround-original.flac",
+      flacDownload.suggestedFilename(),
+    );
     const flac = ffprobeJson(flacPath);
     const flacAudio = flac.streams.find((stream) => stream.codec_type === "audio");
     check("FLAC copy stays FLAC with 6 channels", flacAudio?.codec_name === "flac" && flacAudio?.channels === 6);

@@ -3,6 +3,8 @@
 import { CloudUpload } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { VIDEO_ACCEPT } from "@/lib/mediaTypes";
+
 import styles from "./DropZone.module.css";
 
 interface DropZoneProps {
@@ -16,11 +18,12 @@ interface DropZoneProps {
   headline?: string;
   /** Shown under the headline; what happens once a file lands. */
   subhead?: string;
+  /** Refuses files while the tool's settings cannot start a job. */
+  disabled?: boolean;
 }
 
-/** Every container ffmpeg reads that a browser may not label as video/*. */
-export const VIDEO_ACCEPT =
-  "video/*,audio/*,.mkv,.mov,.avi,.webm,.m4v,.ts,.mts,.m2ts,.flv,.wmv";
+/** How long a pointer has to rest on the zone before the core is prefetched. */
+const WARM_UP_DWELL_MS = 400;
 
 /**
  * Drag-and-drop target that also accepts drops anywhere on the page.
@@ -45,19 +48,54 @@ export function DropZone({
   inputLabel = "Choose video files",
   headline = "Drop video files here",
   subhead = "Conversion starts automatically, multi-gigabyte files supported",
+  disabled = false,
 }: DropZoneProps) {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   // dragenter/dragleave fire for every child element, so nesting is counted
   // rather than treating the first dragleave as "the pointer left".
   const dragDepth = useRef(0);
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled;
 
   const handleFiles = useCallback(
     (fileList: FileList | null) => {
-      if (!fileList || fileList.length === 0) return;
+      if (disabledRef.current || !fileList || fileList.length === 0) return;
       onFiles(Array.from(fileList));
     },
     [onFiles],
   );
+
+  /**
+   * Starts the ~31 MB core download before it is needed.
+   *
+   * Reaching for the drop zone is as good a signal as there is that a file is
+   * about to arrive, and the download is the longest part of a first
+   * conversion by some margin. Idempotent, cached after the first call, and
+   * its failures are the next real job's problem rather than a pointer's.
+   *
+   * The dwell matters: this zone is most of the page on a tool page, so a
+   * pointer merely crossing it is not a decision, and spending 31 MB of
+   * somebody's data plan on one would be rude. Focus needs no dwell - reaching
+   * the file input with the keyboard is already deliberate.
+   */
+  const start = useCallback(() => {
+    if (disabledRef.current) return;
+    void import("@/lib/engine/coreLoader")
+      .then((module) => module.loadCoreUrls())
+      .catch(() => {});
+  }, []);
+
+  const warmUpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelWarmUp = useCallback(() => {
+    if (warmUpTimer.current !== null) clearTimeout(warmUpTimer.current);
+    warmUpTimer.current = null;
+  }, []);
+  const warmUpAfterDwell = useCallback(() => {
+    cancelWarmUp();
+    warmUpTimer.current = setTimeout(start, WARM_UP_DWELL_MS);
+  }, [cancelWarmUp, start]);
+
+  useEffect(() => cancelWarmUp, [cancelWarmUp]);
 
   useEffect(() => {
     const onDragEnter = (event: DragEvent) => {
@@ -102,15 +140,19 @@ export function DropZone({
 
   return (
     <label
+      onPointerEnter={warmUpAfterDwell}
+      onPointerLeave={cancelWarmUp}
+      onFocus={start}
       className={`${styles.zone} ${compact ? styles.compact : ""} ${
         isDraggingOver ? styles.dragging : ""
-      }`}
+      } ${disabled ? styles.disabled : ""}`}
     >
       <input
         type="file"
         multiple
         aria-label={inputLabel}
         accept={accept}
+        disabled={disabled}
         className="visually-hidden"
         onChange={(event) => {
           handleFiles(event.target.files);

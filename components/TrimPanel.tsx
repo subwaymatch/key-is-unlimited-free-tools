@@ -13,6 +13,7 @@ import { isFormatAvailable } from "@/lib/engine/formats";
 import { formatTimecode, parseTrimInputs, resolveTrim, sameTrimRange } from "@/lib/engine/trim";
 import type { EngineCapabilities, OutputFormat, TrimRange } from "@/lib/engine/types";
 import { formatDuration } from "@/lib/format-utils";
+import { fileExtension } from "@/lib/mediaTypes";
 import type { ToolFeatures } from "@/lib/toolFeatures";
 import type { Job } from "@/lib/useConversionQueue";
 
@@ -76,12 +77,34 @@ export function TrimPanel({
   const problem = parsed.error ?? resolved.problem?.message ?? null;
   const trim = resolved.trim;
 
+  /*
+   * An end past the end of the file is clamped rather than refused, which is
+   * right - but the field went on showing 0:20 for a six-second video while
+   * the cut ran to 0:06, so the range on screen was not the range produced.
+   * Saying so is enough; rewriting what someone typed under their cursor is
+   * not, so the correction lands when the field is left.
+   */
+  const clampedEnd =
+    duration !== null &&
+    parsed.trim?.endSeconds != null &&
+    parsed.trim.endSeconds > duration + 0.001
+      ? duration
+      : null;
+
   const clipLength =
     trim === null
       ? duration
       : (trim.endSeconds ?? duration ?? 0) - trim.startSeconds;
 
-  const formats = catalogue.filter((format) => isFormatAvailable(format, capabilities));
+  const formats = catalogue.filter((format) => {
+    if (!isFormatAvailable(format, capabilities)) return false;
+    if (!job.probe || !format.offer) return true;
+    return format.offer(job.probe, {
+      trim,
+      fileBytes: job.file.size,
+      sourceExtension: fileExtension(job.file.name),
+    });
+  });
 
   const setFromPreview = (setter: (value: string) => void) => {
     const position = getPreviewPosition?.();
@@ -101,8 +124,28 @@ export function TrimPanel({
     setEndText(to === null || (duration !== null && to >= duration) ? "" : formatTimecode(to));
   };
 
-  // A tool that only cuts has nothing to offer for the whole file.
-  const offerFormats = !problem && (trim !== null || !features.requireTrim);
+  /*
+   * A clip-only tool will still take a short file whole.
+   *
+   * Making someone type two markers that add up to "all of it" for a
+   * four-second clip is a chore, and "Set a start or end marker" was the only
+   * thing the GIF maker had to say about a file it could have turned into a
+   * GIF on the spot.
+   */
+  const offerWhole =
+    features.requireTrim &&
+    features.wholeClipSeconds != null &&
+    duration !== null &&
+    duration > 0 &&
+    duration <= features.wholeClipSeconds;
+
+  /*
+   * Only clips are offered here. The whole file already has a row of chips on
+   * the card above ("Also convert to:"), and rendering the same buttons again
+   * under the markers gave the converter two identical rows a few pixels
+   * apart, with no way to tell which did what.
+   */
+  const offerFormats = !problem && (trim !== null || offerWhole);
 
   return (
     <div role="group" aria-label="Clip markers" className={styles.panel}>
@@ -151,6 +194,9 @@ export function TrimPanel({
             placeholder={duration !== null ? formatTimecode(duration) : "end"}
             disabled={disabled}
             onChange={(event) => setEndText(event.target.value)}
+            onBlur={() => {
+              if (clampedEnd !== null) setEndText(formatTimecode(clampedEnd));
+            }}
             className={styles.input}
           />
         </label>
@@ -208,9 +254,13 @@ export function TrimPanel({
         <p className={styles.note}>
           {trim === null
             ? features.requireTrim
-              ? "Set a start or end marker to choose the range to keep."
+              ? offerWhole
+                ? "The whole clip, or set a marker to cut it down."
+                : "Set a start or end marker to choose the range to keep."
               : "The whole file. Set a marker to clip it."
             : `Clip is ${formatDuration(clipLength)} long.`}
+          {clampedEnd !== null &&
+            ` The end is past the end of the video, so ${formatTimecode(clampedEnd)} is used.`}
         </p>
       )}
 
@@ -229,7 +279,7 @@ export function TrimPanel({
       {offerFormats && (
         <div className={styles.extract}>
           <span className={styles.extractLabel}>
-            {trim === null ? features.wholeLabel : features.clipLabel}
+            {trim === null ? "Use the whole clip:" : features.clipLabel}
           </span>
           {formats.map((format) => {
             const exists = job.outputs.some(

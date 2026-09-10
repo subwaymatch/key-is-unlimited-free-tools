@@ -107,6 +107,13 @@ export const OUTPUT_FORMATS: readonly AudioFormat[] = [
         ],
         ...target,
         mode: "copy",
+        /*
+         * "Original" of an AAC source and "M4A (AAC)" of the same source are
+         * both a stream copy into an .m4a, so without this they would be two
+         * downloads with one name - and the browser would quietly write
+         * "clip (1).m4a" beside "clip.m4a" with no way to tell them apart.
+         */
+        fileSuffix: "-original",
       };
     },
   },
@@ -133,15 +140,18 @@ export const OUTPUT_FORMATS: readonly AudioFormat[] = [
   {
     id: "mp3",
     label: "MP3",
-    blurb: "Universal compatibility, VBR ~190 kbps",
+    blurb: "Universal compatibility, VBR ~190 kbps; copied losslessly when the source is already MP3",
     lossless: false,
     requiredEncoder: "libmp3lame",
-    plan() {
+    plan(probe) {
+      // Re-encoding MP3 to MP3 throws away quality to arrive at the same
+      // format, which is never what "MP3" was asked for.
+      const canCopy = probe.audio?.codec.toLowerCase() === "mp3";
       return {
-        args: [...SELECT_AUDIO, "-c:a", "libmp3lame", "-q:a", "2"],
+        args: [...SELECT_AUDIO, ...(canCopy ? ["-c:a", "copy"] : ["-c:a", "libmp3lame", "-q:a", "2"])],
         extension: "mp3",
         mimeType: "audio/mpeg",
-        mode: "encode",
+        mode: canCopy ? "copy" : "encode",
       };
     },
   },
@@ -167,15 +177,19 @@ export const OUTPUT_FORMATS: readonly AudioFormat[] = [
      * ["-c:a", "libopus", "-b:a", "128k"] and requiredEncoder to "libopus".
      */
     label: "Opus",
-    blurb: "Small files at 128 kbps, good for speech and music",
+    blurb: "Small files at 128 kbps; copied losslessly when the source is already Opus",
     lossless: false,
     requiredEncoder: "opus",
-    plan() {
+    plan(probe) {
+      const canCopy = probe.audio?.codec.toLowerCase() === "opus";
       return {
-        args: [...SELECT_AUDIO, "-c:a", "opus", "-strict", "-2", "-b:a", "128k"],
+        args: [
+          ...SELECT_AUDIO,
+          ...(canCopy ? ["-c:a", "copy"] : ["-c:a", "opus", "-strict", "-2", "-b:a", "128k"]),
+        ],
         extension: "opus",
         mimeType: "audio/ogg",
-        mode: "encode",
+        mode: canCopy ? "copy" : "encode",
       };
     },
   },
@@ -185,12 +199,13 @@ export const OUTPUT_FORMATS: readonly AudioFormat[] = [
     blurb: "Lossless, roughly half the size of WAV",
     lossless: true,
     requiredEncoder: "flac",
-    plan() {
+    plan(probe) {
+      const canCopy = probe.audio?.codec.toLowerCase() === "flac";
       return {
-        args: [...SELECT_AUDIO, "-c:a", "flac"],
+        args: [...SELECT_AUDIO, ...(canCopy ? ["-c:a", "copy"] : ["-c:a", "flac"])],
         extension: "flac",
         mimeType: "audio/flac",
-        mode: "encode",
+        mode: canCopy ? "copy" : "encode",
       };
     },
   },
@@ -200,12 +215,13 @@ export const OUTPUT_FORMATS: readonly AudioFormat[] = [
     blurb: "Uncompressed 16-bit PCM - large files",
     lossless: true,
     requiredEncoder: "pcm_s16le",
-    plan() {
+    plan(probe) {
+      const canCopy = probe.audio?.codec.toLowerCase() === "pcm_s16le";
       return {
-        args: [...SELECT_AUDIO, "-c:a", "pcm_s16le"],
+        args: [...SELECT_AUDIO, ...(canCopy ? ["-c:a", "copy"] : ["-c:a", "pcm_s16le"])],
         extension: "wav",
         mimeType: "audio/wav",
-        mode: "encode",
+        mode: canCopy ? "copy" : "encode",
       };
     },
     blocker(probe, { trim }) {
@@ -215,6 +231,8 @@ export const OUTPUT_FORMATS: readonly AudioFormat[] = [
       return {
         message: `WAV would be about ${gib} GB`,
         hint: "ffmpeg.wasm builds its output in memory, which caps out near 1.5 GB. Choose FLAC for lossless audio at roughly half the size, or trim the range down.",
+        // The same file and the same range will overflow the heap again.
+        retryable: false,
       };
     },
   },

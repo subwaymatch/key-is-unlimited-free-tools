@@ -11,8 +11,10 @@ import { ToolApp, type ToolSettings } from "../ToolApp";
 const tool = requireTool("convert-video");
 
 const QUEUE: QueueOptions = {
+  key: "convert-video",
   formats: CONVERT_FORMATS,
   defaultFormatIds: DEFAULT_CONVERT_FORMAT_IDS,
+  formatPicker: true,
   expects: "video",
   waveform: false,
   sourcePreview: true,
@@ -23,9 +25,9 @@ const FEATURES: ToolFeatures = {
   trim: true,
   silence: false,
   requireTrim: false,
-  wholeLabel: "Convert to:",
   clipLabel: "Convert this clip to:",
-  alsoLabel: "Also convert to:",
+  alsoLabel: "Convert to:",
+  busyLabel: "Converting",
 };
 
 const SETTINGS: ToolSettings = {
@@ -58,8 +60,8 @@ export function ConvertVideoApp() {
       queue={QUEUE}
       features={FEATURES}
       settings={SETTINGS}
-      dropZone={{ subhead: "Conversion starts automatically; multi-gigabyte files supported" }}
-      note="Outputs are built in memory, so one output file caps out near 1.5 GB. Each job is sized up front and refused before it starts rather than after an hour; for anything larger, convert a range at a time, or compress it to a target size instead."
+      dropZone={{ subhead: "Conversion starts automatically; there is no upload limit" }}
+      note="No limit on the file you start from. One output file caps out near 1.5 GB, because outputs are built in memory: each job is sized up front and refused before it starts rather than after an hour, and for anything larger you can convert a range at a time or compress it to a target size instead."
     />
   );
 }

@@ -12,11 +12,15 @@ import {
   estimateEncodedBytes,
   estimateGifBytes,
   fitFilter,
+  formatMegabytes,
   gifFormat,
   isBrowserSafeH264,
+  MIN_TARGET_MEGABYTES,
   MUTE_FORMAT,
   planFor,
+  playbackWarning,
   STRIP_FORMAT,
+  targetBytesFromMegabytes,
   TRIM_FORMATS,
 } from "@/lib/engine/video";
 import type {
@@ -41,6 +45,7 @@ function probe(
         height: 1080,
         fps: 30,
         bitrateKbps: 4500,
+        rotationDegrees: null,
         ...video,
       }
     : null;
@@ -172,14 +177,31 @@ describe("the converter", () => {
     expect(plan.mode).toBe("copy");
   });
 
-  it("copies VP9 into WebM and encodes everything else", () => {
+  it("copies VP8 and VP9 into WebM rather than re-encoding them", () => {
     expect(planFor(webm, probe({ codec: "vp9" }, { codec: "opus" })).mode).toBe("copy");
+    expect(planFor(webm, probe({ codec: "vp8" }, { codec: "vorbis" })).mode).toBe("copy");
+  });
+
+  it("encodes VP8, never VP9: libvpx-vp9 traps in this core", () => {
     const encoded = planFor(webm, probe());
     expect(encoded.mode).toBe("encode");
-    expect(joined(encoded.args)).toContain("-c:v libvpx-vp9");
-    // ffmpeg's own Opus encoder; libopus traps in this core.
+    expect(joined(encoded.args)).toContain("-c:v libvpx");
+    expect(encoded.args).not.toContain("libvpx-vp9");
+    expect(webm.requiredEncoder).toBe("libvpx");
+    expect(webm.label).toContain("VP8");
+    // ffmpeg's own Opus encoder; libopus traps in this core too.
     expect(joined(encoded.args)).toContain("-c:a opus -strict -2");
     expect(encoded.args).not.toContain("libopus");
+  });
+
+  it("sizes the VP8 bitrate to the picture", () => {
+    const big = joined(planFor(webm, probe({ width: 1920, height: 1080 })).args);
+    const small = joined(planFor(webm, probe({ width: 640, height: 360 })).args);
+    const rate = (args: string) => Number(args.match(/-b:v (\d+)k/)![1]);
+    expect(rate(big)).toBeGreaterThan(rate(small) * 4);
+    // Bounded at both ends, so neither extreme is absurd.
+    expect(rate(big)).toBeLessThanOrEqual(8000);
+    expect(rate(joined(planFor(webm, probe({ width: 160, height: 120 })).args))).toBe(200);
   });
 
   it("remuxes every stream into MKV without touching it", () => {
@@ -441,6 +463,107 @@ describe("removing audio", () => {
   });
 });
 
+describe("keeping the source container", () => {
+  it("leaves a MOV a MOV rather than making it an MP4", () => {
+    // Both probe as "mov,mp4,m4a,3gp,3g2,mj2", so the extension is the only
+    // thing that can tell them apart - and turning one into the other is a
+    // second change nobody asked the mute or metadata tool to make.
+    expect(containerFor("h264", "aac", "mov").extension).toBe("mov");
+    expect(containerFor("h264", "aac", "mp4").extension).toBe("mp4");
+    expect(containerFor("h264", "aac", null).extension).toBe("mp4");
+  });
+
+  it("leaves an MKV an MKV", () => {
+    expect(containerFor("h264", "aac", "mkv").extension).toBe("mkv");
+    expect(containerFor("vp9", "opus", "webm").extension).toBe("webm");
+  });
+
+  it("moves on when the source container cannot hold the streams", () => {
+    // A WebM has no way to carry H.264 and AAC, whatever the file was called.
+    expect(containerFor("h264", "aac", "webm").extension).toBe("mp4");
+    // QuickTime carries raw PCM, which an MP4 does not.
+    expect(containerFor("prores", "pcm_s16le", "mov").extension).toBe("mov");
+  });
+
+  it("carries the source extension through the tools that copy streams", () => {
+    expect(planFor(MUTE_FORMAT, probe(), 0, "mov").extension).toBe("mov");
+    expect(planFor(STRIP_FORMAT, probe(), 0, "mkv").extension).toBe("mkv");
+    expect(planFor(find("trim-copy", TRIM_FORMATS), probe(), 0, "mov").extension).toBe("mov");
+  });
+});
+
+describe("playbackWarning", () => {
+  it("warns about video no browser will play", () => {
+    // An AVI's MPEG-4 Part 2 remuxes into a perfectly valid MP4 that Chrome
+    // and Firefox render as a black frame.
+    expect(playbackWarning("mpeg4")).toMatch(/Browsers cannot play/);
+    expect(playbackWarning("wmv3")).toMatch(/Browsers cannot play/);
+    expect(planFor(MUTE_FORMAT, probe({ codec: "mpeg4" })).warning).toMatch(/MPEG4/);
+  });
+
+  it("says nothing about codecs that do play, HEVC included", () => {
+    expect(playbackWarning("h264")).toBeUndefined();
+    expect(playbackWarning("vp9")).toBeUndefined();
+    // Safari plays HEVC; a warning that is wrong for a platform is worse than
+    // none.
+    expect(playbackWarning("hevc")).toBeUndefined();
+    expect(playbackWarning(null)).toBeUndefined();
+    expect(planFor(MUTE_FORMAT, probe()).warning).toBeUndefined();
+  });
+});
+
+describe("target sizes", () => {
+  it("never rounds a typed size up", () => {
+    // 2.5 used to become 3 MB, which fails a 2.5 MB limit.
+    expect(targetBytesFromMegabytes(2.5)).toBe(2_500_000);
+    expect(formatMegabytes(targetBytesFromMegabytes(2.5)!)).toBe("2.5");
+    expect(targetBytesFromMegabytes(2.59)).toBe(2_500_000);
+  });
+
+  it("refuses sizes that cannot start a job", () => {
+    expect(targetBytesFromMegabytes(0)).toBeNull();
+    expect(targetBytesFromMegabytes(-4)).toBeNull();
+    expect(targetBytesFromMegabytes(Number.NaN)).toBeNull();
+    expect(targetBytesFromMegabytes(MIN_TARGET_MEGABYTES / 2)).toBeNull();
+  });
+
+  it("labels whole numbers without a decimal point", () => {
+    expect(formatMegabytes(25_000_000)).toBe("25");
+    expect(formatMegabytes(8_000_000)).toBe("8");
+  });
+
+  it("carries the decimal into the label, the id and the filename", () => {
+    const format = compressFormat({ ...DEFAULT_COMPRESS_SETTINGS, targetBytes: 2_500_000 });
+    expect(format.label).toBe("2.5 MB");
+    expect(format.id).toContain("2.5mb");
+    expect(planFor(format, probe()).fileSuffix).toBe("-2.5mb");
+  });
+});
+
+describe("a file that is already small enough", () => {
+  const format = compressFormat({ ...DEFAULT_COMPRESS_SETTINGS, targetBytes: 25_000_000 });
+
+  it("is a note, not a failure, and not worth retrying", () => {
+    const blocker = format.blocker!(probe(), context(5_000_000));
+    expect(blocker?.message).toMatch(/already under 25 MB/);
+    expect(blocker?.severity).toBe("info");
+    expect(blocker?.retryable).toBe(false);
+    expect(blocker?.hint).toMatch(/smaller size/);
+  });
+
+  it("is not offered as a chip, while the smaller sizes are", () => {
+    const small = context(5_000_000);
+    expect(format.offer!(probe(), small)).toBe(false);
+    const smaller = compressFormat({ ...DEFAULT_COMPRESS_SETTINGS, targetBytes: 2_000_000 });
+    expect(smaller.offer!(probe(), small)).toBe(true);
+  });
+
+  it("offers every preset for a file larger than all of them", () => {
+    const huge = context(500_000_000);
+    expect(format.offer!(probe(), huge)).toBe(true);
+  });
+});
+
 describe("video to GIF", () => {
   const settings = { fps: 15, width: 480 };
 
@@ -448,13 +571,23 @@ describe("video to GIF", () => {
     const plan = planFor(gifFormat(settings), probe());
     const graph = plan.args[plan.args.indexOf("-filter_complex") + 1];
     expect(graph).toContain("fps=15");
-    expect(graph).toContain("scale=min(iw\\,480):-2");
+    // A box, not a width: the longest side is what 480 bounds.
+    expect(graph).toContain("scale=w=min(iw\\,480):h=min(ih\\,480)");
+    expect(graph).toContain("force_original_aspect_ratio=decrease");
     expect(graph).toContain("palettegen");
     expect(graph).toContain("paletteuse");
     expect(joined(plan.args)).toContain("-map [out]");
     expect(plan.extension).toBe("gif");
     expect(plan.kind).toBe("image");
     expect(gifFormat(settings).requiredEncoder).toBe("gif");
+  });
+
+  it("bounds the longest side, whichever way the phone was held", () => {
+    const landscape = estimateGifBytes(probe({ width: 1280, height: 720 }, {}, 10), context(), settings)!;
+    const portrait = estimateGifBytes(probe({ width: 720, height: 1280 }, {}, 10), context(), settings)!;
+    // 480x270 and 270x480: the same amount of picture either way round. The
+    // old width-only limit made the portrait clip 480x854, three times larger.
+    expect(portrait).toBe(landscape);
   });
 
   it("keeps the source width when asked to", () => {
@@ -478,6 +611,23 @@ describe("video to GIF", () => {
     expect(
       gifFormat(settings).blocker!(long, context(0, { startSeconds: 0, endSeconds: 10 })),
     ).toBeNull();
+  });
+});
+
+describe("trim output naming", () => {
+  it("gives the fast and the precise cut different filenames", () => {
+    // Both used to download as "clip-3s-5s.mp4" and overwrite each other.
+    const fast = planFor(find("trim-copy", TRIM_FORMATS), probe());
+    const precise = planFor(find("trim-precise", TRIM_FORMATS), probe());
+    expect(fast.fileSuffix).toBe("-fast");
+    expect(precise.fileSuffix).toBe("-precise");
+    expect(fast.fileSuffix).not.toBe(precise.fileSuffix);
+  });
+
+  it("asks the engine to measure what the fast cut really covers", () => {
+    expect(planFor(find("trim-copy", TRIM_FORMATS), probe()).verifyDuration).toBe(true);
+    // A re-encode lands on the frame, so there is nothing to measure.
+    expect(planFor(find("trim-precise", TRIM_FORMATS), probe()).verifyDuration).toBeUndefined();
   });
 });
 

@@ -337,6 +337,30 @@ describe("parseTrimInputs", () => {
   });
 });
 
+describe("parseTimecode rejects impossible clock fields", () => {
+  it("takes a bare number as seconds, however large", () => {
+    expect(parseTimecode("90")).toBe(90);
+    expect(parseTimecode("3600")).toBe(3600);
+  });
+
+  it("refuses a seconds field of 60 or more once there is a colon", () => {
+    // "9:99" used to parse as 10:39 and cut somewhere nobody asked for.
+    expect(parseTimecode("9:99")).toBeNull();
+    expect(parseTimecode("0:60")).toBeNull();
+    expect(parseTimecode("1:02:75")).toBeNull();
+  });
+
+  it("refuses a minutes field of 60 or more in an hours timecode", () => {
+    expect(parseTimecode("1:75:00")).toBeNull();
+  });
+
+  it("still takes the times people actually type", () => {
+    expect(parseTimecode("1:30")).toBe(90);
+    expect(parseTimecode("0:59.5")).toBe(59.5);
+    expect(parseTimecode("1:02:03.5")).toBe(3723.5);
+  });
+});
+
 describe("sameTrimRange", () => {
   it("treats null as the whole file", () => {
     expect(sameTrimRange(null, null)).toBe(true);
