@@ -75,6 +75,11 @@ function startServer() {
     if (existsSync(filePath) && statSync(filePath).isDirectory()) {
       filePath = join(filePath, "index.html");
     }
+    // A static export writes "/extract-audio" as "extract-audio.html". Without
+    // this the route fell through to the catch-all below and every tool page
+    // silently served the index instead - which is what made this script wait
+    // half a minute for a control that was never going to be on the page.
+    if (!existsSync(filePath) && existsSync(`${filePath}.html`)) filePath = `${filePath}.html`;
     if (!existsSync(filePath)) filePath = join(OUT, "index.html");
     response.writeHead(200, {
       "Content-Type": MIME[extname(filePath)] ?? "application/octet-stream",
@@ -120,7 +125,9 @@ async function main() {
     // Only ask for the stream copy: the point is reading a huge input, not
     // spending ten minutes encoding MP3 in WebAssembly.
     await page.getByRole("button", { name: /Output formats/ }).click();
-    await page.getByLabel(/MP3/).uncheck();
+    // Base UI renders the checkbox and a hidden input under one label, so the
+    // label matches twice; take the role, as the other two scripts do.
+    await page.getByRole("checkbox", { name: /MP3/ }).uncheck();
 
     console.log("Dropping the file...");
     const startedAt = Date.now();
