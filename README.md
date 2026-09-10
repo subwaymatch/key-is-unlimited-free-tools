@@ -1,16 +1,32 @@
-# Extract Audio from Video
+# key.is: free browser tools with no file size limit
 
-Pull the audio track out of a video entirely in the browser. Drop one or more files, conversion
-starts automatically, and the results can be played inline or downloaded as M4A, MP3, WAV, FLAC,
-Opus, or a lossless stream copy of the original track. Outputs can be the whole track or a clip of
-it - set markers by hand, or let the app find and cut the silence at either end.
+A site of file tools that run entirely in the browser through ffmpeg compiled to WebAssembly.
+Nothing is uploaded, so there is no server to charge for, throttle, or cap a file, and **videos
+larger than the usual ~2 GB WebAssembly ceiling work** - a 3 GiB file has been verified end to end
+with a peak browser heap of 37 MiB.
 
-Nothing is uploaded. Decoding happens locally with ffmpeg compiled to WebAssembly, which also means
-**videos larger than the usual ~2 GB WebAssembly ceiling work** - a 3 GiB file has been verified
-end to end with a peak browser heap of 37 MiB.
+The live tools, each on its own route:
 
-The research this implementation is based on is in
-[`agent-outputs/`](agent-outputs/audio-extraction-research-and-implementation-plan.md).
+| Route | What it does | How |
+| --- | --- | --- |
+| `/extract-audio` | Pull the audio out of a video as M4A, MP3, WAV, FLAC, Opus or a stream copy, whole or clipped | The original tool; see [Stream copy vs re-encode](#stream-copy-vs-re-encode) and [Trimming](#trimming-and-clipping) |
+| `/convert-video` | Turn MOV, MKV, AVI, WebM or anything else into an MP4 that plays anywhere (or WebM, or an MKV remux) | Copies an H.264 track and an AAC track when the source already has them; encodes only what does not fit |
+| `/compress-video` | Shrink a video to a target size: 8 MB, 25 MB, 100 MB or any number | Bitrate computed from the probed length, two-pass H.264, automatic downscaling when the bitrate cannot fill the frame |
+| `/trim-video` | Cut a range out of a video | A fast cut copies the streams and lands on the nearest keyframe; a precise cut re-encodes to the frame |
+| `/video-to-gif` | Turn a range into a looping GIF | `palettegen` and `paletteuse` in one filter graph, at a chosen frame rate and width |
+| `/remove-audio` | Mute a video | `-an` with the video stream copied |
+| `/remove-metadata` | Strip tags, dates, location, chapters and data tracks from a video or audio file | `-map_metadata -1` with every stream copied |
+
+Every tool is one configuration of the same machinery: a catalogue of formats in `lib/engine/`,
+a page shell in `components/ToolApp.tsx`, and an entry in the registry in `lib/tools.ts` that
+puts it on the index, in the header and footer, in the related-tools block and in the sitemap.
+Adding a tool is a registry entry, a catalogue and a page.
+
+The research behind the site is in [`agent-outputs/`](agent-outputs/): the
+[audio extraction plan](agent-outputs/audio-extraction-research-and-implementation-plan.md) for the
+engine, and the
+[tool catalogue and build order](agent-outputs/browser-tool-catalogue-and-build-order.md) for
+which tools come next and why.
 
 ## Quick start
 
@@ -25,7 +41,7 @@ worker into `public/ffmpeg/<version>/` and checks that the versions and core che
 [The class worker](#the-class-worker) below).
 
 ```bash
-npm test             # unit tests: parsers, format catalogue, core loader, conversion queue
+npm test             # unit tests: parsers, format catalogues, core loader, conversion queue
 npm run typecheck
 npm run lint
 npm run check:characters  # ASCII-punctuation policy, see CONTRIBUTING.md
@@ -70,16 +86,23 @@ It builds a >2 GiB fixture, drives Chromium through a real conversion, checks th
 ## Architecture
 
 ```
-components/          UI: drop zone, queue, per-file cards, format + trim pickers
+app/<slug>/page.tsx  one route per tool, metadata from the registry
+lib/tools.ts         the registry: index, header, footer, related tools and sitemap derive from it
+components/
+  ToolApp.tsx        the page every tool is built from: banner, drop zone, settings, queue, cards
+  tools/*.tsx        one small file per tool: its catalogue, features and settings panel
+  FileCard.tsx       a file in the queue: outputs, progress, preview, clip panel
   *.module.css       plain CSS modules; no utility-class framework
-lib/useConversionQueue.ts   sequential job runner, progress + cancellation
+lib/useConversionQueue.ts   sequential job runner, progress + cancellation, per-tool options
+lib/toolFeatures.ts  what a tool's cards offer: clip panel, silence detection, whole-file chips
 lib/engine/
-  types.ts           AudioExtractor contract (engine-agnostic)
-  ffmpegEngine.ts    ffmpeg.wasm implementation - mount, probe, extract, scan
+  types.ts           the engine contract, and the OutputFormat shape every tool's catalogue uses
+  ffmpegEngine.ts    ffmpeg.wasm implementation - mount, probe, run a plan (one pass or two), scan
   coreLoader.ts      fetches the ~31 MB core with byte-level progress; verifies its checksum
-  formats.ts         output catalogue; decides stream-copy vs re-encode
+  formats.ts         the audio catalogue; decides stream-copy vs re-encode
+  video.ts           the video catalogues: convert, compress, trim, GIF, mute, strip metadata
   trim.ts            pure trim logic - ranges, timecodes, silence parsing
-  probe.ts           pure parsers for ffmpeg's stderr
+  probe.ts           pure parsers for ffmpeg's stderr, audio and video streams alike
   constants.ts       pinned versions, checksums and asset URLs
 ```
 
@@ -87,9 +110,58 @@ Files convert **one at a time**. There is a single ffmpeg worker with a single h
 would multiply peak memory without making anything faster - the work is I/O- and codec-bound, not
 parallel.
 
-The UI talks only to the `AudioExtractor` interface. ffmpeg.wasm has been in caretaker mode since
-early 2025, so if it needs replacing (or a WebCodecs engine is wanted for speed), that is a
+The UI talks only to the engine interface in `types.ts`. ffmpeg.wasm has been in caretaker mode
+since early 2025, so if it needs replacing (or a WebCodecs engine is wanted for speed), that is a
 contained change behind the interface rather than a rewrite.
+
+### One queue, many tools
+
+An output is a format and a range, and a format is an `OutputFormat`: a label, a `plan()` that
+turns the probe into ffmpeg arguments, and an optional `blocker()` that refuses a job before it
+starts. The audio formats, the video containers, "the same file without its audio" and "a GIF of
+this range at 15 fps" are all instances of that one shape, which is why one queue and one card
+serve every tool.
+
+A tool hands the queue its catalogue, what a new file should get from it, which stream the file
+must have (audio, video, or either), and whether to open a file that has nothing queued yet - the
+trimmer and the GIF maker read the file on arrival so the length, a preview and the waveform are
+there to choose a range from, and produce nothing until one is chosen. Where settings shape the
+plan, the tool bakes them into the format object (and its id) when the output is queued, so a file
+queued at 25 MB stays a 25 MB job however the panel changes afterwards.
+
+A plan may carry analysis passes. The compressor's first pass writes x264's statistics to the
+core's filesystem and its second reads them; the engine adds the pass log location itself,
+reports both passes on one progress bar, and removes the log afterwards, since it shares the heap
+with the next job's output.
+
+### The video tools, and the output ceiling
+
+Input is mounted and never copied, but output is built in the core's heap (section 6 of the
+[catalogue](agent-outputs/browser-tool-catalogue-and-build-order.md)), so one output file caps
+out near 1.5 GB. Every video format guards for that up front rather than failing after an hour of
+encoding: a stream copy is sized from the file, scaled to the range being kept; an encode from a
+bits-per-pixel estimate of the frame, deliberately on the high side; a GIF from its scaled frame,
+frame rate and length. A refusal names the size and the way out - trim a range, or compress to a
+target size, which is the framing that sidesteps the ceiling by construction.
+
+The converter copies what fits. An H.264 track in 8-bit 4:2:0 and an AAC track go into the MP4 as
+they are, which turns a MOV, MKV or TS that only needed repackaging into a few-second job; 10-bit
+H.264, HEVC, VP9, ProRes and the rest are encoded with `libx264 -preset veryfast`, since the
+encoder runs single-threaded in WebAssembly and `medium` is roughly two and a half times slower for
+a few percent smaller output. WebM copies VP8 and VP9 and otherwise encodes VP9, slowly; MKV
+repackages every stream untouched.
+
+The compressor turns a byte budget and the probed length into a bitrate, gives audio a slice that
+shrinks as the budget does (128 kbps down to 48), and refuses a target that would leave the
+picture under 50 kbps. Auto resolution picks the tallest frame the bitrate can keep clean, measured
+by the long side so a portrait clip is boxed the same way as a landscape one, and never enlarges.
+Two passes land within a couple of percent of the bitrate; one pass is twice as quick and leaves a
+wider margin.
+
+The trimmer offers two cuts because they trade the two things people care about: a stream copy is
+instant and lossless but can only start on a keyframe, so it lands up to a few seconds before the
+marker; a re-encode lands on the frame and encodes the audio too, since a copied audio track would
+keep the packets between the keyframe and the marker and drift out of sync.
 
 ### Stream copy vs re-encode
 
@@ -304,19 +376,30 @@ The `dist/esm` build has a real default export and must be used.
 ## Verification
 
 ```bash
-npm test                                                    # 120 unit tests
+npm test                                                    # unit tests, plus the plans against a local ffmpeg when there is one
 NEXT_PUBLIC_FFMPEG_CORE_BASE_URL=/core npm run build
-node scripts/verify-e2e.mjs                                 # 41 browser checks
+node scripts/verify-e2e.mjs                                 # the audio extractor in a browser
+node scripts/verify-video-tools.mjs                         # the six video tools in a browser
 node scripts/verify-large-file.mjs                          # >2 GiB input
 ```
 
 The unit tests include the conversion queue itself, driven through a fake engine behind the
-`AudioExtractor` interface, so every cancel, retry and re-queue transition is pinned without ffmpeg
-in the loop. The browser scripts need ffmpeg and ffprobe on `PATH`, plus a Chromium: one Playwright
-can find on its own (`npx playwright install chromium`), or any Chrome/Chromium binary named in
+engine interface, so every cancel, retry and re-queue transition is pinned without ffmpeg in the
+loop, and every format's argument strings. `tests/plans.integration.test.ts` then runs each video
+plan through whatever ffmpeg is on `PATH` and checks the result with ffprobe, so a filter that
+does not parse fails in seconds rather than in a browser; it is skipped where ffmpeg is absent.
+The browser scripts need ffmpeg and ffprobe on `PATH`, plus a Chromium: one Playwright can find
+on its own (`npx playwright install chromium`), or any Chrome/Chromium binary named in
 `CHROMIUM_PATH`.
 
-`verify-e2e.mjs` drives a real Chromium through seven cases - an MP4 with AAC, a video with no
+`verify-video-tools.mjs` drives Chromium and the pinned core through every video tool: an MP4
+converted by stream copy and an AVI converted by encoding, a remux to MKV, an audio file refused
+by a video tool; a 19 MB file compressed to under 8 MB in two passes and a file already under the
+target refused up front; a video muted; a tagged MP4 and a tagged MP3 stripped; a fast cut and a
+precise cut of the same range; and a two-second GIF at 15 fps and 480 px. Every download is
+checked with `ffprobe`.
+
+`verify-e2e.mjs` drives a real Chromium through the audio extractor's seven cases - an MP4 with AAC, a video with no
 audio track, an MKV with 5.1 FLAC, a hand-set 1s-3s clip, an 8s file padded with two seconds of
 silence at each end, an MP3 cancelled mid-conversion, and that same MP3 retried - and validates
 every downloaded file with `ffprobe`. The clip comes back 2.04s long and automatic trimming turns
@@ -331,13 +414,21 @@ calling large-file support universal.
 
 ## Known limitations
 
-- Only the first audio track is extracted; files with several are labelled but not selectable.
+- Only the first audio track is used; files with several are labelled but not selectable. The
+  MKV remux in the converter is the one exception and keeps them all.
 - Silence is only removed from the beginning and end. Cutting the pauses in the middle would need a
   filter graph and would re-time what is left, so it is deliberately out of scope.
-- Markers are typed rather than dragged on a waveform. Drawing one would mean decoding the audio to
-  PCM up front - a second full pass, on top of the extraction itself.
-- WAV output is capped near 1.5 GB by the engine's in-memory output buffer (~2.9 hours of 48 kHz
-  stereo). FLAC is suggested instead.
+- Every output is capped near 1.5 GB by the engine's in-memory output buffer: WAV at about 2.9
+  hours of 48 kHz stereo, and any video whose stream copy or encode would exceed it. Each format
+  says so before starting and suggests a range or a target size; writing larger outputs in
+  fragments to the File System Access API is the plan in section 6 of the catalogue and is not
+  built yet.
+- Video encoding runs on one core. Expect real time or slower for 1080p H.264, twice that with two
+  passes, and much slower for VP9. The multithreaded core would need cross-origin isolation, which
+  is a decision the catalogue asks to be made deliberately.
+- The source preview on the trimmer and GIF maker only appears for containers the browser itself
+  can play (MP4, WebM, MOV); an MKV or AVI is trimmed by timecode and, on the trimmer, by the
+  waveform.
 - Cancelling terminates the ffmpeg worker, since ffmpeg blocks its worker while running and cannot
   be interrupted cooperatively. See [Cancelling one format](#cancelling-one-format) for why that is
   survivable. The engine restarts on the next job; the core is already cached, so this costs a

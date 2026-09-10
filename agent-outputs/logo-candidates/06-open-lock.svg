@@ -1,0 +1,5 @@
+<!-- Concept: open padlock with the shackle lifted clear of the body, a hint at "no limits" -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <path fill="none" stroke="#0a0a0a" stroke-width="6" stroke-linecap="round" d="M19 32V22a13 13 0 0 1 25-5"/>
+  <rect fill="#0a0a0a" x="10" y="32" width="44" height="28" rx="6"/>
+</svg>

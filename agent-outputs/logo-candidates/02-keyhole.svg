@@ -1,0 +1,4 @@
+<!-- Concept: keyhole cut out of a rounded square tile -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <path fill="#0a0a0a" fill-rule="evenodd" d="M18 4h28a14 14 0 0 1 14 14v28a14 14 0 0 1-14 14H18A14 14 0 0 1 4 46V18A14 14 0 0 1 18 4zM26 34a10 10 0 1 1 12 0l3 14H23z"/>
+</svg>

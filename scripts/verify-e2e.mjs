@@ -115,6 +115,10 @@ function startServer() {
     if (existsSync(filePath) && statSync(filePath).isDirectory()) {
       filePath = join(filePath, "index.html");
     }
+    // The export writes /extract-audio as extract-audio.html.
+    if (!existsSync(filePath) && existsSync(`${filePath}.html`)) {
+      filePath = `${filePath}.html`;
+    }
     if (!existsSync(filePath)) {
       filePath = join(OUT, "index.html");
     }
@@ -175,7 +179,8 @@ async function main() {
   });
 
   try {
-    await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "networkidle" });
+    // The tool lives on its own route; the root is the index of every tool.
+    await page.goto(`http://127.0.0.1:${PORT}/extract-audio`, { waitUntil: "networkidle" });
     check("page renders the drop zone", await page.getByText("Drop video files here").isVisible());
 
     // The whole dashed box opens the picker, not just the button inside it.
@@ -279,7 +284,7 @@ async function main() {
 
     // ---- Case 4: clipping a range with the per-file markers ---------------
     log("\nCase 4 - clipping 1:00-3:00 of the 6s MP4:");
-    await card.getByRole("button", { name: "Trim or clip a range" }).click();
+    // The clip panel is always open on a probed card; there is nothing to expand.
     const markers = card.getByRole("group", { name: "Clip markers" });
     await markers.getByLabel("Start", { exact: true }).fill("1");
     await markers.getByLabel("End", { exact: true }).fill("3");
@@ -319,7 +324,7 @@ async function main() {
     // ---- Case 5: automatic silence trimming -------------------------------
     log("\nCase 5 - 8s MP4 padded with 2s of silence at each end:");
     await page.getByRole("button", { name: /Output formats/ }).click();
-    await page.getByLabel(/Trim silence/).check();
+    await page.getByRole("radio", { name: /Trim silence/ }).click();
 
     await page.locator('input[type="file"]').setInputFiles(fixtures.padded);
     const paddedCard = page.locator("li", { hasText: "padded.mp4" }).first();
@@ -356,8 +361,8 @@ async function main() {
     // ---- Case 6: cancelling one format, leaving the others alone ----------
     log("\nCase 6 - cancelling MP3 mid-conversion on a 5min MP4:");
     await page.getByRole("button", { name: /Output formats/ }).click();
-    await page.getByLabel(/Full audio/).check();
-    await page.getByLabel(/M4A \(AAC\)/).check();
+    await page.getByRole("radio", { name: /Full audio/ }).click();
+    await page.getByRole("checkbox", { name: /M4A \(AAC\)/ }).click();
     await page.locator('input[type="file"]').setInputFiles(fixtures.long);
 
     const longCard = page.locator("li", { hasText: "long.mp4" }).first();
@@ -430,7 +435,8 @@ async function main() {
 
     // ---- Engine-level assertions -----------------------------------------
     log("\nEngine:");
-    const footer = await page.locator("footer").innerText();
+    // The tool's own footer, not the site footer below it.
+    const footer = await page.locator("main footer").innerText();
     check("no uncaught page errors", pageErrors.length === 0, pageErrors.slice(0, 2).join(" | "));
     check(
       "footer reports the pinned versions",

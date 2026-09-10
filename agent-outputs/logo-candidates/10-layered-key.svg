@@ -1,0 +1,11 @@
+<!-- Concept: the geometric key as a stack of three layers, lighter towards the back -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <path id="key" d="M4 32a13 13 0 1 1 26 0a13 13 0 1 1-26 0zM11 32a6 6 0 1 0 12 0a6 6 0 1 0-12 0zM27 29h33v16h-6v-10h-4v7h-5v-7h-18z"/>
+  </defs>
+  <g transform="translate(0 7) scale(0.9)">
+    <use href="#key" x="8" y="-8" fill="#d4d4d4"/>
+    <use href="#key" x="4" y="-4" fill="#a3a3a3"/>
+    <use href="#key" fill="#0a0a0a"/>
+  </g>
+</svg>

@@ -11,6 +11,8 @@
  * agent-outputs/browser-tool-catalogue-and-build-order.md.
  */
 
+import type { Metadata } from "next";
+
 export type ToolCategory = "video" | "audio" | "subtitles" | "images" | "documents" | "data";
 
 /*
@@ -19,7 +21,17 @@ export type ToolCategory = "video" | "audio" | "subtitles" | "images" | "documen
  * Kept as plain strings so this module stays data only: app/sitemap.ts imports
  * it, and a sitemap has no business pulling React components into its graph.
  */
-export type ToolIconName = "audio" | "compress" | "convert";
+export type ToolIconName =
+  | "audio"
+  | "compress"
+  | "convert"
+  | "trim"
+  | "gif"
+  | "mute"
+  | "clean"
+  | "speed"
+  | "merge"
+  | "subtitles";
 
 export interface ToolMeta {
   /** URL segment. Verb-object, lowercase, hyphenated, and permanent once shipped. */
@@ -74,25 +86,102 @@ export const TOOLS: readonly ToolMeta[] = [
     status: "live",
   },
   {
-    slug: "compress-video",
-    name: "Compress video",
-    tagline: "Shrink a video to a target size for email, chat or upload.",
-    description:
-      "Compress a video to a size you choose, entirely in your browser. Nothing is uploaded, so there is no cap on the file you start from.",
-    category: "video",
-    icon: "compress",
-    accepts: "Video files",
-    status: "planned",
-  },
-  {
     slug: "convert-video",
     name: "Convert video",
     tagline: "Turn MOV, MKV, AVI or WebM into an MP4 that plays anywhere.",
     description:
-      "Convert a video to a format that plays anywhere, entirely in your browser. Nothing is uploaded, whatever the file size.",
+      "Convert a video to an MP4, WebM or MKV that plays anywhere, entirely in your browser. Streams that already fit are copied rather than re-encoded, and nothing is uploaded, whatever the file size.",
     category: "video",
     icon: "convert",
     accepts: "Video files",
+    status: "live",
+  },
+  {
+    slug: "compress-video",
+    name: "Compress video",
+    tagline: "Shrink a video to a target size for email, chat or upload.",
+    description:
+      "Compress a video to a size you choose - 8 MB, 25 MB, 100 MB or your own number - entirely in your browser. Nothing is uploaded, so there is no cap on the file you start from.",
+    category: "video",
+    icon: "compress",
+    accepts: "Video files",
+    status: "live",
+  },
+  {
+    slug: "trim-video",
+    name: "Trim video",
+    tagline: "Cut a range out of a video, instantly or frame-accurately.",
+    description:
+      "Cut a range out of a video entirely in your browser: an instant lossless cut at the nearest keyframe, or a frame-accurate one that re-encodes. Nothing is uploaded, however large the file.",
+    category: "video",
+    icon: "trim",
+    accepts: "Video files",
+    status: "live",
+  },
+  {
+    slug: "video-to-gif",
+    name: "Video to GIF",
+    tagline: "Turn a clip into a looping GIF with a proper palette.",
+    description:
+      "Turn part of a video into a looping GIF entirely in your browser, with a palette generated from the clip itself. Choose the frame rate and width; nothing is uploaded.",
+    category: "video",
+    icon: "gif",
+    accepts: "Video files",
+    status: "live",
+  },
+  {
+    slug: "remove-audio",
+    name: "Remove audio from video",
+    tagline: "Mute a video by dropping its audio track, without re-encoding.",
+    description:
+      "Remove the audio track from a video entirely in your browser. The video stream is copied as it is, so it takes seconds and loses nothing, whatever the file size.",
+    category: "video",
+    icon: "mute",
+    accepts: "Video files",
+    status: "live",
+  },
+  {
+    slug: "remove-metadata",
+    name: "Remove metadata",
+    tagline: "Strip titles, dates, location and other tags from a video or audio file.",
+    description:
+      "Strip the metadata from a video or audio file entirely in your browser: titles, tags, dates, location, chapters and data tracks, with the streams copied untouched. Nothing is uploaded.",
+    category: "video",
+    icon: "clean",
+    accepts: "Video and audio files",
+    status: "live",
+  },
+  {
+    slug: "change-speed",
+    name: "Change video speed",
+    tagline: "Speed a video up or slow it down, audio pitch-corrected.",
+    description:
+      "Speed a video up or slow it down entirely in your browser, with the audio kept in step and pitch-corrected. Nothing is uploaded.",
+    category: "video",
+    icon: "speed",
+    accepts: "Video files",
+    status: "planned",
+  },
+  {
+    slug: "merge-videos",
+    name: "Merge videos",
+    tagline: "Join several clips into one file, without re-encoding when they match.",
+    description:
+      "Join several videos into one entirely in your browser, copying the streams when the clips match and re-encoding only when they do not. Nothing is uploaded.",
+    category: "video",
+    icon: "merge",
+    accepts: "Video files",
+    status: "planned",
+  },
+  {
+    slug: "convert-subtitles",
+    name: "Convert subtitles",
+    tagline: "Turn SRT, VTT and ASS files into each other, and fix their timing.",
+    description:
+      "Convert subtitle files between SRT, VTT and ASS entirely in your browser, and shift or stretch their timing. Plain text in, plain text out; nothing is uploaded.",
+    category: "subtitles",
+    icon: "subtitles",
+    accepts: "Subtitle files",
     status: "planned",
   },
 ];
@@ -148,4 +237,20 @@ export function relatedTools(slug: string, limit = 6): ToolMeta[] {
 
 export function toolPath(tool: ToolMeta): string {
   return `/${tool.slug}`;
+}
+
+/**
+ * The page metadata for a tool, from its registry entry.
+ *
+ * `title` is bare because the root layout wraps it in the site template, so a
+ * page stays responsible for naming itself and nothing repeats the site name
+ * by hand.
+ */
+export function toolMetadata(slug: string): Metadata {
+  const tool = requireTool(slug);
+  return {
+    title: tool.name,
+    description: tool.description,
+    alternates: { canonical: toolPath(tool) },
+  };
 }

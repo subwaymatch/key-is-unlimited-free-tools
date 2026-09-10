@@ -62,11 +62,49 @@ export function describeAudio(audio: {
   return parts.join(", ");
 }
 
+/** Compact description of a video stream, e.g. "H264 1920x1080, 30 fps". */
+export function describeVideo(video: {
+  codec: string;
+  width: number | null;
+  height: number | null;
+  fps: number | null;
+} | null): string {
+  if (!video) return "No video";
+  const parts = [video.codec.toUpperCase()];
+  if (video.width && video.height) parts[0] += ` ${video.width}x${video.height}`;
+  if (video.fps) parts.push(`${Number.isInteger(video.fps) ? video.fps : video.fps.toFixed(2)} fps`);
+  return parts.join(", ");
+}
+
 /** Media types the <audio> element can be expected to play. */
 const PLAYABLE_EXTENSIONS = new Set(["m4a", "mp3", "wav", "opus", "ogg", "flac", "mp2", "aac"]);
 
+/** Containers the <video> element can be expected to play, given common codecs. */
+const PLAYABLE_VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "webm", "mov"]);
+
 export function isLikelyPlayable(extension: string): boolean {
   return PLAYABLE_EXTENSIONS.has(extension.toLowerCase());
+}
+
+export function isLikelyPlayableVideo(extension: string): boolean {
+  return PLAYABLE_VIDEO_EXTENSIONS.has(extension.toLowerCase());
+}
+
+/**
+ * Whether the browser will play this file straight from disk, for the preview
+ * a tool shows before it has produced anything.
+ *
+ * `canPlayType` is the browser's own word on the container; the codecs inside
+ * are unknown until the probe, so "maybe" is taken as yes and the element's
+ * own error handling covers the rest.
+ */
+export function canPreviewSource(file: File): boolean {
+  if (typeof document === "undefined" || !file.type.startsWith("video/")) return false;
+  try {
+    return document.createElement("video").canPlayType(file.type) !== "";
+  } catch {
+    return false;
+  }
 }
 
 /** "0:03 -> 3:12, 3:09 long", for labelling a clipped output. */

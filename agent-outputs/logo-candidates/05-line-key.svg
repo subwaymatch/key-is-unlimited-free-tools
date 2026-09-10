@@ -1,0 +1,7 @@
+<!-- Concept: line-style key at 45 degrees, round caps, 3 px stroke on a 64 px grid -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <g fill="none" stroke="#0a0a0a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="19" cy="42" r="8"/>
+    <path d="M25 36L47 14M47 14L53 20M41 20L45 24"/>
+  </g>
+</svg>

@@ -15,6 +15,7 @@ import type {
   ExtractOptions,
   ExtractOutput,
   ExtractProgress,
+  OutputFormat,
   PosterFrame,
   ProbeResult,
   SilenceScanOptions,
@@ -53,8 +54,19 @@ const fake = vi.hoisted(() => {
     return { promise, resolve, reject };
   }
 
+  const VIDEO = {
+    codec: "h264",
+    profile: "High",
+    pixelFormat: "yuv420p",
+    width: 1280,
+    height: 720,
+    fps: 30,
+    bitrateKbps: 2500,
+  };
+
   const PROBE: ProbeResult = {
     durationSeconds: 120,
+    bitrateKbps: 2700,
     audioStreams: [],
     audio: {
       codec: "aac",
@@ -64,6 +76,8 @@ const fake = vi.hoisted(() => {
       channelLayout: "stereo",
       bitrateKbps: 192,
     },
+    videoStreams: [VIDEO],
+    video: VIDEO,
     hasVideo: true,
     formatName: "mov,mp4,m4a,3gp,3g2,mj2",
     log: [],
@@ -104,8 +118,8 @@ const fake = vi.hoisted(() => {
       });
     }
 
-    extract(formatId: string, options?: ExtractOptions): Promise<ExtractOutput> {
-      return this.#record("extract", formatId, options);
+    extract(format: OutputFormat, options?: ExtractOptions): Promise<ExtractOutput> {
+      return this.#record("extract", format.id, options);
     }
 
     /** Rejects when `posterFails` is set, to prove a bad frame is survivable. */
@@ -213,6 +227,7 @@ function output(call: PendingCall): ExtractOutput {
     bytes: 8,
     elapsedMs: 5,
     mode: call.formatId === "original" ? "copy" : "encode",
+    kind: "audio",
     trim,
   };
 }

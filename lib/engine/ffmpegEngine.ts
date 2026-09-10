@@ -24,12 +24,7 @@ import type { FFmpeg, LogEvent, ProgressEvent as FFmpegProgressEvent } from "@ff
 
 import { getClassWorkerUrl } from "./constants";
 import { loadCoreUrls } from "./coreLoader";
-import {
-  findFormatBlocker,
-  getFormat,
-  SELECT_AUDIO,
-  type OutputFormatId,
-} from "./formats";
+import { SELECT_AUDIO } from "./formats";
 import { parseEncoders, parseProbeOutput, summarizeFailure } from "./probe";
 import {
   DEFAULT_SILENCE_OPTIONS,
@@ -52,6 +47,9 @@ import {
   type ExtractOutput,
   type ExtractProgress,
   type ExtractSession,
+  type MediaExpectation,
+  type OpenSessionOptions,
+  type OutputFormat,
   type PosterFrame,
   type ProbeResult,
   type SilenceScanOptions,
@@ -61,6 +59,16 @@ import {
 
 /** Where the input file is mounted inside the core's filesystem. */
 const MOUNT_POINT = "/input";
+
+/**
+ * Where a two-pass encode keeps its first-pass statistics.
+ *
+ * ffmpeg writes `<prefix>-0.log` and, for x264, `<prefix>-0.log.mbtree` into
+ * MEMFS. They are removed after the final pass, whichever way it ended, since
+ * they share the heap with the next job's output.
+ */
+const PASS_LOG_PREFIX = "twopass";
+const PASS_LOG_FILES = [`${PASS_LOG_PREFIX}-0.log`, `${PASS_LOG_PREFIX}-0.log.mbtree`];
 
 /**
  * Thumbnail width in pixels. Twice the widest the card draws it, so the frame
@@ -331,7 +339,7 @@ export class FFmpegEngine implements AudioExtractor {
     };
   }
 
-  async openSession(file: File): Promise<ExtractSession> {
+  async openSession(file: File, options?: OpenSessionOptions): Promise<ExtractSession> {
     const capabilities = await this.load();
     if (this.#busy) {
       throw new ExtractionError("The engine is already processing another file.");
@@ -371,7 +379,7 @@ export class FFmpegEngine implements AudioExtractor {
     const inputPath = `${MOUNT_POINT}/${mountName}`;
 
     try {
-      const probe = await this.#probe(ffmpeg, inputPath);
+      const probe = await this.#probe(ffmpeg, inputPath, options?.expects ?? "audio");
       return new FFmpegSession(this, ffmpeg, file, inputPath, probe);
     } catch (error) {
       await this.#safeUnmount(ffmpeg);
@@ -434,7 +442,11 @@ export class FFmpegEngine implements AudioExtractor {
     }
   }
 
-  async #probe(ffmpeg: FFmpeg, inputPath: string): Promise<ProbeResult> {
+  async #probe(
+    ffmpeg: FFmpeg,
+    inputPath: string,
+    expects: MediaExpectation,
+  ): Promise<ProbeResult> {
     const log = this.#capture();
     // No output file is given, so ffmpeg prints the stream table and exits
     // non-zero. The exit code carries no information here; the log does.
@@ -443,17 +455,35 @@ export class FFmpegEngine implements AudioExtractor {
 
     const probe = parseProbeOutput(log.lines);
 
-    if (!probe.audio) {
+    const satisfied =
+      expects === "audio"
+        ? probe.audio !== null
+        : expects === "video"
+          ? probe.hasVideo
+          : probe.audio !== null || probe.hasVideo;
+
+    if (!satisfied) {
       const reason = summarizeFailure(log.lines);
       const unreadable =
+        probe.formatName === null ||
         /Invalid data|No such file|could not find codec|moov atom not found|Unknown format/i.test(
           reason ?? "",
         );
+      if (unreadable) {
+        throw new ExtractionError(
+          "This file could not be read as a media file.",
+          reason ?? "ffmpeg could not parse the container.",
+        );
+      }
+      if (expects === "video") {
+        throw new ExtractionError(
+          "No video track found.",
+          "This file has no video stream to work on. It may be audio only.",
+        );
+      }
       throw new ExtractionError(
-        unreadable ? "This file could not be read as a media file." : "No audio track found.",
-        unreadable
-          ? (reason ?? "ffmpeg could not parse the container.")
-          : "The video has no audio stream to extract.",
+        "No audio track found.",
+        "The video has no audio stream to extract.",
       );
     }
 
@@ -465,11 +495,10 @@ export class FFmpegEngine implements AudioExtractor {
     ffmpeg: FFmpeg,
     inputPath: string,
     file: File,
-    formatId: OutputFormatId,
+    format: OutputFormat,
     probe: ProbeResult,
     options?: ExtractOptions,
   ): Promise<ExtractOutput> {
-    const format = getFormat(formatId);
     const onProgress = options?.onProgress;
 
     // Clamp the range to the file before anything expensive happens, so an
@@ -477,57 +506,93 @@ export class FFmpegEngine implements AudioExtractor {
     const { trim, problem } = resolveTrim(options?.trim, probe.durationSeconds);
     if (problem) throw new ExtractionError(problem.message, problem.hint);
 
-    const blocker = findFormatBlocker(formatId, probe, trim);
+    const context = { trim, fileBytes: file.size };
+    const blocker = format.blocker?.(probe, context) ?? null;
     if (blocker) throw new ExtractionError(blocker.message, blocker.hint);
 
-    if (format.requiredEncoder && !this.#capabilities?.encoders.has(format.requiredEncoder)) {
+    const plan = format.plan(probe, context);
+
+    // A format that turns out to be a stream copy for this file needs no
+    // encoder, whatever it would need for another file.
+    if (
+      plan.mode === "encode" &&
+      format.requiredEncoder &&
+      !this.#capabilities?.encoders.has(format.requiredEncoder)
+    ) {
       throw new ExtractionError(
         `${format.label} is not supported by this ffmpeg build.`,
         `The core does not provide the "${format.requiredEncoder}" encoder.`,
       );
     }
 
-    const plan = format.plan(probe);
     const outputPath = `/out.${plan.extension}`;
     // With input seeking the output timeline restarts at zero, so progress is
     // measured against the length of the clip, not the length of the file.
     const duration = trimDuration(trim, probe.durationSeconds);
     const { input: trimInput, output: trimOutput } = trimArgs(trim);
 
-    // ffmpeg's own `progress` ratio is unreliable when it cannot infer the
-    // duration, so the ratio is computed from processed media time instead.
-    this.#progressSink = ({ time }) => {
-      const processedSeconds = Math.max(0, time / 1_000_000);
-      onProgress?.({
-        processedSeconds,
-        ratio: duration ? Math.min(1, processedSeconds / duration) : null,
-      });
-    };
+    const analysisPasses = plan.analysisPasses ?? [];
+    const totalPasses = analysisPasses.length + 1;
+    // Every pass reads the whole clip, so each gets an equal share of the bar.
+    const passLog = analysisPasses.length > 0 ? ["-passlogfile", PASS_LOG_PREFIX] : [];
 
-    const log = this.#capture();
+    const command = (passArgs: string[], output: string[]) => [
+      "-hide_banner",
+      ...trimInput,
+      ...(plan.inputArgs ?? []),
+      "-i",
+      inputPath,
+      ...passArgs,
+      ...passLog,
+      ...trimOutput,
+      ...output,
+    ];
+
     const startedAt = performance.now();
 
-    let exitCode: number;
     try {
-      exitCode = await ffmpeg.exec([
-        "-hide_banner",
-        ...trimInput,
-        "-i",
-        inputPath,
-        ...plan.args,
-        ...trimOutput,
-        outputPath,
-      ]);
-    } finally {
-      log.release();
-      this.#progressSink = null;
-    }
+      for (const [index, passArgs] of [...analysisPasses, plan.args].entries()) {
+        const isFinal = index === analysisPasses.length;
 
-    if (exitCode !== 0) {
-      throw new ExtractionError(
-        `${format.label} conversion failed.`,
-        summarizeFailure(log.lines) ?? `ffmpeg exited with code ${exitCode}.`,
-      );
+        // ffmpeg's own `progress` ratio is unreliable when it cannot infer the
+        // duration, so the ratio is computed from processed media time instead.
+        this.#progressSink = ({ time }) => {
+          const processedSeconds = Math.max(0, time / 1_000_000);
+          const passRatio = duration ? Math.min(1, processedSeconds / duration) : null;
+          onProgress?.({
+            processedSeconds,
+            ratio: passRatio === null ? null : (index + passRatio) / totalPasses,
+          });
+        };
+
+        const log = this.#capture();
+        let exitCode: number;
+        try {
+          // The null muxer discards every packet and is AVFMT_NOFILE, so "-"
+          // is never actually opened.
+          exitCode = await ffmpeg.exec(
+            command(passArgs, isFinal ? [outputPath] : ["-f", "null", "-"]),
+          );
+        } finally {
+          log.release();
+          this.#progressSink = null;
+        }
+
+        if (exitCode !== 0) {
+          throw new ExtractionError(
+            isFinal
+              ? `${format.label} conversion failed.`
+              : `${format.label} conversion failed during its analysis pass.`,
+            summarizeFailure(log.lines) ?? `ffmpeg exited with code ${exitCode}.`,
+          );
+        }
+      }
+    } finally {
+      if (analysisPasses.length > 0) {
+        for (const name of PASS_LOG_FILES) {
+          await ffmpeg.deleteFile(name).catch(() => {});
+        }
+      }
     }
 
     const data = await ffmpeg.readFile(outputPath);
@@ -535,7 +600,7 @@ export class FFmpegEngine implements AudioExtractor {
     await ffmpeg.deleteFile(outputPath).catch(() => {});
 
     if (typeof data === "string") {
-      throw new ExtractionError("ffmpeg returned text where audio was expected.");
+      throw new ExtractionError("ffmpeg returned text where media was expected.");
     }
 
     const blob = new Blob([data as BlobPart], { type: plan.mimeType });
@@ -547,12 +612,13 @@ export class FFmpegEngine implements AudioExtractor {
 
     return {
       blob,
-      fileName: `${baseName(file.name)}${suffix}.${plan.extension}`,
+      fileName: `${baseName(file.name)}${plan.fileSuffix ?? ""}${suffix}.${plan.extension}`,
       extension: plan.extension,
       mimeType: plan.mimeType,
       bytes: blob.size,
       elapsedMs: performance.now() - startedAt,
       mode: plan.mode,
+      kind: plan.kind ?? "audio",
       trim,
     };
   }
@@ -827,7 +893,7 @@ class FFmpegSession implements ExtractSession {
     readonly probe: ProbeResult,
   ) {}
 
-  extract(formatId: string, options?: ExtractOptions): Promise<ExtractOutput> {
+  extract(format: OutputFormat, options?: ExtractOptions): Promise<ExtractOutput> {
     if (this.#closed) {
       return Promise.reject(new ExtractionError("This file is no longer open."));
     }
@@ -835,7 +901,7 @@ class FFmpegSession implements ExtractSession {
       this.ffmpeg,
       this.inputPath,
       this.file,
-      formatId as OutputFormatId,
+      format,
       this.probe,
       options,
     );

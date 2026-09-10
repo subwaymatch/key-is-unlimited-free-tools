@@ -8,7 +8,7 @@
  *
  * These functions are pure so they can be unit-tested without a browser.
  */
-import type { AudioStreamInfo, ProbeResult } from "./types";
+import type { AudioStreamInfo, ProbeResult, VideoStreamInfo } from "./types";
 
 /** Named channel layouts ffmpeg prints, mapped to a channel count. */
 const CHANNEL_LAYOUTS: Record<string, number> = {
@@ -86,12 +86,72 @@ function parseAudioDetail(detail: string): AudioStreamInfo {
   };
 }
 
+/**
+ * Splits a stream detail on the commas that separate its fields, leaving the
+ * commas inside parentheses ("yuv420p(tv, bt709)") alone.
+ */
+function splitDetail(detail: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const char of detail) {
+    if (char === "(") depth += 1;
+    if (char === ")") depth = Math.max(0, depth - 1);
+    if (char === "," && depth === 0) {
+      parts.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+}
+
+/**
+ * Parses one `Stream #0:0...: Video: <detail>` detail string.
+ *
+ * Example details:
+ *   h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709), 1920x1080 [SAR 1:1 DAR 16:9], 4522 kb/s, 23.98 fps, 23.98 tbr, 24k tbn (default)
+ *   hevc (Main 10), yuv420p10le(tv), 3840x2160, 23.98 fps
+ *   vp9 (Profile 0), yuv420p(tv, bt709), 1280x720, SAR 1:1 DAR 16:9, 30 fps, 30 tbr, 1k tbn (default)
+ */
+function parseVideoDetail(detail: string): VideoStreamInfo {
+  const codec = detail.match(/^([A-Za-z0-9_]+)/)?.[1] ?? "unknown";
+
+  const firstParen = detail.match(/^[A-Za-z0-9_]+\s*\(([^)]*)\)/)?.[1] ?? null;
+  const profile = firstParen && !firstParen.includes("/") ? firstParen : null;
+
+  // The pixel format is the field straight after the codec, unless the stream
+  // has none and the dimensions come first.
+  const fields = splitDetail(detail);
+  const second = fields[1]?.replace(/\([^)]*\)/g, "").trim() ?? "";
+  const pixelFormat = /^[a-z][a-z0-9]*$/.test(second) && !/^\d+x\d+$/.test(second) ? second : null;
+
+  // Two or more digits on each side, so the "0x31637661" of a fourcc tag is
+  // not mistaken for a width of zero.
+  const size = detail.match(/(?:^|[\s,])(\d{2,5})x(\d{2,5})(?=[\s,[]|$)/);
+  const fps = detail.match(/(\d+(?:\.\d+)?)\s*fps/)?.[1] ?? detail.match(/(\d+(?:\.\d+)?)\s*tbr/)?.[1];
+  const bitrate = detail.match(/(\d+)\s*kb\/s/)?.[1];
+
+  return {
+    codec,
+    profile,
+    pixelFormat,
+    width: size ? Number(size[1]) : null,
+    height: size ? Number(size[2]) : null,
+    fps: fps ? Number(fps) : null,
+    bitrateKbps: bitrate ? Number(bitrate) : null,
+  };
+}
+
 /** Builds a ProbeResult from the lines ffmpeg printed for `ffmpeg -i <input>`. */
 export function parseProbeOutput(log: string[]): ProbeResult {
   let durationSeconds: number | null = null;
+  let bitrateKbps: number | null = null;
   let formatName: string | null = null;
-  let hasVideo = false;
   const audioStreams: AudioStreamInfo[] = [];
+  const videoStreams: VideoStreamInfo[] = [];
 
   for (const line of log) {
     if (formatName === null) {
@@ -101,7 +161,11 @@ export function parseProbeOutput(log: string[]): ProbeResult {
 
     if (durationSeconds === null) {
       const duration = line.match(/Duration:\s*(\d+:\d{2}:\d{2}(?:\.\d+)?)/);
-      if (duration) durationSeconds = parseTimestamp(duration[1]);
+      if (duration) {
+        durationSeconds = parseTimestamp(duration[1]);
+        const bitrate = line.match(/bitrate:\s*(\d+)\s*kb\/s/);
+        if (bitrate) bitrateKbps = Number(bitrate[1]);
+      }
     }
 
     const stream = line.match(
@@ -118,14 +182,17 @@ export function parseProbeOutput(log: string[]): ProbeResult {
     // artwork is not a video, so it should not count as one.
     const isCoverArt =
       /attached pic/i.test(line) && /\b(?:mjpeg|png|bmp|gif|webp)\b/i.test(stream[2]);
-    if (!isCoverArt) hasVideo = true;
+    if (!isCoverArt) videoStreams.push(parseVideoDetail(stream[2]));
   }
 
   return {
     durationSeconds,
+    bitrateKbps,
     audioStreams,
     audio: audioStreams[0] ?? null,
-    hasVideo,
+    videoStreams,
+    video: videoStreams[0] ?? null,
+    hasVideo: videoStreams.length > 0,
     formatName,
     log,
   };

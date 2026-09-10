@@ -19,9 +19,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getEngine, resetEngine } from "./engine/ffmpegEngine";
 import {
   DEFAULT_FORMAT_IDS,
-  getFormat,
+  findFormat,
   isFormatAvailable,
-  type OutputFormatId,
+  OUTPUT_FORMATS,
 } from "./engine/formats";
 import { DEFAULT_SILENCE_OPTIONS, sameTrimRange } from "./engine/trim";
 import { ExtractionError } from "./engine/types";
@@ -29,14 +29,28 @@ import type {
   EngineCapabilities,
   EngineLoadStage,
   ExtractOutput,
+  MediaExpectation,
+  OutputFormat,
   ProbeResult,
   SilenceScanOptions,
   SilenceScanResult,
   TrimRange,
   WaveformData,
 } from "./engine/types";
+import { canPreviewSource } from "./format-utils";
 
-export type JobStatus = "queued" | "preparing" | "converting" | "done" | "error" | "cancelled";
+/**
+ * "ready" is a file that has been read but has nothing queued: the state a
+ * trimmer leaves a file in until a range is chosen.
+ */
+export type JobStatus =
+  | "queued"
+  | "preparing"
+  | "converting"
+  | "ready"
+  | "done"
+  | "error"
+  | "cancelled";
 
 export type OutputStatus = "pending" | "running" | "done" | "error" | "cancelled";
 
@@ -53,7 +67,13 @@ export interface JobOutput {
    * whole thing" and "MP3 of 1:30-2:15" are two outputs of the same format.
    */
   id: string;
-  formatId: OutputFormatId;
+  formatId: string;
+  /**
+   * The format itself, captured when the output was queued. A tool whose
+   * settings shape the plan bakes them in here, so a later change to the
+   * panel never alters a job already in the queue.
+   */
+  format: OutputFormat;
   label: string;
   /** Portion of the source this output covers; null means all of it. */
   trim: TrimRange | null;
@@ -83,6 +103,13 @@ export interface Job {
    * a thumbnail is decoration, so failing to get one is not worth reporting.
    */
   posterUrl?: string;
+  /**
+   * Object URL of the source file itself, for a video preview to scrub
+   * before anything has been produced. Only set when the browser says it can
+   * play the container, and revoked with the job. It is a reference to the
+   * File, not a copy of it.
+   */
+  sourceUrl?: string;
   /** Range the trim panel currently proposes for new outputs. */
   trim: TrimRange | null;
   /** When true, the next run detects silence and derives `trim` from it. */
@@ -116,6 +143,52 @@ export interface TrimSettings {
 }
 
 /**
+ * What one tool asks of the queue.
+ *
+ * The queue itself knows nothing about audio or video; the tool hands it a
+ * catalogue and says what a new file should get from it. The audio extractor
+ * is one configuration of this, the video converter another.
+ */
+export interface QueueOptions {
+  /**
+   * Every format this tool can produce. Read through a ref, so a tool whose
+   * settings shape its formats can pass a fresh catalogue on each render and
+   * a file added next gets the current one.
+   */
+  formats: readonly OutputFormat[];
+  /** Ids from the catalogue a newly added file is converted to. May be empty. */
+  defaultFormatIds: readonly string[];
+  /** Which stream the file must have. Defaults to "audio". */
+  expects?: MediaExpectation;
+  /**
+   * Open and probe a file even when nothing is queued for it, so a tool that
+   * needs a range first still shows the length and a preview. Defaults to
+   * false: the audio extractor never mounts a file it will produce nothing from.
+   */
+  openWithoutOutputs?: boolean;
+  /** Decode the audio envelope for the clip panel. Defaults to true. */
+  waveform?: boolean;
+  /** Keep a playable URL of the source for a video preview. Defaults to false. */
+  sourcePreview?: boolean;
+  /** Verb for the running phase: "Extracting MP3...", "Converting MP4...". */
+  verb?: string;
+  /**
+   * The card's phase line while an output runs, for tools whose format label
+   * does not read well after a verb. Overrides `verb`.
+   */
+  phase?: (output: { label: string; trim: TrimRange | null }) => string;
+}
+
+/** The audio extractor's configuration, and the default. */
+export const AUDIO_QUEUE_OPTIONS: QueueOptions = {
+  formats: OUTPUT_FORMATS,
+  defaultFormatIds: DEFAULT_FORMAT_IDS,
+  expects: "audio",
+  waveform: true,
+  verb: "Extracting",
+};
+
+/**
  * Whether running this job would actually do anything.
  *
  * Every reason to wake the engine belongs here, and missing one does not fail
@@ -128,8 +201,9 @@ export interface TrimSettings {
  * is the whole point of settling here instead of downloading a core and
  * opening a file to produce nothing.
  */
-function needsEngine(job: Job): boolean {
+function needsEngine(job: Job, openWithoutOutputs: boolean): boolean {
   if (job.autoTrim) return true;
+  if (openWithoutOutputs && !job.probe) return true;
   return job.outputs.some((output) => output.status === "pending");
 }
 
@@ -144,6 +218,7 @@ function releaseJobUrls(job: Job): void {
     if (output.url) URL.revokeObjectURL(output.url);
   }
   if (job.posterUrl) URL.revokeObjectURL(job.posterUrl);
+  if (job.sourceUrl) URL.revokeObjectURL(job.sourceUrl);
 }
 
 export const DEFAULT_TRIM_SETTINGS: TrimSettings = {
@@ -184,14 +259,12 @@ function toFailure(error: unknown): JobFailure {
 let outputCounter = 0;
 const nextOutputId = () => `output-${(outputCounter += 1)}`;
 
-function makeOutputs(
-  formatIds: readonly OutputFormatId[],
-  trim: TrimRange | null,
-): JobOutput[] {
-  return formatIds.map((formatId) => ({
+function makeOutputs(formats: readonly OutputFormat[], trim: TrimRange | null): JobOutput[] {
+  return formats.map((format) => ({
     id: nextOutputId(),
-    formatId,
-    label: getFormat(formatId).label,
+    formatId: format.id,
+    format,
+    label: format.label,
     trim,
     status: "pending" as const,
     ratio: null,
@@ -208,26 +281,35 @@ const nextJobId = () => `job-${(jobCounter += 1)}-${Date.now().toString(36)}`;
  * The picker greys out formats the loaded core cannot produce, but the
  * selection can still hold one chosen before the core reported in, and an
  * output built from it would fail on the spot. Anything unavailable is dropped;
- * an empty result falls back to the defaults and, failing that, to a stream
- * copy, which needs no encoder at all.
+ * an empty result falls back to the tool's defaults and, failing that, to a
+ * stream copy, which needs no encoder at all. A tool with no defaults gets an
+ * empty list, which is a file that is read and then waits.
  */
-export function availableFormatIds(
-  wanted: readonly OutputFormatId[],
+export function availableFormats(
+  wanted: readonly string[],
   capabilities: EngineCapabilities | null,
-): OutputFormatId[] {
-  const available = (ids: readonly OutputFormatId[]) =>
-    ids.filter((id) => isFormatAvailable(getFormat(id), capabilities));
-  for (const candidates of [wanted, DEFAULT_FORMAT_IDS]) {
-    const ids = available(candidates);
-    if (ids.length > 0) return ids;
+  options: Pick<QueueOptions, "formats" | "defaultFormatIds">,
+): OutputFormat[] {
+  const available = (ids: readonly string[]) =>
+    ids
+      .map((id) => findFormat(options.formats, id))
+      .filter((format): format is OutputFormat => format !== undefined)
+      .filter((format) => isFormatAvailable(format, capabilities));
+  for (const candidates of [wanted, options.defaultFormatIds]) {
+    const formats = available(candidates);
+    if (formats.length > 0) return formats;
   }
-  return ["original"];
+  if (options.defaultFormatIds.length === 0) return [];
+  return options.formats.filter((format) => format.requiredEncoder === null).slice(0, 1);
 }
 
 /** The state a job settles into once every one of its outputs has had its turn. */
 export function summarizeOutputs(
   outputs: readonly JobOutput[],
 ): Pick<Job, "status" | "phase" | "error"> {
+  // Read, and waiting for a range: nothing has been asked for yet.
+  if (outputs.length === 0) return { status: "ready", phase: "Ready", error: undefined };
+
   const anyDone = outputs.some((output) => output.status === "done");
   const firstError = outputs.find((output) => output.error)?.error;
   const failed = !anyDone && firstError !== undefined;
@@ -240,10 +322,12 @@ export function summarizeOutputs(
   return { status: "done", phase: "Done", error: undefined };
 }
 
-export function useConversionQueue() {
+export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [engineState, setEngineState] = useState<EngineState>(INITIAL_ENGINE_STATE);
-  const [selectedFormats, setSelectedFormats] = useState<OutputFormatId[]>(DEFAULT_FORMAT_IDS);
+  const [selectedFormats, setSelectedFormats] = useState<string[]>(() => [
+    ...options.defaultFormatIds,
+  ]);
   const [trimSettings, setTrimSettings] = useState<TrimSettings>(DEFAULT_TRIM_SETTINGS);
 
   const jobsRef = useRef<Job[]>([]);
@@ -255,13 +339,16 @@ export function useConversionQueue() {
    * The engine has to be rebuilt, and any formats still pending re-run on it.
    */
   const partialCancelRef = useRef<Set<string>>(new Set());
-  const selectedFormatsRef = useRef<OutputFormatId[]>(selectedFormats);
+  const selectedFormatsRef = useRef<string[]>(selectedFormats);
   const trimSettingsRef = useRef<TrimSettings>(trimSettings);
   const engineStateRef = useRef<EngineState>(engineState);
+  /** The tool's current catalogue; a settings change is visible on the next add. */
+  const optionsRef = useRef<QueueOptions>(options);
 
   selectedFormatsRef.current = selectedFormats;
   trimSettingsRef.current = trimSettings;
   engineStateRef.current = engineState;
+  optionsRef.current = options;
 
   const commit = useCallback((next: Job[]) => {
     jobsRef.current = next;
@@ -296,11 +383,20 @@ export function useConversionQueue() {
       const job = jobsRef.current.find((entry) => entry.id === jobId);
       if (!job) return;
 
+      // The tool's options as they stand when the job starts.
+      const {
+        expects = "audio",
+        openWithoutOutputs = false,
+        verb = "Extracting",
+        phase: describePhase = (output) =>
+          output.trim ? `${verb} ${output.label} clip...` : `${verb} ${output.label}...`,
+      } = optionsRef.current;
+
       // Nothing to do: settle without waking the engine. Cancelling every
       // format of a file still in the queue lands here, and downloading the
       // core and mounting the file only to then do nothing would be a long
       // wait for no output.
-      if (!needsEngine(job)) {
+      if (!needsEngine(job, openWithoutOutputs)) {
         patchJob(jobId, { ...summarizeOutputs(job.outputs), phaseRatio: null });
         return;
       }
@@ -353,7 +449,7 @@ export function useConversionQueue() {
         if (isCancelled()) throw new ExtractionError("Cancelled.");
 
         patchJob(jobId, { phase: "Reading file details..." });
-        session = await engine.openSession(job.file);
+        session = await engine.openSession(job.file, { expects });
         if (isCancelled()) throw new ExtractionError("Cancelled.");
 
         patchJob(jobId, { status: "converting", probe: session.probe });
@@ -418,15 +514,12 @@ export function useConversionQueue() {
             ?.outputs.find((entry) => entry.status === "pending");
           if (!output) break;
 
-          const format = getFormat(output.formatId);
-          patchJob(jobId, {
-            phase: output.trim ? `Extracting ${format.label} clip...` : `Extracting ${format.label}...`,
-          });
+          patchJob(jobId, { phase: describePhase({ label: output.label, trim: output.trim }) });
           patchOutput(jobId, output.id, { status: "running", ratio: 0, processedSeconds: 0 });
 
           try {
             let lastTick = 0;
-            const result = await session.extract(output.formatId, {
+            const result = await session.extract(output.format, {
               trim: output.trim,
               onProgress: (progress) => {
                 const now = Date.now();
@@ -559,9 +652,11 @@ export function useConversionQueue() {
   const addFiles = useCallback(
     (files: File[]) => {
       if (files.length === 0) return;
-      const formatIds = availableFormatIds(
+      const current = optionsRef.current;
+      const formats = availableFormats(
         selectedFormatsRef.current,
         engineStateRef.current.capabilities,
+        current,
       );
       const settings = trimSettingsRef.current;
       /*
@@ -581,9 +676,11 @@ export function useConversionQueue() {
         trim,
         autoTrim: settings.mode === "silence",
         silenceOptions: settings.silence,
-        outputs: makeOutputs(formatIds, trim),
+        outputs: makeOutputs(formats, trim),
         // The clip panel is always open, so the envelope is always wanted.
-        wantsWaveform: true,
+        wantsWaveform: current.waveform ?? true,
+        sourceUrl:
+          current.sourcePreview && canPreviewSource(file) ? URL.createObjectURL(file) : undefined,
         logs: [],
       }));
       commit([...jobsRef.current, ...newJobs]);
@@ -599,9 +696,12 @@ export function useConversionQueue() {
    * status is left alone; one that has finished is handed back to the pump.
    */
   const addFormatToJob = useCallback(
-    (jobId: string, formatId: OutputFormatId, trim: TrimRange | null = null) => {
+    (jobId: string, formatId: string, trim: TrimRange | null = null) => {
       const job = jobsRef.current.find((entry) => entry.id === jobId);
       if (!job) return;
+      // The catalogue as it stands now, so a tool's current settings apply.
+      const format = findFormat(optionsRef.current.formats, formatId);
+      if (!format) return;
       // Same format over the same range is the output that already exists - but
       // a cancelled one has no audio behind it, so it does not block a re-add.
       const duplicate = job.outputs.some(
@@ -616,7 +716,7 @@ export function useConversionQueue() {
       patchJob(jobId, (current) => ({
         trim,
         error: undefined,
-        outputs: [...current.outputs, ...makeOutputs([formatId], trim)],
+        outputs: [...current.outputs, ...makeOutputs([format], trim)],
         ...(isActive ? {} : { status: "queued" as const, phase: "Waiting..." }),
       }));
       if (!isActive) void pump();

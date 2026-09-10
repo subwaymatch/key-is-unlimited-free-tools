@@ -1,0 +1,5 @@
+<!-- Concept: K monogram in white on a dark rounded tile, for favicon and avatar slots -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect fill="#0a0a0a" x="4" y="4" width="56" height="56" rx="14"/>
+  <path fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" d="M24 18v28M24 32l16-14M24 32l16 14"/>
+</svg>

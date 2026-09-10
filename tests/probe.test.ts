@@ -197,3 +197,72 @@ describe("summarizeFailure", () => {
     expect(summarizeFailure(["ffmpeg version 6.0", "  configuration: --enable-gpl"])).toBeNull();
   });
 });
+
+describe("video streams", () => {
+  it("reads codec, profile, pixel format, size, frame rate and bitrate", () => {
+    const { video, videoStreams, bitrateKbps } = parseProbeOutput(MP4_PROBE);
+
+    expect(videoStreams).toHaveLength(1);
+    expect(video).toEqual({
+      codec: "h264",
+      profile: "High",
+      pixelFormat: "yuv420p",
+      width: 1920,
+      height: 1080,
+      fps: 23.98,
+      bitrateKbps: 4522,
+    });
+    expect(bitrateKbps).toBe(4721);
+  });
+
+  it("does not mistake the fourcc tag for a frame size", () => {
+    // "0x31637661" would read as 0 by 31637661 to a naive pattern.
+    expect(parseProbeOutput(MP4_PROBE).video?.width).toBe(1920);
+  });
+
+  it("reads a 10-bit HEVC stream without a bitrate or a tag", () => {
+    const { video } = parseProbeOutput(MKV_MULTI_AUDIO);
+
+    expect(video).toEqual({
+      codec: "hevc",
+      profile: "Main 10",
+      pixelFormat: "yuv420p10le",
+      width: 3840,
+      height: 2160,
+      fps: 23.98,
+      bitrateKbps: null,
+    });
+  });
+
+  it("reads Matroska's unbracketed aspect ratio line", () => {
+    const { video } = parseProbeOutput([
+      "Input #0, matroska,webm, from '/input/source.webm':",
+      "  Duration: 00:00:10.00, start: 0.000000, bitrate: 1200 kb/s",
+      "  Stream #0:0: Video: vp9 (Profile 0), yuv420p(tv, bt709), 1280x720, SAR 1:1 DAR 16:9, 30 fps, 30 tbr, 1k tbn (default)",
+    ]);
+
+    expect(video).toMatchObject({ codec: "vp9", profile: "Profile 0", width: 1280, height: 720, fps: 30 });
+  });
+
+  it("leaves cover art out of the video streams", () => {
+    const { video, videoStreams, hasVideo } = parseProbeOutput([
+      "Input #0, mp3, from '/input/source.mp3':",
+      "  Duration: 00:03:00.00, start: 0.000000, bitrate: 320 kb/s",
+      "  Stream #0:0: Audio: mp3, 44100 Hz, stereo, fltp, 320 kb/s",
+      "  Stream #0:1: Video: mjpeg (Baseline), yuvj420p(pc, bt470bg/unknown/unknown), 600x600 [SAR 1:1 DAR 1:1], 90k tbr, 90k tbn (attached pic)",
+    ]);
+
+    expect(hasVideo).toBe(false);
+    expect(videoStreams).toHaveLength(0);
+    expect(video).toBeNull();
+  });
+
+  it("falls back to tbr when no fps is printed", () => {
+    const { video } = parseProbeOutput([
+      "Input #0, avi, from '/input/source.avi':",
+      "  Stream #0:0: Video: mpeg4 (Simple Profile) (XVID / 0x44495658), yuv420p, 640x480 [SAR 1:1 DAR 4:3], 25 tbr, 25 tbn",
+    ]);
+
+    expect(video).toMatchObject({ codec: "mpeg4", width: 640, height: 480, fps: 25 });
+  });
+});
