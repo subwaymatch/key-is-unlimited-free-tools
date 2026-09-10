@@ -112,7 +112,10 @@ async function main() {
   };
 
   try {
-    await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "networkidle" });
+    // The extractor's own route: "/" has been the tool index since the second
+    // tool shipped, and this script was still opening it and looking for a
+    // format picker that had moved.
+    await page.goto(`http://127.0.0.1:${PORT}/extract-audio`, { waitUntil: "networkidle" });
 
     // Only ask for the stream copy: the point is reading a huge input, not
     // spending ten minutes encoding MP3 in WebAssembly.
