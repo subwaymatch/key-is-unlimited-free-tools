@@ -22,6 +22,8 @@ function probe(
         sampleRate: 48000,
         channels: 2,
         channelLayout: "stereo",
+        language: null,
+        title: null,
         bitrateKbps: 192,
         ...audio,
       }
@@ -46,6 +48,8 @@ function probe(
     videoStreams: [video],
     video,
     hasVideo: true,
+    subtitleStreams: [],
+    chapters: [],
     formatName: "mov,mp4,m4a,3gp,3g2,mj2",
     log: [],
   };

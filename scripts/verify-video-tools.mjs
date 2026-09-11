@@ -14,9 +14,9 @@
  * named in CHROMIUM_PATH). The core is served locally, which keeps the run
  * hermetic and doubles as a test of the self-hosted-core configuration.
  */
-import { createReadStream, existsSync, mkdirSync, statSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { extname, join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -96,7 +96,91 @@ function ensureFixtures() {
       "-t", "3", "-c:a", "libmp3lame", "-b:a", "128k",
       "-metadata", "title=Song", "-metadata", "artist=Someone",
     ]),
+    // Two cues, for the subtitle converter: one to convert, one to shift.
+    subtitles: (() => {
+      const path = join(FIXTURES, "sample.srt");
+      if (!existsSync(path)) {
+        writeFileSync(
+          path,
+          "1\r\n00:00:01,000 --> 00:00:04,000\r\nHello there.\r\n\r\n2\r\n00:00:05,500 --> 00:00:07,250\r\n<i>Second</i> cue\r\n",
+        );
+      }
+      return path;
+    })(),
+    // The same two cues in another language, for the merger.
+    secondSubtitles: (() => {
+      const path = join(FIXTURES, "second.srt");
+      if (!existsSync(path)) {
+        writeFileSync(
+          path,
+          "1\n00:00:01,000 --> 00:00:04,000\nBonjour.\n\n2\n00:00:05,500 --> 00:00:07,250\nDeuxieme\n",
+        );
+      }
+      return path;
+    })(),
+    // The tagged MP4 with three two-second chapters, for the splitter.
+    chaptered: (() => {
+      const meta = join(FIXTURES, "chapters.ffmeta");
+      if (!existsSync(meta)) {
+        writeFileSync(
+          meta,
+          ";FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=2000\ntitle=Intro\n\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=2000\nEND=4000\ntitle=Middle\n\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=4000\nEND=6000\ntitle=End\n",
+        );
+      }
+      return build("chaptered.mp4", [
+        "-i", join(FIXTURES, "tagged.mp4"), "-i", meta,
+        "-map", "0", "-map_chapters", "1", "-c", "copy",
+      ]);
+    })(),
+    // Two audio tracks in two languages, the second titled, for the track extractor.
+    dual: build("dual.mkv", [
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+      "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000",
+      "-t", "3", "-map", "0:a", "-map", "1:a", "-c:a", "aac", "-b:a", "96k",
+      "-metadata:s:a:0", "language=eng", "-metadata:s:a:1", "language=fre", "-metadata:s:a:1", "title=Commentary",
+    ]),
+    // A quiet tone for the normaliser, and an MKV carrying a subtitle track.
+    quiet: build("quiet.mp3", [
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
+      "-t", "6", "-af", "volume=-24dB", "-c:a", "libmp3lame", "-b:a", "128k",
+    ]),
+    subbed: build("subbed.mkv", [
+      "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25",
+      "-i", join(FIXTURES, "sample.srt"),
+      "-t", "8", "-map", "0:v", "-map", "1:s",
+      "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+      "-c:s", "srt", "-metadata:s:s:0", "language=eng",
+    ]),
+    // Pure black, so a burned subtitle shows up in the numbers.
+    black: build("black.mp4", [
+      "-f", "lavfi", "-i", "color=c=black:s=320x180:r=25",
+      "-t", "6", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+    ]),
   };
+}
+
+/** Brightest pixel in the bottom third of the frame at a moment; black is 16, white text 235. */
+function bottomLuma(path, atSeconds) {
+  const result = spawnSync(
+    "ffmpeg",
+    [
+      "-hide_banner", "-ss", String(atSeconds), "-i", path, "-frames:v", "1",
+      "-vf", "crop=iw:ih/3:0:2*ih/3,signalstats,metadata=print", "-f", "null", "-",
+    ],
+    { encoding: "utf8" },
+  );
+  const match = result.stderr.match(/lavfi\.signalstats\.YMAX=(\d+(?:\.\d+)?)/);
+  return match ? Number(match[1]) : Number.NaN;
+}
+
+/** Integrated loudness of a file, in LUFS, as ebur128 measures it. */
+function integratedLoudness(path) {
+  const result = spawnSync("ffmpeg", ["-hide_banner", "-i", path, "-af", "ebur128", "-f", "null", "-"], {
+    encoding: "utf8",
+  });
+  const matches = result.stderr.match(/I:\s+(-?\d+(?:\.\d+)?)\s+LUFS/g) ?? [];
+  const last = matches[matches.length - 1]?.match(/(-?\d+(?:\.\d+)?)/);
+  return last ? Number(last[1]) : Number.NaN;
 }
 
 /** Serves the static export, plus the ffmpeg core under /core. */
@@ -133,7 +217,7 @@ function startServer() {
 
 function ffprobeJson(path) {
   const raw = execFileSync("ffprobe", [
-    "-v", "error", "-show_format", "-show_streams", "-of", "json", path,
+    "-v", "error", "-show_format", "-show_streams", "-show_chapters", "-of", "json", path,
   ]);
   return JSON.parse(raw.toString());
 }
@@ -180,7 +264,7 @@ async function main() {
     await page.goto(`http://127.0.0.1:${PORT}/${slug}`, { waitUntil: "networkidle" });
   };
   const drop = async (path) => {
-    await page.locator('input[type="file"]').setInputFiles(path);
+    await page.locator('input[type="file"][multiple]').setInputFiles(path);
   };
   const cardFor = (name) => page.locator("li", { hasText: name }).first();
   const download = async (locator) => {
@@ -205,10 +289,27 @@ async function main() {
       "video-to-gif",
       "remove-audio",
       "remove-metadata",
+      "change-speed",
+      "merge-videos",
+      "convert-subtitles",
+      "resize-video",
+      "rotate-video",
+      "video-thumbnails",
+      "convert-audio",
+      "normalize-audio",
+      "extract-subtitles",
+      "burn-subtitles",
+      "compress-audio",
+      "audio-channels",
+      "audio-waveform",
+      "add-chapters",
+      "merge-subtitles",
+      "split-chapters",
+      "extract-audio-tracks",
     ]) {
       check(`index links to /${slug}`, links.includes(`/${slug}`));
     }
-    check("index does not link a planned tool", !links.includes("/change-speed"));
+    check("index does not link a planned tool", !links.includes("/transcribe-video"));
 
     // ---- Convert --------------------------------------------------------
     log("\nConvert - H.264 + AAC MP4 (a copy) and an MPEG-4/MP2 AVI (an encode):");
@@ -397,10 +498,12 @@ async function main() {
     // survives a middle ellipsis, and innerText would put a break between them.
     const beforeSwitch = await trimCard.textContent();
     check("the trimmer has work on it", /tagged\.mp4/.test(beforeSwitch ?? ""));
-    await page
-      .getByRole("navigation", { name: "Tools", exact: true })
-      .getByRole("link", { name: "Compress video" })
-      .click();
+    const toolsMenu = page.getByRole("navigation", { name: "Tools", exact: true });
+    const allTools = toolsMenu.getByRole("button", { name: "All tools" });
+    await allTools.click();
+    const menuId = await allTools.getAttribute("aria-controls");
+    check("the tools menu opens onto a grouped list", menuId !== null);
+    await page.locator(`[id="${menuId}"]`).getByRole("link", { name: "Compress video" }).click();
     await page.waitForURL(/compress-video/);
     check("the other tool has its own queue", (await cardFor("tagged.mp4").count()) === 0);
     await page.goBack();
@@ -413,9 +516,10 @@ async function main() {
       (await afterSwitch.getByText("Download").count()) === 2,
     );
     check(
-      "the current tool is marked in the nav",
-      (await page.locator('nav a[aria-current="page"]').innerText()) === "Trim video",
-      await page.locator('nav a[aria-current="page"]').innerText(),
+      "the current tool is marked in the menu and named in the header",
+      (await page.locator('a[aria-current="page"]').textContent())?.trim() === "Trim video" &&
+        (await page.locator("header").getByText("Trim video", { exact: true }).count()) >= 1,
+      (await page.locator('a[aria-current="page"]').textContent())?.trim(),
     );
 
     // ---- GIF ------------------------------------------------------------
@@ -445,6 +549,336 @@ async function main() {
     await silentCard.getByText("Ready", { exact: true }).waitFor({ timeout: 120_000 });
     check("a silent video is accepted by a video tool", true);
     await page.screenshot({ path: join(FIXTURES, "verify-gif.png"), fullPage: true });
+
+    // ---- Change speed ---------------------------------------------------
+    log("\nChange speed - 2x from the panel, then 0.5x from the card:");
+    await open("change-speed");
+    check(
+      "the speed panel is open on arrival",
+      (await page.getByRole("radio", { name: /^2x/ }).count()) === 1,
+    );
+    await page.getByRole("radio", { name: /^2x/ }).click();
+    await drop(fixtures.tagged);
+    const speedCard = cardFor("tagged.mp4");
+    await speedCard.getByText("Re-timing the video at 2x...").waitFor({ timeout: 240_000 });
+    check("says what it is doing", true, "phase line");
+    await speedCard.getByText("Done", { exact: true }).waitFor({ timeout: 600_000 });
+    const doubled = await download(speedCard.getByText("Download"));
+    check("2x output carries the speed in its name", doubled.name === "tagged-2x.mp4", doubled.name);
+    check("2x output is half the length", Math.abs(seconds(doubled.info) - 3) < 0.3, `${seconds(doubled.info).toFixed(2)}s`);
+    check("2x output keeps the frame rate", stream(doubled.info, "video")?.r_frame_rate === "25/1", stream(doubled.info, "video")?.r_frame_rate);
+    check("2x output keeps the audio, as AAC", stream(doubled.info, "audio")?.codec_name === "aac");
+
+    // The other speeds are one click away on the card.
+    await speedCard.getByRole("button", { name: /^\+?\s*0\.5x$/ }).first().click();
+    const slowRow = speedCard.locator("li").filter({ hasText: /^0\.5x/ });
+    await slowRow.getByText("Download").waitFor({ timeout: 600_000 });
+    const halved = await download(slowRow.getByText("Download"));
+    check("0.5x output is twice the length", Math.abs(seconds(halved.info) - 12) < 0.3, `${seconds(halved.info).toFixed(2)}s`);
+    check("0.5x output keeps the frame rate", stream(halved.info, "video")?.r_frame_rate === "25/1", stream(halved.info, "video")?.r_frame_rate);
+    await page.screenshot({ path: join(FIXTURES, "verify-speed.png"), fullPage: true });
+
+    // ---- Merge ----------------------------------------------------------
+    log("\nMerge - two matching clips copied, then a third mismatched one re-encoded:");
+    await open("merge-videos");
+    await drop([fixtures.tagged, fixtures.tagged]);
+    const mergeSection = page.locator('section[aria-label="Clips to join"]');
+    await mergeSection.getByText(/They match, so they will be joined without re-encoding/).waitFor({ timeout: 240_000 });
+    check("reads the clips and promises a copy for matching ones", true);
+    check("shows both clips with their details", (await mergeSection.getByText(/H264 640x360/).count()) === 2);
+    await mergeSection.getByRole("button", { name: "Join 2 clips" }).click();
+    await mergeSection.getByText("Download").waitFor({ timeout: 240_000 });
+    const joined = await download(mergeSection.getByText("Download"));
+    check("joined file is named after the first clip", joined.name === "tagged-merged.mp4", joined.name);
+    check("joined file is twice the length", Math.abs(seconds(joined.info) - 12) < 0.5, `${seconds(joined.info).toFixed(2)}s`);
+    check("joined file was a stream copy", /stream copy/i.test(await mergeSection.innerText()) && stream(joined.info, "video")?.codec_name === "h264");
+    check("shows a video preview of the join", (await mergeSection.locator("video").count()) === 1);
+
+    await drop(fixtures.avi);
+    await mergeSection.getByText(/They will be re-encoded to H\.264/).waitFor({ timeout: 240_000 });
+    check("a mismatched clip turns the join into a re-encode, and says why", /clip 3 is MPEG4 while clip 1 is H264/.test(await mergeSection.innerText()));
+    check("adding a clip clears the old join", (await mergeSection.getByText("Download").count()) === 0);
+    await mergeSection.getByRole("button", { name: "Join 3 clips" }).click();
+    await mergeSection.getByText("Download").waitFor({ timeout: 600_000 });
+    const encodedJoin = await download(mergeSection.getByText("Download"));
+    check("re-encoded join is the length of all three", Math.abs(seconds(encodedJoin.info) - 16) < 0.5, `${seconds(encodedJoin.info).toFixed(2)}s`);
+    check("re-encoded join is fitted to the first clip's frame", stream(encodedJoin.info, "video")?.width === 640 && stream(encodedJoin.info, "video")?.height === 360, `${stream(encodedJoin.info, "video")?.width}x${stream(encodedJoin.info, "video")?.height}`);
+    check("re-encoded join is H.264 + AAC", stream(encodedJoin.info, "video")?.codec_name === "h264" && stream(encodedJoin.info, "audio")?.codec_name === "aac");
+    await page.screenshot({ path: join(FIXTURES, "verify-merge.png"), fullPage: true });
+
+    // ---- Subtitles ------------------------------------------------------
+    log("\nConvert subtitles - SRT to WebVTT, then shifted by 1.5 s:");
+    await open("convert-subtitles");
+    await drop(fixtures.subtitles);
+    const subtitleCard = cardFor("sample.srt");
+    await subtitleCard.getByText("Ready", { exact: true }).waitFor({ timeout: 30_000 });
+    check("reads the file without an engine", /SRT, 2 cues/.test(await subtitleCard.innerText()), await subtitleCard.locator("p").nth(1).innerText());
+    const vtt = await download(subtitleCard.getByRole("button", { name: "Download sample.vtt" }));
+    const vttText = readFileSync(vtt.path, "utf8");
+    check("WebVTT output has the header and the cue", vttText.startsWith("WEBVTT\n\n00:00:01.000 --> 00:00:04.000\nHello there."), vttText.slice(0, 60));
+    check("WebVTT output keeps italics", vttText.includes("<i>Second</i> cue"));
+
+    await page.getByRole("button", { name: /Output formats & timing/ }).click();
+    await page.getByLabel("Shift by").fill("1.5");
+    await subtitleCard.getByText(/shifted later by 1.5 s/).waitFor({ timeout: 10_000 });
+    const shifted = await download(subtitleCard.getByRole("button", { name: "Download sample-retimed.srt" }));
+    const shiftedText = readFileSync(shifted.path, "utf8");
+    check("shifted SRT moves every cue by the offset", shiftedText.includes("00:00:02,500 --> 00:00:05,500") && shiftedText.includes("00:00:07,000 --> 00:00:08,750"), shiftedText.split("\n")[1]);
+    await page.screenshot({ path: join(FIXTURES, "verify-subtitles.png"), fullPage: true });
+
+    // ---- Resize ---------------------------------------------------------
+    log("\nResize - 640x360 to 240p:");
+    await open("resize-video");
+    await page.getByRole("radio", { name: /^240p/ }).click();
+    await drop(fixtures.tagged);
+    const resizeCard = cardFor("tagged.mp4");
+    await resizeCard.getByText("Done", { exact: true }).waitFor({ timeout: 600_000 });
+    const resized = await download(resizeCard.getByText("Download"));
+    check("resized file carries the size in its name", resized.name === "tagged-240p.mp4", resized.name);
+    check("resized picture is 240 high", stream(resized.info, "video")?.height === 240 && stream(resized.info, "video")?.width === 426, `${stream(resized.info, "video")?.width}x${stream(resized.info, "video")?.height}`);
+    check("resized audio was copied", stream(resized.info, "audio")?.codec_name === "aac");
+    check(
+      "sizes the picture already fits are not offered",
+      (await resizeCard.getByRole("button", { name: /^\+?\s*720p$/ }).count()) === 0,
+    );
+
+    // ---- Rotate ---------------------------------------------------------
+    log("\nRotate - a quarter turn clockwise, chosen from the card:");
+    await open("rotate-video");
+    await drop(fixtures.tagged);
+    const rotateCard = cardFor("tagged.mp4");
+    await rotateCard.getByText("Ready", { exact: true }).waitFor({ timeout: 240_000 });
+    check("reads the file and waits for a turn", (await rotateCard.getByText("Download").count()) === 0);
+    await rotateCard.getByRole("button", { name: /90 clockwise/ }).click();
+    const turnRow = rotateCard.locator("li").filter({ hasText: /^90 clockwise/ });
+    await turnRow.getByText("Download").waitFor({ timeout: 600_000 });
+    const turned = await download(turnRow.getByText("Download"));
+    check("turned file says so in its name", turned.name === "tagged-rotated-90.mp4", turned.name);
+    check("turned picture is portrait", stream(turned.info, "video")?.width === 360 && stream(turned.info, "video")?.height === 640, `${stream(turned.info, "video")?.width}x${stream(turned.info, "video")?.height}`);
+
+    // ---- Thumbnails -----------------------------------------------------
+    log("\nThumbnails - a 3x3 sheet on arrival, then one frame at 0:02 as PNG:");
+    await open("video-thumbnails");
+    await drop(fixtures.tagged);
+    const sheetCard = cardFor("tagged.mp4");
+    await sheetCard.getByText("Done", { exact: true }).waitFor({ timeout: 240_000 });
+    const sheetRow = sheetCard.locator("li").filter({ hasText: /^Contact sheet/ });
+    const sheet = await download(sheetRow.getByText("Download"));
+    check("sheet is named for its frames", sheet.name === "tagged-sheet-9.jpg", sheet.name);
+    // 3x3 tiles of 320x180, 4 px between and around them.
+    check("sheet is a 3x3 grid of 320 px tiles", stream(sheet.info, "video")?.width === 976 && stream(sheet.info, "video")?.height === 556, `${stream(sheet.info, "video")?.width}x${stream(sheet.info, "video")?.height}`);
+    const sheetHref = await sheetRow.locator("a[download]").getAttribute("href");
+    check("shows the sheet inline", (await sheetCard.locator(`img[src="${sheetHref}"]`).count()) === 1);
+    const frameMarkers = sheetCard.getByRole("group", { name: "Clip markers" });
+    await frameMarkers.getByLabel("Start", { exact: true }).fill("2");
+    await frameMarkers.getByRole("button", { name: "Frame as PNG" }).click();
+    const frameRow = sheetCard.locator("li").filter({ hasText: /^Frame as PNG/ });
+    await frameRow.getByText("Download").waitFor({ timeout: 240_000 });
+    const frame = await download(frameRow.getByText("Download"));
+    check("frame carries its moment in the name", frame.name === "tagged-frame-at-2s.png", frame.name);
+    check("frame is a full-size PNG", stream(frame.info, "video")?.codec_name === "png" && stream(frame.info, "video")?.width === 640, stream(frame.info, "video")?.codec_name);
+
+    // ---- Convert audio --------------------------------------------------
+    log("\nConvert audio - an MP3 copied as MP3, then to FLAC:");
+    await open("convert-audio");
+    await drop(fixtures.music);
+    const audioCard = cardFor("music.mp3");
+    await audioCard.getByText("Done", { exact: true }).waitFor({ timeout: 240_000 });
+    check("an MP3 asked for as MP3 is copied, not re-encoded", /stream copy/i.test(await audioCard.innerText()));
+    await audioCard.getByRole("button", { name: /^\+?\s*FLAC$/ }).first().click();
+    const flacRow = audioCard.locator("li").filter({ hasText: /^FLAC/ });
+    await flacRow.getByText("Download").waitFor({ timeout: 120_000 });
+    const flac = await download(flacRow.getByText("Download"));
+    check("FLAC comes out as FLAC", flac.name === "music.flac" && stream(flac.info, "audio")?.codec_name === "flac", flac.name);
+
+    // ---- Normalize loudness ---------------------------------------------
+    log("\nNormalize - a -24 dB tone to -14 LUFS in two passes:");
+    await open("normalize-audio");
+    check("the target panel is open on arrival", (await page.getByRole("radio", { name: /^-14 LUFS/ }).count()) === 1);
+    await drop(fixtures.quiet);
+    const quietCard = cardFor("quiet.mp3");
+    await quietCard.getByText("Done", { exact: true }).waitFor({ timeout: 240_000 });
+    const loud = await download(quietCard.getByText("Download"));
+    check("normalized file carries the target in its name", loud.name === "quiet-14lufs.mp3", loud.name);
+    check("normalized file stays an MP3 at its sample rate", stream(loud.info, "audio")?.codec_name === "mp3" && stream(loud.info, "audio")?.sample_rate === "44100");
+    const loudBefore = integratedLoudness(fixtures.quiet);
+    const loudAfter = integratedLoudness(loud.path);
+    check("normalized file measures at the target", Math.abs(loudAfter + 14) < 1.5, `${loudBefore.toFixed(1)} LUFS before, ${loudAfter.toFixed(1)} LUFS after`);
+
+    // ---- Extract subtitles ----------------------------------------------
+    log("\nExtract subtitles - the SRT track of an MKV, as SRT then as WebVTT:");
+    await open("extract-subtitles");
+    await drop(fixtures.subbed);
+    const subbedCard = cardFor("subbed.mkv");
+    await subbedCard.getByText("Done", { exact: true }).waitFor({ timeout: 240_000 });
+    check("the card names the track", /1 subtitle track \(eng\)/.test(await subbedCard.innerText()));
+    const [srtEvent] = await Promise.all([page.waitForEvent("download"), subbedCard.getByText("Download").click()]);
+    const srtPath = join(downloadDir, srtEvent.suggestedFilename());
+    await srtEvent.saveAs(srtPath);
+    const srtText = readFileSync(srtPath, "utf8");
+    check("SRT is named for the track's language", srtEvent.suggestedFilename() === "subbed-eng.srt", srtEvent.suggestedFilename());
+    check("SRT carries the cues", srtText.includes("Hello there.") && srtText.includes("00:00:01,000 --> 00:00:04,000"), srtText.split("\n")[1]);
+    check("nothing tries to preview a text file", (await subbedCard.locator("video, audio, img[src^='blob']").count()) <= 1);
+    await subbedCard.getByRole("button", { name: /Track 1 as VTT/ }).first().click();
+    const vttRow = subbedCard.locator("li").filter({ hasText: /^Track 1 as VTT/ });
+    await vttRow.getByText("Download").waitFor({ timeout: 120_000 });
+    const [vttEvent] = await Promise.all([page.waitForEvent("download"), vttRow.getByText("Download").click()]);
+    const vttPath = join(downloadDir, vttEvent.suggestedFilename());
+    await vttEvent.saveAs(vttPath);
+    check("WebVTT comes out with its header", readFileSync(vttPath, "utf8").startsWith("WEBVTT"), vttEvent.suggestedFilename());
+    await page.screenshot({ path: join(FIXTURES, "verify-more-tools.png"), fullPage: true });
+
+    // ---- Burn subtitles -------------------------------------------------
+    log("\nBurn subtitles - an SRT onto a black video, then a file's own track:");
+    await open("burn-subtitles");
+    await page.locator("#burn-subtitle-file").setInputFiles(fixtures.subtitles);
+    await page.getByText("sample.srt (SRT, 2 cues)").waitFor({ timeout: 30_000 });
+    check("reads the subtitle file without an engine", true);
+    await drop(fixtures.black);
+    const burnCard = cardFor("black.mp4");
+    await burnCard.getByText("Done", { exact: true }).waitFor({ timeout: 600_000 });
+    const burned = await download(burnCard.getByText("Download"));
+    check("burned file says so in its name", burned.name === "black-subtitled.mp4", burned.name);
+    check("burned file keeps its length", Math.abs(seconds(burned.info) - 6) < 0.3, `${seconds(burned.info).toFixed(2)}s`);
+    const litBefore = bottomLuma(fixtures.black, 2);
+    const litAfter = bottomLuma(burned.path, 2);
+    check("the text is drawn into the frames", litBefore < 20 && litAfter > 200, `bottom third peak ${litBefore.toFixed(0)} before, ${litAfter.toFixed(0)} after`);
+    check("nothing is drawn where there is no cue", bottomLuma(burned.path, 4.8) < 20, `${bottomLuma(burned.path, 4.8).toFixed(0)}`);
+
+    await drop(fixtures.subbed);
+    const trackCard = cardFor("subbed.mkv");
+    // The chosen file burns first; the file's own track is a chip on the card.
+    await trackCard.getByText("Done", { exact: true }).waitFor({ timeout: 600_000 });
+    await trackCard.getByRole("button", { name: /Burn track 1/ }).first().click();
+    const trackRow = trackCard.locator("li").filter({ hasText: /^Burn track 1/ });
+    await trackRow.getByText("Download").waitFor({ timeout: 600_000 });
+    const trackBurn = await download(trackRow.getByText("Download"));
+    check("a file's own track is burned from the mounted input", trackBurn.name === "subbed-subtitled-track1.mkv" && stream(trackBurn.info, "video")?.codec_name === "h264", trackBurn.name);
+    check("the burned file carries no subtitle track of its own", stream(trackBurn.info, "subtitle") === undefined);
+    await page.screenshot({ path: join(FIXTURES, "verify-burn.png"), fullPage: true });
+
+    // ---- Compress audio -------------------------------------------------
+    log("\nCompress audio - an MP3 as Opus for speech, then as MP3 for music:");
+    await open("compress-audio");
+    await drop(fixtures.music);
+    const compressAudioCard = cardFor("music.mp3");
+    await compressAudioCard.getByText("Done", { exact: true }).waitFor({ timeout: 240_000 });
+    const opus = await download(compressAudioCard.getByText("Download"));
+    check("speech preset comes out as Opus", opus.name === "music-voice.opus" && stream(opus.info, "audio")?.codec_name === "opus", opus.name);
+    await compressAudioCard.getByRole("button", { name: /^\+?\s*Music, good$/ }).first().click();
+    const mp3Row = compressAudioCard.locator("li").filter({ hasText: /^Music, good/ });
+    await mp3Row.getByText("Download").waitFor({ timeout: 120_000 });
+    const mp3 = await download(mp3Row.getByText("Download"));
+    check("music preset comes out as MP3", mp3.name === "music-music.mp3" && stream(mp3.info, "audio")?.codec_name === "mp3", mp3.name);
+
+    // ---- Audio channels -------------------------------------------------
+    log("\nAudio channels - stereo from a mono MP3, vocals cut from a stereo MP4:");
+    await open("audio-channels");
+    await drop(fixtures.music);
+    const monoCard = cardFor("music.mp3");
+    await monoCard.getByText("Ready", { exact: true }).waitFor({ timeout: 240_000 });
+    check("a mono file is offered stereo and nothing that needs two sides", (await monoCard.getByRole("button", { name: /Stereo from mono/ }).count()) >= 1 && (await monoCard.getByRole("button", { name: /Remove vocals/ }).count()) === 0);
+    await monoCard.getByRole("button", { name: /Stereo from mono/ }).first().click();
+    const stereoRow = monoCard.locator("li").filter({ hasText: /^Stereo from mono/ });
+    await stereoRow.getByText("Download").waitFor({ timeout: 120_000 });
+    const stereo = await download(stereoRow.getByText("Download"));
+    check("stereo from mono has two channels, still an MP3", stereo.name === "music-stereo.mp3" && stream(stereo.info, "audio")?.channels === 2, stereo.name);
+
+    await drop(fixtures.tagged);
+    const stereoCard = cardFor("tagged.mp4");
+    await stereoCard.getByText("Ready", { exact: true }).waitFor({ timeout: 240_000 });
+    await stereoCard.getByRole("button", { name: /Remove vocals/ }).first().click();
+    const karaokeRow = stereoCard.locator("li").filter({ hasText: /^Remove vocals/ });
+    await karaokeRow.getByText("Download").waitFor({ timeout: 120_000 });
+    const karaoke = await download(karaokeRow.getByText("Download"));
+    check("vocal removal writes a stereo M4A from the video's AAC", karaoke.name === "tagged-karaoke.m4a" && stream(karaoke.info, "audio")?.codec_name === "aac" && stream(karaoke.info, "audio")?.channels === 2, karaoke.name);
+
+    // ---- Audio waveform -------------------------------------------------
+    log("\nAudio waveform - a waveform PNG on arrival, a spectrogram from the card:");
+    await open("audio-waveform");
+    await drop(fixtures.music);
+    const waveCard = cardFor("music.mp3");
+    await waveCard.getByText("Done", { exact: true }).waitFor({ timeout: 240_000 });
+    const wave = await download(waveCard.getByText("Download"));
+    check("waveform is a PNG at the chosen size", wave.name === "music-waveform.png" && stream(wave.info, "video")?.codec_name === "png" && stream(wave.info, "video")?.width === 1200 && stream(wave.info, "video")?.height === 300, `${wave.name} ${stream(wave.info, "video")?.width}x${stream(wave.info, "video")?.height}`);
+    check("waveform has a transparent background", stream(wave.info, "video")?.pix_fmt === "rgba", stream(wave.info, "video")?.pix_fmt);
+    await waveCard.getByRole("button", { name: /Spectrogram/ }).first().click();
+    const spectrumRow = waveCard.locator("li").filter({ hasText: /^Spectrogram/ });
+    await spectrumRow.getByText("Download").waitFor({ timeout: 240_000 });
+    const spectrum = await download(spectrumRow.getByText("Download"));
+    check("spectrogram is a PNG with its legend", spectrum.name === "music-spectrogram.png" && stream(spectrum.info, "video")?.codec_name === "png" && stream(spectrum.info, "video")?.width > 1200, `${stream(spectrum.info, "video")?.width}x${stream(spectrum.info, "video")?.height}`);
+    await page.screenshot({ path: join(FIXTURES, "verify-audio-tools.png"), fullPage: true });
+
+    // ---- Add chapters ---------------------------------------------------
+    log("\nAdd chapters - a typed list into a tagged MP4, then into an MP3 shorter than the list:");
+    await open("add-chapters");
+    await page.getByLabel("Chapter list").fill("0:00 Intro\n0:02 Middle\n0:04 End");
+    await drop(fixtures.tagged);
+    const chapterCard = cardFor("tagged.mp4");
+    await chapterCard.getByText("Done", { exact: true }).waitFor({ timeout: 240_000 });
+    const chaptered = await download(chapterCard.getByText("Download"));
+    check("chaptered MP4 says so in its name and is still a copy", chaptered.name === "tagged-chapters.mp4" && stream(chaptered.info, "video")?.codec_name === "h264" && stream(chaptered.info, "audio")?.codec_name === "aac", chaptered.name);
+    const chapterTitles = (chaptered.info.chapters ?? []).map((chapter) => chapter.tags?.title);
+    check("three chapters with their titles, the last running to the end", chapterTitles.join(",") === "Intro,Middle,End" && Math.abs(Number(chaptered.info.chapters?.[2]?.end_time) - 6) < 0.3, `${chapterTitles.join(",")} ending at ${chaptered.info.chapters?.[2]?.end_time}s`);
+    check("the source's tags are stripped by default, the chapters kept", chaptered.info.format.tags?.title === undefined, JSON.stringify(chaptered.info.format.tags));
+    await drop(fixtures.music);
+    const chapterMp3Card = cardFor("music.mp3");
+    await chapterMp3Card.getByText("Done", { exact: true }).waitFor({ timeout: 240_000 });
+    check("a chapter past the end is left out and the row says so", /left out/.test(await chapterMp3Card.innerText()));
+    const chapteredMp3 = await download(chapterMp3Card.getByText("Download"));
+    check("an MP3 carries the chapters that fit", chapteredMp3.name === "music-chapters.mp3" && (chapteredMp3.info.chapters ?? []).length === 2 && stream(chapteredMp3.info, "audio")?.codec_name === "mp3", `${chapteredMp3.name}, ${chapteredMp3.info.chapters?.length} chapters`);
+    await page.screenshot({ path: join(FIXTURES, "verify-chapters.png"), fullPage: true });
+
+    // ---- Merge subtitles ------------------------------------------------
+    log("\nMerge subtitles - a French SRT under an English one, stacked, then combined:");
+    await open("merge-subtitles");
+    await page.locator("#merge-secondary-file").setInputFiles(fixtures.secondSubtitles);
+    await page.getByText("second.srt (SRT, 2 cues)").waitFor({ timeout: 30_000 });
+    await drop(fixtures.subtitles);
+    const mergeCard = cardFor("sample.srt");
+    const stackedButton = mergeCard.getByRole("button", { name: "Download sample-bilingual.srt" });
+    await stackedButton.waitFor({ timeout: 30_000 });
+    const stacked = await download(stackedButton);
+    const stackedText = readFileSync(stacked.path, "utf8");
+    check("stacked SRT keeps every cue of both files, the second language at the top", (stackedText.match(/-->/g) ?? []).length === 4 && stackedText.includes("{\\an8}Bonjour.") && stackedText.includes("Hello there."), stackedText.split("\n").slice(0, 3).join(" | "));
+    await page.getByRole("button", { name: /Second language & layout/ }).click();
+    await page.getByRole("radio", { name: /Both in one cue/ }).click();
+    const combined = await download(mergeCard.getByRole("button", { name: "Download sample-bilingual.srt" }));
+    const combinedText = readFileSync(combined.path, "utf8");
+    check("combined SRT folds each overlapping pair into one two-line cue", (combinedText.match(/-->/g) ?? []).length === 2 && combinedText.includes("Hello there.\nBonjour.") && !combinedText.includes("{\\an8}"), combinedText.split("\n").slice(0, 4).join(" | "));
+    await page.screenshot({ path: join(FIXTURES, "verify-merge-subtitles.png"), fullPage: true });
+
+    // ---- Split by chapters ----------------------------------------------
+    log("\nSplit by chapters - a three-chapter MP4 into three pieces, then a file with none:");
+    await open("split-chapters");
+    await drop(fixtures.chaptered);
+    const splitCard = cardFor("chaptered.mp4");
+    await splitCard.getByText("Done", { exact: true }).waitFor({ timeout: 240_000 });
+    check("one row per chapter, named by its title", (await splitCard.locator("li").filter({ hasText: /^Chapter [123]: (Intro|Middle|End)/ }).count()) === 3, (await splitCard.innerText()).slice(0, 200));
+    const middleRow = splitCard.locator("li").filter({ hasText: /^Chapter 2: Middle/ });
+    const middle = await download(middleRow.getByText("Download"));
+    check("the piece is a copy named after its chapter", middle.name === "chaptered-02-middle.mp4" && stream(middle.info, "video")?.codec_name === "h264" && stream(middle.info, "audio")?.codec_name === "aac", middle.name);
+    check("the piece covers its chapter", Math.abs(seconds(middle.info) - 2) < 0.3, `${seconds(middle.info).toFixed(2)}s`);
+    check("the piece carries no chapter list of its own", (middle.info.chapters ?? []).length === 0);
+    await drop(fixtures.music);
+    const noChaptersCard = cardFor("music.mp3");
+    await noChaptersCard.getByText(/No chapters found/).waitFor({ timeout: 120_000 });
+    check("a file without chapters is refused with a pointer to the chapter tool", /chapter tool/.test(await noChaptersCard.innerText()));
+    await page.screenshot({ path: join(FIXTURES, "verify-split-chapters.png"), fullPage: true });
+
+    // ---- Extract every audio track --------------------------------------
+    log("\nExtract every audio track - an MKV with an English and a French track:");
+    await open("extract-audio-tracks");
+    await drop(fixtures.dual);
+    const tracksCard = cardFor("dual.mkv");
+    await tracksCard.getByText("Done", { exact: true }).waitFor({ timeout: 240_000 });
+    check("one row per track, described by language and codec", (await tracksCard.locator("li").filter({ hasText: /^Track 1: eng, AAC mono/ }).count()) === 1 && (await tracksCard.locator("li").filter({ hasText: /^Track 2: Commentary, fre, AAC mono/ }).count()) === 1, (await tracksCard.innerText()).slice(0, 200));
+    const frenchRow = tracksCard.locator("li").filter({ hasText: /^Track 2: / });
+    const french = await download(frenchRow.getByText("Download"));
+    check("the track comes out as an M4A named by its language, still AAC and alone", french.name === "dual-track2-fre.m4a" && stream(french.info, "audio")?.codec_name === "aac" && french.info.streams.length === 1, french.name);
+    check("the track keeps its language tag", stream(french.info, "audio")?.tags?.language === "fre", JSON.stringify(stream(french.info, "audio")?.tags));
+    check("the card does not claim to use only the first track", !/using the first/.test(await tracksCard.innerText()));
+    await page.screenshot({ path: join(FIXTURES, "verify-audio-tracks.png"), fullPage: true });
 
     // ---- Engine-level assertions ----------------------------------------
     log("\nEngine:");

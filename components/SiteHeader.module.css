@@ -8,9 +8,8 @@
   max-width: 72rem;
   padding: 0.75rem 1rem;
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.5rem 1.25rem;
+  align-items: center;
+  gap: 1rem;
 }
 
 .wordmark {
@@ -22,62 +21,159 @@
   min-width: 0;
 }
 
+.menu {
+  position: relative;
+}
+
 .list {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 1rem;
   margin: 0;
 }
 
-.link {
-  color: var(--muted-foreground);
+/* The one control in the header: a quiet button that reads as a menu. */
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: var(--radius);
+  padding: 0.25rem 0.5rem;
   font-size: var(--text-base);
-  white-space: nowrap;
+  line-height: var(--leading-base);
+  font-weight: 500;
+  color: var(--muted-foreground);
+  transition:
+    color 150ms,
+    background-color 150ms;
 }
 
-.link:hover {
+.trigger:hover,
+.trigger[data-popup-open] {
   color: var(--foreground);
+  background: var(--muted);
+}
+
+.icon {
+  display: flex;
+  transition: transform 150ms;
+}
+
+.trigger[data-popup-open] .icon {
+  transform: rotate(180deg);
 }
 
 /*
- * The tool being used, marked. `aria-current="page"` on the anchor carries the
- * same fact to a screen reader; this is it for everyone else.
+ * The name of the tool in use, beside the menu rather than in a row of
+ * links: the menu says where you can go, this says where you are.
  */
-.linkCurrent {
+.current {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+/* ---- The popup --------------------------------------------------------- */
+
+.positioner {
+  /* Portaled; the body's stacking context puts it above the page. */
+  width: max-content;
+  max-width: calc(100vw - 2rem);
+}
+
+.popup {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.viewport {
+  position: relative;
+  overflow: hidden;
+}
+
+.content {
+  display: grid;
+  gap: 1.25rem 2rem;
+  padding: 1rem 1.25rem;
+}
+
+/*
+ * Kept mounted for crawlers, the content sits in the page with the `hidden`
+ * attribute until the menu first opens. A class that sets `display` wins
+ * over the attribute's own rule, so hidden has to be said again here.
+ */
+.content[hidden] {
+  display: none;
+}
+
+@media (min-width: 640px) {
+  .content {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.group {
+  min-width: 0;
+}
+
+.groupTitle {
+  margin-bottom: 0.375rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  font-weight: 500;
+  color: var(--subtle);
+}
+
+.groupList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: var(--radius);
+  margin-left: -0.5rem;
+  padding: 0.25rem 0.5rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  transition:
+    color 150ms,
+    background-color 150ms;
+}
+
+.link:hover,
+.link[data-highlighted] {
+  color: var(--foreground);
+  background: var(--muted);
+}
+
+/* The tool being used: `aria-current="page"` carries the same fact to a screen reader. */
+.link[data-active] {
   color: var(--foreground);
   font-weight: 500;
-  text-decoration: underline;
-  text-decoration-thickness: 2px;
-  text-underline-offset: 5px;
 }
 
-/*
- * Seven links wrapped to three lines on a phone, which is a third of the
- * screen spent on navigation before the tool starts. One scrollable row
- * instead: the first two links are visible, the rest are a swipe away, and the
- * page begins where it should.
- */
+.linkIcon {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  color: var(--subtle);
+}
+
+/* ---- Narrow screens ---------------------------------------------------- */
+
 @media (max-width: 640px) {
   .inner {
-    flex-wrap: nowrap;
-    align-items: center;
     gap: 0.75rem;
   }
 
-  .nav {
-    flex: 1 1 auto;
-    overflow-x: auto;
-    /* Leaves room for the scrollbar some platforms draw over the text. */
-    padding-bottom: 0.125rem;
-    scrollbar-width: none;
-  }
-
-  .nav::-webkit-scrollbar {
-    display: none;
-  }
-
-  .list {
-    flex-wrap: nowrap;
-    gap: 1rem;
+  .content {
+    max-height: calc(100dvh - 6rem);
+    overflow-y: auto;
   }
 }

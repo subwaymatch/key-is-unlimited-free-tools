@@ -8,7 +8,13 @@
  *
  * These functions are pure so they can be unit-tested without a browser.
  */
-import type { AudioStreamInfo, ProbeResult, VideoStreamInfo } from "./types";
+import type {
+  AudioStreamInfo,
+  ChapterInfo,
+  ProbeResult,
+  SubtitleStreamInfo,
+  VideoStreamInfo,
+} from "./types";
 
 /** Named channel layouts ffmpeg prints, mapped to a channel count. */
 const CHANNEL_LAYOUTS: Record<string, number> = {
@@ -55,7 +61,7 @@ export function parseTimestamp(value: string): number | null {
  * Example detail:
  *   aac (LC) (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 128 kb/s (default)
  */
-function parseAudioDetail(detail: string): AudioStreamInfo {
+function parseAudioDetail(detail: string): Omit<AudioStreamInfo, "language" | "title"> {
   const codec = detail.match(/^([A-Za-z0-9_]+)/)?.[1] ?? "unknown";
 
   // The parenthetical straight after the codec is the profile ("LC", "HE-AAC"),
@@ -172,6 +178,30 @@ export function isQuarterTurn(rotationDegrees: number | null): boolean {
   return normalized === 90 || normalized === 270;
 }
 
+/**
+ * The language in the parentheses after a stream's index, when it has one:
+ * `Stream #0:1(eng): Audio: ...`. "und" is ffmpeg for "not set".
+ */
+function streamLanguage(line: string): string | null {
+  const language = line.match(/Stream #\d+:\d+(?:\[[^\]]*\])?\(([^)]*)\)/)?.[1] ?? null;
+  return language && language !== "und" ? language : null;
+}
+
+/**
+ * Parses one `Stream #0:2(eng): Subtitle: <detail>` line.
+ *
+ * The language sits in the parentheses after the index; the codec is the
+ * first word of the detail. A title, when the track has one, is on a
+ * Metadata line underneath and is filled in afterwards.
+ */
+function parseSubtitleStream(line: string, detail: string): SubtitleStreamInfo {
+  return {
+    codec: detail.match(/^([A-Za-z0-9_]+)/)?.[1] ?? "unknown",
+    language: streamLanguage(line),
+    title: null,
+  };
+}
+
 /** Builds a ProbeResult from the lines ffmpeg printed for `ffmpeg -i <input>`. */
 export function parseProbeOutput(log: string[]): ProbeResult {
   let durationSeconds: number | null = null;
@@ -179,9 +209,17 @@ export function parseProbeOutput(log: string[]): ProbeResult {
   let formatName: string | null = null;
   const audioStreams: AudioStreamInfo[] = [];
   const videoStreams: VideoStreamInfo[] = [];
+  const subtitleStreams: SubtitleStreamInfo[] = [];
+  const chapters: ChapterInfo[] = [];
   // The side-data block belongs to the stream printed above it, so the last
   // video stream stays in hand until another Stream line replaces it.
   let openVideo: VideoStreamInfo | null = null;
+  // Likewise a subtitle track's title is on the Metadata lines under it.
+  let openSubtitle: SubtitleStreamInfo | null = null;
+  // An audio track's title is under it the same way.
+  let openAudio: AudioStreamInfo | null = null;
+  // And a chapter's, on the lines under its "Chapter #0:n" line.
+  let openChapter: ChapterInfo | null = null;
 
   for (const line of log) {
     if (formatName === null) {
@@ -198,19 +236,56 @@ export function parseProbeOutput(log: string[]): ProbeResult {
       }
     }
 
+    /*
+     * Chapters are printed before the streams:
+     *   Chapter #0:0: start 0.000000, end 90.500000
+     *     Metadata:
+     *       title           : Intro
+     */
+    const chapter = line.match(/Chapter #\d+:\d+:\s*start\s+(-?\d+(?:\.\d+)?),\s*end\s+(-?\d+(?:\.\d+)?)/);
+    if (chapter) {
+      openChapter = {
+        startSeconds: Math.max(0, Number(chapter[1])),
+        endSeconds: Math.max(0, Number(chapter[2])),
+        title: null,
+      };
+      chapters.push(openChapter);
+      continue;
+    }
+
     const stream = line.match(
-      /Stream #\d+:\d+(?:\[[^\]]*\])?(?:\([^)]*\))?:\s*(Audio|Video):\s*(.+)$/,
+      /Stream #\d+:\d+(?:\[[^\]]*\])?(?:\([^)]*\))?:\s*(Audio|Video|Subtitle):\s*(.+)$/,
     );
     if (!stream) {
       const rotation = openVideo === null ? null : parseDisplayRotation(line);
       if (rotation !== null && openVideo !== null) openVideo.rotationDegrees = rotation;
+      const title = line.match(/^\s+title\s*:\s*(.+?)\s*$/)?.[1];
+      if (title && openSubtitle !== null) openSubtitle.title = title;
+      else if (title && openAudio !== null) openAudio.title = title;
+      else if (title && openChapter !== null) openChapter.title = title;
       continue;
     }
 
     openVideo = null;
+    openSubtitle = null;
+    openAudio = null;
+    openChapter = null;
 
     if (stream[1] === "Audio") {
-      audioStreams.push(parseAudioDetail(stream[2]));
+      const audio: AudioStreamInfo = {
+        ...parseAudioDetail(stream[2]),
+        language: streamLanguage(line),
+        title: null,
+      };
+      audioStreams.push(audio);
+      openAudio = audio;
+      continue;
+    }
+
+    if (stream[1] === "Subtitle") {
+      const subtitle = parseSubtitleStream(line, stream[2]);
+      subtitleStreams.push(subtitle);
+      openSubtitle = subtitle;
       continue;
     }
 
@@ -233,6 +308,8 @@ export function parseProbeOutput(log: string[]): ProbeResult {
     videoStreams,
     video: videoStreams[0] ?? null,
     hasVideo: videoStreams.length > 0,
+    subtitleStreams,
+    chapters,
     formatName,
     log,
   };

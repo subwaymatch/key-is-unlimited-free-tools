@@ -17,8 +17,13 @@ import {
   isBrowserSafeH264,
   MIN_TARGET_MEGABYTES,
   MUTE_FORMAT,
+  atempoChain,
+  formatSpeed,
+  parseSpeedFactor,
   planFor,
   playbackWarning,
+  speedFilters,
+  speedFormat,
   STRIP_FORMAT,
   targetBytesFromMegabytes,
   TRIM_FORMATS,
@@ -56,6 +61,8 @@ function probe(
         sampleRate: 48_000,
         channels: 2,
         channelLayout: "stereo",
+        language: null,
+        title: null,
         bitrateKbps: 192,
         ...audio,
       }
@@ -68,6 +75,8 @@ function probe(
     videoStreams: videoStream ? [videoStream] : [],
     video: videoStream,
     hasVideo: videoStream !== null,
+    subtitleStreams: [],
+    chapters: [],
     formatName: "mov,mp4,m4a,3gp,3g2,mj2",
     log: [],
   };
@@ -682,5 +691,135 @@ describe("removing metadata", () => {
     expect(plan.args).not.toContain("0:v:0");
     expect(plan.extension).toBe("mp3");
     expect(plan.kind).toBe("audio");
+  });
+});
+
+describe("atempoChain", () => {
+  it("keeps every step inside the range the filter has always accepted", () => {
+    for (const factor of [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 8, 100]) {
+      const steps = atempoChain(factor);
+      for (const step of steps) {
+        expect(step, `${factor}x`).toBeGreaterThanOrEqual(0.5);
+        expect(step, `${factor}x`).toBeLessThanOrEqual(2);
+      }
+      expect(steps.reduce((product, step) => product * step, 1)).toBeCloseTo(factor, 3);
+    }
+  });
+
+  it("uses one step where one will do", () => {
+    expect(atempoChain(2)).toEqual([2]);
+    expect(atempoChain(0.5)).toEqual([0.5]);
+    expect(atempoChain(1.5)).toEqual([1.5]);
+  });
+
+  it("chains doublings and halvings beyond it", () => {
+    expect(atempoChain(4)).toEqual([2, 2]);
+    expect(atempoChain(3)).toEqual([2, 1.5]);
+    expect(atempoChain(0.25)).toEqual([0.5, 0.5]);
+  });
+});
+
+describe("speedFilters", () => {
+  it("re-times the video and holds the source frame rate", () => {
+    const filters = speedFilters(2, probe({ fps: 29.97 })!.video);
+    expect(filters.video).toBe("setpts=(PTS-STARTPTS)/2,fps=29.97");
+    expect(filters.audio).toBe("atempo=2");
+  });
+
+  it("falls back to 30 fps when the source does not say", () => {
+    expect(speedFilters(0.5, probe({ fps: null })!.video).video).toBe(
+      "setpts=(PTS-STARTPTS)/0.5,fps=30",
+    );
+    expect(speedFilters(0.5, null).video).toContain("fps=30");
+  });
+
+  it("chains atempo for the speeds one step cannot reach", () => {
+    expect(speedFilters(4, null).audio).toBe("atempo=2,atempo=2");
+    expect(speedFilters(0.25, null).audio).toBe("atempo=0.5,atempo=0.5");
+  });
+});
+
+describe("the speed changer", () => {
+  const twice = speedFormat({ factor: 2, keepAudio: true });
+
+  it("bakes the speed and the audio choice into the id, the label and the filename", () => {
+    expect(twice.id).toBe("speed-2x-audio");
+    expect(twice.label).toBe("2x");
+    expect(speedFormat({ factor: 0.5, keepAudio: false }).id).toBe("speed-0.5x-silent");
+    expect(planFor(twice, probe()).fileSuffix).toBe("-2x");
+    expect(planFor(speedFormat({ factor: 1.25, keepAudio: true }), probe()).fileSuffix).toBe(
+      "-1.25x",
+    );
+  });
+
+  it("re-encodes both streams with the filters, into an MP4", () => {
+    const plan = planFor(twice, probe());
+    expect(plan.mode).toBe("encode");
+    expect(plan.extension).toBe("mp4");
+    expect(plan.kind).toBe("video");
+    expect(joined(plan.args)).toContain("-vf setpts=(PTS-STARTPTS)/2,fps=30");
+    expect(joined(plan.args)).toContain("-af atempo=2");
+    expect(joined(plan.args)).toContain("-c:v libx264");
+    expect(joined(plan.args)).toContain("-c:a aac -b:a 192k");
+    expect(plan.args).toContain("+faststart");
+    expect(twice.requiredEncoder).toBe("libx264");
+  });
+
+  it("tells the engine the output runs on its own clock", () => {
+    // Half as long at 2x, twice as long at 0.5x: progress and the range limit
+    // both have to follow the output, not the input.
+    expect(planFor(twice, probe()).durationFactor).toBe(0.5);
+    expect(planFor(speedFormat({ factor: 0.5, keepAudio: true }), probe()).durationFactor).toBe(
+      2,
+    );
+    expect(planFor(twice, probe()).limitInput).toBe(true);
+  });
+
+  it("drops the audio when asked to, and when there is none", () => {
+    const silent = planFor(speedFormat({ factor: 2, keepAudio: false }), probe());
+    expect(silent.args).toContain("-an");
+    expect(silent.args).not.toContain("-af");
+    expect(silent.args).not.toContain("-c:a");
+    // Keeping the audio of a file that has none is not an error.
+    const noAudio = planFor(twice, probe({}, null));
+    expect(noAudio.args).toContain("-an");
+    expect(noAudio.args).not.toContain("0:a:0");
+  });
+
+  it("sizes the output by its own length", () => {
+    // An hour of 1080p is about 2 GB of H.264; at 2x it is half that: fine.
+    const long = probe({}, {}, 3600);
+    expect(twice.blocker!(long, context(20 * 1024 ** 3))).toBeNull();
+    // The same hour at quarter speed is four hours of output: not fine.
+    const slow = speedFormat({ factor: 0.25, keepAudio: true });
+    expect(slow.blocker!(long, context(20 * 1024 ** 3))?.message).toMatch(/re-timed video/);
+    // A range brings it back.
+    expect(
+      slow.blocker!(long, context(20 * 1024 ** 3, { startSeconds: 0, endSeconds: 60 })),
+    ).toBeNull();
+  });
+});
+
+describe("speed factors", () => {
+  it("accepts the range the tool takes and rounds to two decimals", () => {
+    expect(parseSpeedFactor(2)).toBe(2);
+    expect(parseSpeedFactor(1.333)).toBe(1.33);
+    expect(parseSpeedFactor(0.1)).toBe(0.1);
+    expect(parseSpeedFactor(100)).toBe(100);
+  });
+
+  it("refuses what is not a speed", () => {
+    expect(parseSpeedFactor(0)).toBeNull();
+    expect(parseSpeedFactor(-2)).toBeNull();
+    expect(parseSpeedFactor(0.04)).toBeNull();
+    expect(parseSpeedFactor(101)).toBeNull();
+    expect(parseSpeedFactor(Number.NaN)).toBeNull();
+  });
+
+  it("labels speeds without trailing zeros", () => {
+    expect(formatSpeed(2)).toBe("2x");
+    expect(formatSpeed(0.5)).toBe("0.5x");
+    expect(formatSpeed(1.25)).toBe("1.25x");
+    expect(formatSpeed(1.5)).toBe("1.5x");
   });
 });

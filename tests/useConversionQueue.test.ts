@@ -76,11 +76,15 @@ const fake = vi.hoisted(() => {
       sampleRate: 48_000,
       channels: 2,
       channelLayout: "stereo",
+      language: null,
+      title: null,
       bitrateKbps: 192,
     },
     videoStreams: [VIDEO],
     video: VIDEO,
     hasVideo: true,
+    subtitleStreams: [],
+    chapters: [],
     formatName: "mov,mp4,m4a,3gp,3g2,mj2",
     log: [],
   };
@@ -841,5 +845,53 @@ describe("housekeeping", () => {
     await waitFor(() => expect(job(hook).status).toBe("done"));
     expect(outputs(hook)).toEqual(["original:done", "mp3:done"]);
     expect(posterCalls()).toBe(1);
+  });
+});
+
+describe("outputs from the file itself", () => {
+  /** Two pieces, known only from the probe, as a chapter splitter's are. */
+  const piece = (index: number): OutputFormat => ({
+    id: `piece-${index}`,
+    label: `Piece ${index}`,
+    blurb: "",
+    lossless: true,
+    requiredEncoder: null,
+    describe: (probe) => `Piece ${index} of ${probe.durationSeconds}s`,
+    plan: () => ({ args: [], extension: "m4a", mimeType: "audio/mp4", mode: "copy", kind: "audio" }),
+  });
+  const options = {
+    key: "pieces",
+    formats: [piece(1), piece(2), piece(3)],
+    defaultFormatIds: [],
+    formatsForFile: (probe: ProbeResult) => (probe.durationSeconds === 120 ? ["piece-1", "piece-2"] : []),
+    openWithoutOutputs: true,
+    waveform: false,
+  };
+
+  it("adds the formats a tool derives from the probe once the file is read, labelled by it", async () => {
+    const hook = renderHook(() => useConversionQueue(options));
+    await act(async () => {
+      hook.result.current.addFiles([file()]);
+    });
+    const first = await session();
+    const one = await nextCall(first);
+    expect(one.formatId).toBe("piece-1");
+    expect(outputs(hook)).toEqual(["piece-1:running", "piece-2:pending"]);
+    expect(job(hook).outputs.map((entry) => entry.label)).toEqual(["Piece 1 of 120s", "Piece 2 of 120s"]);
+    await finish(one);
+    await finish(await nextCall(first));
+    await waitFor(() => expect(job(hook).status).toBe("done"));
+
+    // A format added from the card comes back through the runner with the
+    // probe already in hand: the pieces are not added a second time.
+    await act(async () => {
+      hook.result.current.addFormatToJob(job(hook).id, "piece-3", null);
+    });
+    const three = await nextCall(await session(1));
+    expect(three.formatId).toBe("piece-3");
+    await finish(three);
+    await waitFor(() => expect(job(hook).status).toBe("done"));
+    expect(formats(hook)).toEqual(["piece-1", "piece-2", "piece-3"]);
+    expect(job(hook).outputs[2].label).toBe("Piece 3 of 120s");
   });
 });

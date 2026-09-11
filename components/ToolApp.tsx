@@ -4,7 +4,6 @@ import { ChevronDown, DownloadCloud } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { Button } from "./ui/Button";
-import { CORE_VERSION, FFMPEG_VERSION } from "@/lib/engine/constants";
 import { formatBytes } from "@/lib/format-utils";
 import type { ToolFeatures } from "@/lib/toolFeatures";
 import type { ToolMeta } from "@/lib/tools";
@@ -13,11 +12,9 @@ import { useConversionQueue, type QueueOptions } from "@/lib/useConversionQueue"
 import { DropZone } from "./DropZone";
 import { EngineBanner } from "./EngineBanner";
 import { FileCard } from "./FileCard";
+import { EngineFootnote, ToolFrame } from "./ToolFrame";
 import settingsStyles from "./Settings.module.css";
 import styles from "./ToolApp.module.css";
-
-/** Files this large rely on the WORKERFS mount path rather than an in-memory copy. */
-const LARGE_FILE_BYTES = 2 * 1024 ** 3;
 
 export type QueueApi = ReturnType<typeof useConversionQueue>;
 
@@ -166,159 +163,143 @@ export function ToolApp({
   }, [completedOutputs]);
 
   return (
-    <main className={styles.page}>
-      <header className={styles.header}>
-        <h1 className={styles.title}>{tool.name}</h1>
-        <p className={styles.tagline}>{lead}</p>
-      </header>
+    <ToolFrame
+      tool={tool}
+      lead={lead}
+      footer={<EngineFootnote note={note} largestFile={largestFile} />}
+    >
+      <EngineBanner state={engineState} />
 
-      <div className={styles.stack}>
-        <EngineBanner state={engineState} />
+      <DropZone
+        onFiles={handleFiles}
+        compact={hasJobs}
+        disabled={invalid !== null}
+        {...dropZone}
+      />
 
-        <DropZone
-          onFiles={handleFiles}
-          compact={hasJobs}
-          disabled={invalid !== null}
-          {...dropZone}
-        />
-
-        {/*
-         * Every tool has a panel, because every tool has at least the metadata
-         * toggle to put in it - and a tool that stripped tags with no way to
-         * say otherwise would be as surprising as one that kept them silently.
-         * The exception is the metadata remover, which strips unconditionally
-         * and would otherwise get a disclosure that opens onto nothing.
-         */}
-        {(settings || !stripsMetadataAnyway) && (
-          <div className={styles.settings}>
-            <button
-              type="button"
-              onClick={() => setShowSettings((previous) => !previous)}
-              aria-expanded={showSettings}
-              className={styles.settingsToggle}
-            >
-              <span className={styles.settingsTitle}>
-                {settings?.title ?? "Output options"}
-                <span className={styles.settingsSummary}>
-                  {settings ? settings.summary(queue) : metadataSummary}
-                </span>
+      {/*
+       * Every tool has a panel, because every tool has at least the metadata
+       * toggle to put in it - and a tool that stripped tags with no way to
+       * say otherwise would be as surprising as one that kept them silently.
+       * The exception is the metadata remover, which strips unconditionally
+       * and would otherwise get a disclosure that opens onto nothing.
+       */}
+      {(settings || !stripsMetadataAnyway) && (
+        <div className={styles.settings}>
+          <button
+            type="button"
+            onClick={() => setShowSettings((previous) => !previous)}
+            aria-expanded={showSettings}
+            className={styles.settingsToggle}
+          >
+            <span className={styles.settingsTitle}>
+              {settings?.title ?? "Output options"}
+              <span className={styles.settingsSummary}>
+                {settings ? settings.summary(queue) : metadataSummary}
               </span>
-              <ChevronDown
-                aria-hidden="true"
-                size={18}
-                className={`${styles.chevron} ${showSettings ? styles.chevronOpen : ""}`}
-              />
-            </button>
-            {showSettings && (
-              <div className={styles.settingsBody}>
-                {settings?.render(queue)}
-                {!stripsMetadataAnyway && (
-                  <fieldset className={settingsStyles.fieldset}>
-                    <legend className={settingsStyles.legend}>Metadata</legend>
-                    <p className={settingsStyles.intro}>
-                      On by default. A clip from a phone carries the time it was taken, the model
-                      of the phone and the GPS fix of where you were standing, and none of that
-                      has any business riding along into a file you are about to send to someone.
-                    </p>
-                    <label className={styles.checkboxRow}>
-                      <input
-                        type="checkbox"
-                        checked={stripMetadata}
-                        onChange={(event) => setStripMetadata(event.target.checked)}
-                      />
-                      <span>
-                        <span className={styles.checkboxLabel}>
-                          Remove titles, dates, location and chapters from the output
-                        </span>
-                        <span className={styles.checkboxBlurb}>
-                          Turn this off to carry the source tags across, which is what you want
-                          when the title and artist of a music file are the point.
-                        </span>
+            </span>
+            <ChevronDown
+              aria-hidden="true"
+              size={18}
+              className={`${styles.chevron} ${showSettings ? styles.chevronOpen : ""}`}
+            />
+          </button>
+          {showSettings && (
+            <div className={styles.settingsBody}>
+              {settings?.render(queue)}
+              {!stripsMetadataAnyway && (
+                <fieldset className={settingsStyles.fieldset}>
+                  <legend className={settingsStyles.legend}>Metadata</legend>
+                  <p className={settingsStyles.intro}>
+                    On by default. A clip from a phone carries the time it was taken, the model
+                    of the phone and the GPS fix of where you were standing, and none of that
+                    has any business riding along into a file you are about to send to someone.
+                  </p>
+                  <label className={styles.checkboxRow}>
+                    <input
+                      type="checkbox"
+                      checked={stripMetadata}
+                      onChange={(event) => setStripMetadata(event.target.checked)}
+                    />
+                    <span>
+                      <span className={styles.checkboxLabel}>
+                        Remove titles, dates, location and chapters from the output
                       </span>
-                    </label>
-                  </fieldset>
-                )}
-              </div>
-            )}
-            {invalid && (
-              <p role="alert" className={styles.settingsError}>
-                {invalid}
-              </p>
-            )}
-          </div>
-        )}
-
-        {hasJobs && (
-          <section aria-label="Conversion queue">
-            <div className={styles.queueHeader}>
-              <h2 className={styles.queueCount}>
-                {jobs.length} {jobs.length === 1 ? "file" : "files"}
-                {activeCount > 0 && (
-                  <span className={styles.queueRemaining} aria-live="polite">
-                    {activeCount} remaining
-                  </span>
-                )}
-              </h2>
-              {finishedCount > 0 && (
-                <Button onClick={clearFinished} variant="ghost">
-                  Clear finished
-                </Button>
+                      <span className={styles.checkboxBlurb}>
+                        Turn this off to carry the source tags across, which is what you want
+                        when the title and artist of a music file are the point.
+                      </span>
+                    </span>
+                  </label>
+                </fieldset>
               )}
             </div>
+          )}
+          {invalid && (
+            <p role="alert" className={styles.settingsError}>
+              {invalid}
+            </p>
+          )}
+        </div>
+      )}
 
-            <ul className={styles.jobs}>
-              {jobs.map((job) => (
-                <FileCard
-                  key={job.id}
-                  job={job}
-                  formats={options.formats}
-                  features={features}
-                  capabilities={engineState.capabilities}
-                  onCancel={cancelJob}
-                  onRemove={removeJob}
-                  onRetry={retryJob}
-                  onAddFormat={addFormatToJob}
-                  onDetectSilence={detectSilence}
-                  onCancelOutput={cancelOutput}
-                  onRetryOutput={retryOutput}
-                />
-              ))}
-            </ul>
-
-            {completedOutputs.length > 1 && (
-              <div className={styles.totalRow}>
-                <p className={styles.total}>
-                  {completedOutputs.length} files ready -{" "}
-                  {formatBytes(
-                    completedOutputs.reduce(
-                      (total, output) => total + (output.result?.bytes ?? 0),
-                      0,
-                    ),
-                  )}{" "}
-                  total
-                </p>
-                <Button onClick={downloadAll}>
-                  <DownloadCloud aria-hidden="true" size={14} strokeWidth={2} />
-                  Download all
-                </Button>
-              </div>
+      {hasJobs && (
+        <section aria-label="Conversion queue">
+          <div className={styles.queueHeader}>
+            <h2 className={styles.queueCount}>
+              {jobs.length} {jobs.length === 1 ? "file" : "files"}
+              {activeCount > 0 && (
+                <span className={styles.queueRemaining} aria-live="polite">
+                  {activeCount} remaining
+                </span>
+              )}
+            </h2>
+            {finishedCount > 0 && (
+              <Button onClick={clearFinished} variant="ghost">
+                Clear finished
+              </Button>
             )}
-          </section>
-        )}
-      </div>
+          </div>
 
-      <footer className={styles.footer}>
-        {note && <p>{note}</p>}
-        <p>
-          Your files never leave this device. Decoding happens locally with ffmpeg compiled to
-          WebAssembly (@ffmpeg/ffmpeg {FFMPEG_VERSION}, core {CORE_VERSION}).
-        </p>
-        <p>
-          Large files are mounted and read on demand rather than loaded into memory, which is what
-          allows videos well past the usual ~2 GB WebAssembly ceiling
-          {largestFile > LARGE_FILE_BYTES && ` (largest so far: ${formatBytes(largestFile)})`}.
-        </p>
-      </footer>
-    </main>
+          <ul className={styles.jobs}>
+            {jobs.map((job) => (
+              <FileCard
+                key={job.id}
+                job={job}
+                formats={options.formats}
+                features={features}
+                capabilities={engineState.capabilities}
+                onCancel={cancelJob}
+                onRemove={removeJob}
+                onRetry={retryJob}
+                onAddFormat={addFormatToJob}
+                onDetectSilence={detectSilence}
+                onCancelOutput={cancelOutput}
+                onRetryOutput={retryOutput}
+              />
+            ))}
+          </ul>
+
+          {completedOutputs.length > 1 && (
+            <div className={styles.totalRow}>
+              <p className={styles.total}>
+                {completedOutputs.length} files ready -{" "}
+                {formatBytes(
+                  completedOutputs.reduce(
+                    (total, output) => total + (output.result?.bytes ?? 0),
+                    0,
+                  ),
+                )}{" "}
+                total
+              </p>
+              <Button onClick={downloadAll}>
+                <DownloadCloud aria-hidden="true" size={14} strokeWidth={2} />
+                Download all
+              </Button>
+            </div>
+          )}
+        </section>
+      )}
+    </ToolFrame>
   );
 }

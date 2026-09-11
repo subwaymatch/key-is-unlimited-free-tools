@@ -35,7 +35,7 @@ import type {
 export const SELECT_VIDEO = ["-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn"];
 
 /** Moves the moov atom to the front so players can start immediately. */
-const MP4_FASTSTART = ["-movflags", "+faststart"];
+export const MP4_FASTSTART = ["-movflags", "+faststart"];
 
 /**
  * H.264 for everything that has to play anywhere.
@@ -44,7 +44,7 @@ const MP4_FASTSTART = ["-movflags", "+faststart"];
  * `medium` is roughly two and a half times slower for a few percent smaller
  * output. 4:2:0 8-bit is the one pixel format every decoder takes.
  */
-const H264_ENCODE = ["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p"];
+export const H264_ENCODE = ["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p"];
 
 export interface Container {
   extension: string;
@@ -184,9 +184,12 @@ export function playbackWarning(video: string | null | undefined): string | unde
   return `Browsers cannot play ${codec.toUpperCase()} video, so this file will not preview here. It is intact and opens in VLC or QuickTime; convert it to MP4 (H.264) if it has to play on the web.`;
 }
 
+/** Containers of the MP4 family, which want their index moved to the front. */
+const FASTSTART_EXTENSIONS = new Set(["mp4", "m4v", "mov", "m4a"]);
+
 /** Muxer options a container wants on every output. */
 export function containerArgs(container: Container): string[] {
-  return container === MP4 || container === MOV ? MP4_FASTSTART : [];
+  return FASTSTART_EXTENSIONS.has(container.extension) ? MP4_FASTSTART : [];
 }
 
 /**
@@ -983,6 +986,170 @@ export const TRIM_FORMATS: readonly OutputFormat[] = [
     },
   },
 ];
+
+/* ---- Change speed ------------------------------------------------------- */
+
+export interface SpeedSettings {
+  /** Playback speed: 2 is twice as fast, 0.5 is half speed. */
+  factor: number;
+  /** Keep the audio, re-timed to match and pitch-corrected. */
+  keepAudio: boolean;
+}
+
+/** Speeds worth a button. Anything else goes in the custom field. */
+export const SPEED_PRESETS: readonly { factor: number; blurb: string }[] = [
+  { factor: 0.25, blurb: "Quarter speed, for something too quick to see" },
+  { factor: 0.5, blurb: "Half speed: the usual slow motion" },
+  { factor: 0.75, blurb: "A little slower, and the audio still sounds natural" },
+  { factor: 1.25, blurb: "A little faster, and the audio still sounds natural" },
+  { factor: 1.5, blurb: "Faster, and speech stays easy to follow" },
+  { factor: 2, blurb: "Twice as fast: the usual speed-up" },
+  { factor: 4, blurb: "Four times as fast" },
+  { factor: 8, blurb: "A time-lapse; drop the audio at this speed" },
+];
+
+/**
+ * The slowest and fastest the custom field takes.
+ *
+ * Below a tenth of speed every frame is held for ten, which is a slideshow;
+ * past a hundred times a minute of video is under a second. Both are the
+ * point at which "speed" stops describing what comes out.
+ */
+export const MIN_SPEED_FACTOR = 0.1;
+export const MAX_SPEED_FACTOR = 100;
+
+export const DEFAULT_SPEED_SETTINGS: SpeedSettings = { factor: 2, keepAudio: true };
+
+/** Frame rate given to a source whose own is unknown. */
+const FALLBACK_FPS = 30;
+
+/**
+ * Reads a typed speed. Null for anything outside the range the tool takes.
+ *
+ * Kept to two decimals: "1.333" is not a speed anyone means, and it would
+ * otherwise reach the filename and the format id as typed.
+ */
+export function parseSpeedFactor(value: number): number | null {
+  if (!Number.isFinite(value)) return null;
+  const rounded = Math.round(value * 100) / 100;
+  if (rounded < MIN_SPEED_FACTOR || rounded > MAX_SPEED_FACTOR) return null;
+  return rounded;
+}
+
+/** 2 -> "2x", 0.5 -> "0.5x", 1.25 -> "1.25x". The label, the id and the filename. */
+export function formatSpeed(factor: number): string {
+  return `${Number(factor.toFixed(2))}x`;
+}
+
+/**
+ * `atempo` steps that multiply to the factor.
+ *
+ * Each step is kept between 0.5 and 2: that is the range every ffmpeg since
+ * the filter was written accepts, and chaining is how the documentation says
+ * to go beyond it. A 4x speed-up is two doublings; a 0.25x slow-down is two
+ * halvings; 3x is a doubling and a half.
+ */
+export function atempoChain(factor: number): number[] {
+  const steps: number[] = [];
+  let remaining = factor;
+  while (remaining > 2) {
+    steps.push(2);
+    remaining /= 2;
+  }
+  while (remaining < 0.5) {
+    steps.push(0.5);
+    remaining /= 0.5;
+  }
+  steps.push(Math.round(remaining * 10_000) / 10_000);
+  return steps;
+}
+
+/**
+ * The frame rate the re-timed video is written at: the source's own.
+ *
+ * `setpts` alone moves the timestamps and leaves every frame in place, so a
+ * 2x speed-up of a 30 fps clip would come out at 60 fps and a 0.5x slow-down
+ * at 15. The `fps` filter after it drops or repeats frames to keep the rate
+ * where it was, which is what every player expects and what keeps the file
+ * size in proportion.
+ */
+export function speedFilters(
+  factor: number,
+  video: VideoStreamInfo | null,
+): { video: string; audio: string } {
+  const fps = video?.fps && video.fps > 0 ? Number(video.fps.toFixed(3)) : FALLBACK_FPS;
+  return {
+    video: `setpts=(PTS-STARTPTS)/${factor},fps=${fps}`,
+    audio: atempoChain(factor)
+      .map((step) => `atempo=${step}`)
+      .join(","),
+  };
+}
+
+/**
+ * The speed changer for one setting.
+ *
+ * A full re-encode, because every frame's timestamp moves and every audio
+ * sample is resampled: there is no stream copy that changes speed. Video is
+ * H.264 at a quality a notch above the converter's, since the point is the
+ * timing rather than the size; audio is re-timed with `atempo`, which keeps
+ * the pitch where it was rather than making everyone sound like a cartoon.
+ */
+export function speedFormat(settings: SpeedSettings): OutputFormat {
+  const speed = formatSpeed(settings.factor);
+  const id = `speed-${speed}-${settings.keepAudio ? "audio" : "silent"}`;
+  const audioKbps = 192;
+
+  return {
+    id,
+    label: speed,
+    blurb:
+      settings.factor === 1
+        ? "The same speed, re-encoded"
+        : settings.factor > 1
+          ? `${speed} faster, ${settings.keepAudio ? "audio pitch-corrected" : "without audio"}`
+          : `${speed} slower, ${settings.keepAudio ? "audio pitch-corrected" : "without audio"}`,
+    lossless: false,
+    requiredEncoder: "libx264",
+    plan(probe) {
+      const filters = speedFilters(settings.factor, probe.video);
+      const keepAudio = settings.keepAudio && probe.audio !== null;
+      return {
+        args: [
+          "-map",
+          "0:v:0",
+          ...(keepAudio ? ["-map", "0:a:0"] : ["-an"]),
+          "-sn",
+          "-dn",
+          "-vf",
+          filters.video,
+          ...(keepAudio ? ["-af", filters.audio] : []),
+          ...H264_ENCODE,
+          "-crf",
+          "20",
+          ...(keepAudio ? ["-c:a", "aac", "-b:a", `${audioKbps}k`] : []),
+          ...MP4_FASTSTART,
+        ],
+        ...MP4,
+        mode: "encode",
+        kind: "video",
+        fileSuffix: `-${speed}`,
+        durationFactor: 1 / settings.factor,
+        limitInput: true,
+      };
+    },
+    blocker(probe, context) {
+      const atSource = estimateEncodedBytes(
+        probe,
+        context,
+        settings.keepAudio && probe.audio ? audioKbps : 0,
+      );
+      // The output is the clip's length divided by the speed, and so is its size.
+      const estimated = atSource === null ? null : Math.round(atSource / settings.factor);
+      return sizeBlocker(estimated, "The re-timed video");
+    },
+  };
+}
 
 /* ---- Remove metadata ---------------------------------------------------- */
 

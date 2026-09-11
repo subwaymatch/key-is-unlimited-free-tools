@@ -20,6 +20,10 @@ export interface AudioStreamInfo {
   /** Raw channel layout as printed by ffmpeg, e.g. "stereo", "5.1(side)". */
   channelLayout: string | null;
   bitrateKbps: number | null;
+  /** ISO 639 code from the stream line, e.g. "eng"; null when absent or "und". */
+  language: string | null;
+  /** The track's title from the metadata under it, e.g. "Commentary", when it has one. */
+  title: string | null;
 }
 
 export interface VideoStreamInfo {
@@ -45,6 +49,23 @@ export interface VideoStreamInfo {
   rotationDegrees: number | null;
 }
 
+/** A subtitle track, as far as the probe can tell. */
+export interface SubtitleStreamInfo {
+  /** ffmpeg codec name: "subrip", "ass", "mov_text", "hdmv_pgs_subtitle". */
+  codec: string;
+  /** ISO 639 language tag from the stream, e.g. "eng", or null when unset. */
+  language: string | null;
+  /** The stream's title tag, when it has one: "English (SDH)". */
+  title: string | null;
+}
+
+/** A chapter marker the container carries. */
+export interface ChapterInfo {
+  startSeconds: number;
+  endSeconds: number;
+  title: string | null;
+}
+
 export interface ProbeResult {
   /** Media duration in seconds, or null when ffmpeg reports "N/A". */
   durationSeconds: number | null;
@@ -59,6 +80,10 @@ export interface ProbeResult {
   /** First video stream (the one the video tools work on), or null. */
   video: VideoStreamInfo | null;
   hasVideo: boolean;
+  /** Every subtitle track ffmpeg found, in file order. */
+  subtitleStreams: SubtitleStreamInfo[];
+  /** The container's chapter list, in order. */
+  chapters: ChapterInfo[];
   /** Container/format name(s) ffmpeg detected, e.g. "mov,mp4,m4a,3gp,3g2,mj2". */
   formatName: string | null;
   /** ffmpeg's stderr for this probe, kept for the per-file log panel. */
@@ -91,8 +116,8 @@ export interface ExtractProgress {
 
 export type ExtractMode = "copy" | "encode";
 
-/** What a finished output is, which decides how the card previews it. */
-export type OutputKind = "audio" | "video" | "image";
+/** What a finished output is, which decides how the card previews it. "text" is never previewed. */
+export type OutputKind = "audio" | "video" | "image" | "text";
 
 /**
  * A slice of the source timeline, in seconds measured from the start of the
@@ -115,6 +140,21 @@ export interface PlanContext {
   trim: TrimRange | null;
   fileBytes: number;
   /**
+   * Where the engine mounted the source, for the rare plan that has to name
+   * it inside a filter rather than through `-i`: burning one of the file's
+   * own subtitle tracks reads the same file a second time.
+   */
+  inputPath?: string;
+  /**
+   * Whether the visitor asked for the source's tags to be dropped.
+   *
+   * The engine appends the stripping arguments itself, after a plan's own,
+   * so a plan that writes metadata of its own - chapter markers - has to see
+   * the switch and do the stripping itself, or the engine's arguments would
+   * undo its work. Set together with `stripsMetadata` on the plan.
+   */
+  stripMetadata?: boolean;
+  /**
    * Lower-case extension of the source file, without the dot, when it has one.
    *
    * ffmpeg's format name cannot tell a MOV from an MP4 - both probe as
@@ -122,6 +162,17 @@ export interface PlanContext {
    * name the file arrived under.
    */
   sourceExtension?: string | null;
+}
+
+/**
+ * A file a run needs in the core's filesystem: a subtitle file to burn, a
+ * font for it, the concat demuxer's list. Written before the command and
+ * removed after it, whichever way it ended.
+ */
+export interface ScratchFile {
+  /** Absolute path inside the core; a directory in it is created as needed. */
+  path: string;
+  contents: string | Uint8Array;
 }
 
 /**
@@ -139,6 +190,8 @@ export interface FormatPlan {
   args: string[];
   /** Options that belong before `-i`, such as a forced input format. */
   inputArgs?: string[];
+  /** Files the run needs alongside the input. See ScratchFile. */
+  scratchFiles?: ScratchFile[];
   /**
    * Passes to run before the final one, each written to the null muxer.
    *
@@ -173,6 +226,47 @@ export interface FormatPlan {
   verifyDuration?: boolean;
   /** True when the plan already drops metadata, so the engine does not repeat it. */
   stripsMetadata?: boolean;
+  /**
+   * Leave the range out of the filename; the plan has named the output itself.
+   *
+   * A clipped output carries its range in its name so several clips of one
+   * file can sit in one folder. A single frame is not a clip: it is taken at
+   * the start marker, and "frame-at-2s" says that where "2s-6s" would not.
+   */
+  omitRangeSuffix?: boolean;
+  /**
+   * How long the output is compared with the range it was made from.
+   *
+   * A plan that re-times its output - a speed change - produces a file that
+   * is not the length of its input, and the engine measures progress against
+   * the output timeline. Without this a 2x speed-up would stop at 50% and a
+   * 0.5x slow-down would sit at 100% for half the run. Defaults to 1.
+   */
+  durationFactor?: number;
+  /**
+   * Builds the final pass's arguments from what the analysis passes printed,
+   * in place of `args`.
+   *
+   * Loudness normalisation measures the file in one pass and corrects it in
+   * the next with the numbers it found, so the final command line cannot be
+   * written until the first pass has run. `keep` picks the log lines worth
+   * holding on to - a chatty run prints thousands - and `args` turns them into
+   * the output options.
+   */
+  refine?: {
+    keep(line: string): boolean;
+    args(lines: readonly string[]): string[];
+  };
+  /**
+   * Put the range's length before `-i`, so it bounds what is read rather than
+   * what is written.
+   *
+   * `-t` as an output option stops the encoder once the *output* reaches the
+   * length of the range, which cuts a slow-down off halfway through. As an
+   * input option it limits the input to the range and the output is however
+   * long the plan makes it.
+   */
+  limitInput?: boolean;
 }
 
 /**
@@ -245,6 +339,12 @@ export interface OutputFormat {
    * Defaults to true.
    */
   offer?(probe: ProbeResult, context: PlanContext): boolean;
+  /**
+   * The label once the file is known, for a format whose meaning depends on
+   * the file: "Chapter 3: The first part" rather than "Chapter 3", "Track 2:
+   * fre, AAC stereo" rather than "Track 2". Defaults to `label`.
+   */
+  describe?(probe: ProbeResult): string;
 }
 
 /**
@@ -252,9 +352,10 @@ export interface OutputFormat {
  *
  * The audio extractor cannot do anything with a silent video, and a video
  * converter has nothing to convert in an MP3; "media" is for tools that work
- * on whatever is there, such as stripping metadata.
+ * on whatever is there, such as stripping metadata; "chapters" is for the
+ * splitter, which needs a chapter list to cut on.
  */
-export type MediaExpectation = "audio" | "video" | "media";
+export type MediaExpectation = "audio" | "video" | "media" | "subtitles" | "chapters";
 
 export interface OpenSessionOptions {
   /** Defaults to "audio". */
@@ -380,11 +481,70 @@ export interface ExtractSession {
   close(): Promise<void>;
 }
 
+/**
+ * One ffmpeg invocation over several inputs, producing one file.
+ *
+ * The merger's shape. Unlike a FormatPlan the inputs are part of the plan,
+ * because how they are given - a concat list for a stream copy, one `-i` per
+ * file for a filter graph - is the decision the plan exists to make.
+ */
+export interface MergePlan {
+  /** Everything up to and including the inputs: `-f concat -safe 0 -i list` or `-i a -i b`. */
+  inputArgs: string[];
+  /** Output options: everything between the inputs and the output path. */
+  args: string[];
+  /** Files the run needs alongside the inputs, such as the concat demuxer's list. */
+  scratchFiles?: ScratchFile[];
+  extension: string;
+  mimeType: string;
+  mode: ExtractMode;
+  kind: OutputKind;
+  /** Name for the download, without the extension. */
+  baseName: string;
+  /** Length of the joined output in seconds, for progress; null when unknown. */
+  expectedSeconds: number | null;
+  warning?: string;
+  stripsMetadata?: boolean;
+}
+
+export interface MergeOptions {
+  stripMetadata?: boolean;
+  onProgress?: (progress: ExtractProgress) => void;
+}
+
+/** One of several files mounted together, probed on its own. */
+export interface MountedInput {
+  file: File;
+  /** Where the file is inside the core's filesystem, for the plan's `-i`. */
+  inputPath: string;
+  /** Null when the file could not be read; `error` then says why. */
+  probe: ProbeResult | null;
+  error: ExtractionError | null;
+}
+
+/** Several files open at once: mounted together, ready to be joined. */
+export interface MultiSession {
+  readonly inputs: readonly MountedInput[];
+  /** A frame from one of the inputs, for its row. Null for audio, or on failure. */
+  poster(index: number): Promise<PosterFrame | null>;
+  merge(plan: MergePlan, options?: MergeOptions): Promise<ExtractOutput>;
+  /** Unmounts every input and releases engine-side resources. */
+  close(): Promise<void>;
+}
+
 export interface AudioExtractor {
   readonly id: string;
   readonly capabilities: EngineCapabilities | null;
   load(onProgress?: (progress: EngineLoadProgress) => void): Promise<EngineCapabilities>;
   openSession(file: File, options?: OpenSessionOptions): Promise<ExtractSession>;
+  /**
+   * Opens several files together, for the tools that take more than one.
+   *
+   * Every file is mounted in one go, so the plan can name them all on one
+   * command line. A file that fails to probe does not fail the session: it is
+   * reported on its own input, and the caller decides what to do about it.
+   */
+  openFiles(files: File[], options?: OpenSessionOptions): Promise<MultiSession>;
   /** Hard-stops in-flight work; the engine reloads lazily on next use. */
   terminate(): void;
 }

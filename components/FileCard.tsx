@@ -9,6 +9,7 @@ import { isFormatAvailable } from "@/lib/engine/formats";
 import { formatTimecode } from "@/lib/engine/trim";
 import type {
   EngineCapabilities,
+  FormatPlan,
   OutputFormat,
   OutputKind,
   PlanContext,
@@ -17,6 +18,8 @@ import type {
 import { fileExtension } from "@/lib/mediaTypes";
 import {
   describeAudio,
+  describeChapters,
+  describeSubtitles,
   describeVideo,
   formatBytes,
   formatDuration,
@@ -100,9 +103,14 @@ function statusStyle(job: Job): string {
 function outputExtension(output: JobOutput, job: Job, context: PlanContext): string | null {
   const fromResult = output.result?.fileName.split(".").pop();
   if (fromResult) return fromResult;
+  return outputPlan(output, job, context)?.extension ?? null;
+}
+
+/** What the format would write for this file, or null before it can be known. */
+function outputPlan(output: JobOutput, job: Job, context: PlanContext): FormatPlan | null {
   if (!job.probe) return null;
   try {
-    return output.format.plan(job.probe, { ...context, trim: output.trim }).extension;
+    return output.format.plan(job.probe, { ...context, trim: output.trim });
   } catch {
     return null;
   }
@@ -110,6 +118,7 @@ function outputExtension(output: JobOutput, job: Job, context: PlanContext): str
 
 /** Whether the browser can be expected to show this finished output inline. */
 function isPreviewable(kind: OutputKind, extension: string): boolean {
+  if (kind === "text") return false;
   if (kind === "image") return true;
   if (kind === "video") return isLikelyPlayableVideo(extension);
   return isLikelyPlayable(extension);
@@ -416,6 +425,8 @@ export function FileCard({
     if (job.probe.video) meta.push(describeVideo(job.probe.video));
     if (job.probe.audio) meta.push(describeAudio(job.probe.audio));
     else if (!job.probe.video) meta.push("No audio");
+    if (job.probe.subtitleStreams.length > 0) meta.push(describeSubtitles(job.probe.subtitleStreams));
+    if (job.probe.chapters.length > 0) meta.push(describeChapters(job.probe.chapters));
   }
 
   const isInfo = job.status === "error" && job.error?.severity === "info";
@@ -452,7 +463,7 @@ export function FileCard({
             <p className={styles.meta}>
               {meta.join(", ")}
               {job.probe && job.probe.audioStreams.length > 1 && (
-                <>{`, ${job.probe.audioStreams.length} audio tracks (using the first)`}</>
+                <>{`, ${job.probe.audioStreams.length} audio tracks${features.everyAudioTrack ? "" : " (using the first)"}`}</>
               )}
             </p>
           </div>
@@ -499,10 +510,13 @@ export function FileCard({
               <p className={styles.elapsed}>
                 {formatDuration(runningOutput.processedSeconds)} /{" "}
                 {formatDuration(
-                  runningOutput.trim
+                  (runningOutput.trim
                     ? (runningOutput.trim.endSeconds ?? totalDuration) -
-                        runningOutput.trim.startSeconds
-                    : totalDuration,
+                      runningOutput.trim.startSeconds
+                    : totalDuration) *
+                    // The counter runs on the output's clock, which a speed
+                    // change makes shorter or longer than the range it reads.
+                    (outputPlan(runningOutput, job, planContext)?.durationFactor ?? 1),
                 )}
               </p>
             )}
@@ -577,7 +591,7 @@ export function FileCard({
                   className={styles.chip}
                 >
                   <Plus aria-hidden="true" size={13} strokeWidth={2} />
-                  {format.label}
+                  {job.probe && format.describe ? format.describe(job.probe) : format.label}
                 </Button>
               ))}
             </div>

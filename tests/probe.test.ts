@@ -79,6 +79,8 @@ describe("parseProbeOutput", () => {
       sampleRate: 48000,
       channels: 2,
       channelLayout: "stereo",
+      language: "eng",
+      title: null,
       bitrateKbps: 192,
     });
   });
@@ -330,5 +332,94 @@ describe("video streams", () => {
     ]);
 
     expect(video).toMatchObject({ codec: "mpeg4", width: 640, height: 480, fps: 25 });
+  });
+});
+
+describe("subtitle streams", () => {
+  it("reads each track's codec and language, and a title from its metadata", () => {
+    const result = parseProbeOutput([
+      "Input #0, matroska,webm, from '/input/source.mkv':",
+      "  Duration: 00:24:03.10, start: 0.000000, bitrate: 8123 kb/s",
+      "  Stream #0:0: Video: h264 (High), yuv420p, 1920x1080, 23.98 fps",
+      "  Stream #0:1(jpn): Audio: aac (LC), 48000 Hz, stereo, fltp (default)",
+      "  Stream #0:2(eng): Subtitle: subrip (default)",
+      "    Metadata:",
+      "      title           : English (SDH)",
+      "  Stream #0:3(spa): Subtitle: ass",
+      "  Stream #0:4(und): Subtitle: hdmv_pgs_subtitle",
+      "  Stream #0:5[0x3](eng): Subtitle: mov_text (tx3g / 0x67337874), 0 kb/s",
+    ]);
+    expect(result.subtitleStreams).toEqual([
+      { codec: "subrip", language: "eng", title: "English (SDH)" },
+      { codec: "ass", language: "spa", title: null },
+      { codec: "hdmv_pgs_subtitle", language: null, title: null },
+      { codec: "mov_text", language: "eng", title: null },
+    ]);
+    // The tracks do not disturb the counts the other tools rely on.
+    expect(result.audioStreams).toHaveLength(1);
+    expect(result.videoStreams).toHaveLength(1);
+  });
+
+  it("finds the subtitle track in the multi-audio MKV fixture", () => {
+    expect(parseProbeOutput(MKV_MULTI_AUDIO).subtitleStreams).toEqual([
+      { codec: "subrip", language: "eng", title: null },
+    ]);
+  });
+
+  it("does not take an audio stream's title for a subtitle's", () => {
+    const result = parseProbeOutput([
+      "  Stream #0:0(eng): Subtitle: subrip",
+      "  Stream #0:1(eng): Audio: aac (LC), 48000 Hz, stereo, fltp",
+      "    Metadata:",
+      "      title           : Commentary",
+    ]);
+    expect(result.subtitleStreams[0].title).toBeNull();
+  });
+});
+
+describe("chapters", () => {
+  it("reads each chapter's range and title", () => {
+    const result = parseProbeOutput([
+      "Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'chaptered.m4a':",
+      "  Duration: 00:03:20.00, start: 0.000000, bitrate: 71 kb/s",
+      "  Chapters:",
+      "    Chapter #0:0: start 0.000000, end 90.500000",
+      "      Metadata:",
+      "        title           : Intro",
+      "    Chapter #0:1: start 90.500000, end 200.000000",
+      "      Metadata:",
+      "        title           : Part one: the middle",
+      "  Stream #0:0[0x1](und): Audio: aac (LC) (mp4a / 0x6134706D), 48000 Hz, mono, fltp, 69 kb/s (default)",
+      "    Metadata:",
+      "      handler_name    : SoundHandler",
+    ]);
+    expect(result.chapters).toEqual([
+      { startSeconds: 0, endSeconds: 90.5, title: "Intro" },
+      { startSeconds: 90.5, endSeconds: 200, title: "Part one: the middle" },
+    ]);
+    expect(result.audio?.codec).toBe("aac");
+  });
+
+  it("finds none in a file without any", () => {
+    expect(parseProbeOutput(MP4_PROBE).chapters).toEqual([]);
+  });
+});
+
+describe("audio track names", () => {
+  it("reads each track's language from its stream line and its title from the metadata under it", () => {
+    const result = parseProbeOutput([
+      "  Stream #0:1(jpn): Audio: flac, 48000 Hz, 5.1(side), s32 (24 bit) (default)",
+      "    Metadata:",
+      "      title           : Original",
+      "  Stream #0:2(und): Audio: opus, 48000 Hz, stereo, fltp",
+      "  Stream #0:3: Audio: aac (LC), 48000 Hz, stereo, fltp",
+      "    Metadata:",
+      "      handler_name    : SoundHandler",
+    ]);
+    expect(result.audioStreams.map((stream) => [stream.language, stream.title])).toEqual([
+      ["jpn", "Original"],
+      [null, null],
+      [null, null],
+    ]);
   });
 });

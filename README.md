@@ -16,11 +16,30 @@ The live tools, each on its own route:
 | `/video-to-gif` | Turn a range into a looping GIF | `palettegen` and `paletteuse` in one filter graph, at a chosen frame rate and longest side |
 | `/remove-audio` | Mute a video | `-an` with the video stream copied |
 | `/remove-metadata` | Strip tags, dates, location, chapters and data tracks from a video or audio file | `-map_metadata -1` with every stream copied |
+| `/change-speed` | Speed a video up or slow it down, from 0.1x to 100x, audio pitch-corrected | `setpts` and `fps` on the video, an `atempo` chain on the audio, one H.264 encode |
+| `/merge-videos` | Join several clips into one file | The concat demuxer with every stream copied when the clips match; the concat filter and one H.264 encode when they do not |
+| `/convert-subtitles` | Turn SRT, WebVTT and ASS into each other or a transcript, and shift or stretch their timing | Plain TypeScript, no WebAssembly at all |
+| `/resize-video` | Scale a video down to a height or a fraction, or crop it to 16:9, 9:16, 1:1, 4:5 or 4:3 first | A centred `crop` in ffmpeg's own arithmetic, the bounded `scale` the compressor uses, one H.264 encode, audio copied |
+| `/rotate-video` | A quarter turn either way, a half turn, a mirror or a vertical flip | `transpose`, `hflip` and `vflip` on the picture as a player shows it; the output carries no rotation tag |
+| `/video-thumbnails` | A contact sheet of frames spread across the video, or one frame as JPEG or PNG | `fps` at frames-per-length into `tile`, one image out; a single frame seeks to the start marker |
+| `/convert-audio` | WAV, FLAC, M4A, OGG, Opus or a video's soundtrack to MP3, and every other way | The extractor's catalogue pointed at audio files: copied when the source is already the target |
+| `/normalize-audio` | Bring a file or a video's soundtrack to -14 LUFS for streaming, -16 for podcasts, -23 for broadcast, or a custom target | `loudnorm` in two passes: measure, then one linear gain from the measurement; the picture of a video is copied |
+| `/extract-subtitles` | Pull the subtitle tracks out of an MKV or MP4 as SRT or WebVTT | A stream copy through the `srt` or `webvtt` encoder, one file per track; image-based tracks refused with a reason |
+| `/burn-subtitles` | Draw an SRT, WebVTT or ASS file, or the video's own track, into every frame | The `subtitles` filter on libass, with a font the site ships written into the core for the run and forced by name |
+| `/compress-audio` | Opus for speech, AAC or MP3 for music, or a bitrate worked out to land under a size | Presets baked into the format; a target size becomes a rate from the length, Opus below 64 kbps and AAC above |
+| `/audio-channels` | Mono, left or right only, sides swapped, mono on both sides, or the centre cut to remove vocals | `-ac` and `pan`, written back in the source's own format; the card offers only what applies to the file's channels |
+| `/audio-waveform` | A waveform PNG on a transparent background, or a spectrogram with its legend | `showwavespic` on a mono mix and `showspectrumpic`, one PNG each |
+| `/add-chapters` | Write a typed chapter list into a video or audio file, so players show its parts by name | The list as an ffmetadata file written into the core and mapped in with `-map_chapters`, every stream copied |
+| `/merge-subtitles` | Two languages in one subtitle file: the second at the top of the picture, or both folded into one cue | Plain TypeScript again: the cues of both files stacked with a position tag, or the overlapping pairs joined |
+| `/split-chapters` | A podcast, audiobook or video cut into one file per chapter, named after it | One stream-copy format per chapter, from the probe's chapter list: `-ss` before the input, `-t` after, the piece titled after its chapter |
+| `/extract-audio-tracks` | Every audio track of a film or recording as its own file, named by its language | One stream-copy format per track, `-map 0:a:N` into the container the codec belongs in |
 
 Every tool is one configuration of the same machinery: a catalogue of formats in `lib/engine/`,
 a page shell in `components/ToolApp.tsx`, and an entry in the registry in `lib/tools.ts` that
 puts it on the index, in the header and footer, in the related-tools block and in the sitemap.
-Adding a tool is a registry entry, a catalogue and a page.
+Adding a tool is a registry entry, a catalogue and a page. Three tools have a shape of their own
+and share only the frame: the merger, which is one job over several files rather than one job
+per file, and the subtitle converter and the subtitle merger, which never load ffmpeg at all.
 
 The research behind the site is in [`agent-outputs/`](agent-outputs/): the
 [audio extraction plan](agent-outputs/audio-extraction-research-and-implementation-plan.md) for the
@@ -89,20 +108,37 @@ It builds a >2 GiB fixture, drives Chromium through a real conversion, checks th
 app/<slug>/page.tsx  one route per tool, metadata from the registry
 lib/tools.ts         the registry: index, header, footer, related tools and sitemap derive from it
 components/
-  ToolApp.tsx        the page every tool is built from: banner, drop zone, settings, queue, cards
+  ToolFrame.tsx      the page around any tool: title, lead, the tool, the fine print
+  ToolApp.tsx        the page every queue-driven tool is built from: banner, drop zone, settings, queue, cards
   tools/*.tsx        one small file per tool: its catalogue, features and settings panel
+  tools/MergeVideosApp.tsx      the merger: a list of clips to order, one join, one output
+  tools/ConvertSubtitlesApp.tsx the subtitle converter: files parsed on arrival, outputs derived live
+  tools/MergeSubtitlesApp.tsx   the subtitle merger: one second-language file, every first-language file merged with it
   FileCard.tsx       a file in the queue: outputs, progress, preview, clip panel
   *.module.css       plain CSS modules; no utility-class framework
 lib/useConversionQueue.ts   sequential job runner, progress + cancellation, per-tool options
+lib/useMergeQueue.ts        the merger's store: clips read as they arrive, joined on request
+lib/engineState.ts   the one engine's load state, shared by the queue and the merger
 lib/toolFeatures.ts  what a tool's cards offer: clip panel, silence detection, whole-file chips
 lib/mediaTypes.ts    the cheap first pass: is this even a media file, and what an input accepts
 lib/persist.ts       remembering a tool's settings between visits, without a hydration mismatch
+lib/subtitles/       SRT, WebVTT and ASS parsers and writers, retiming and merging; no WebAssembly
+lib/download.ts      hands a text output to the browser as a file, for the tools with no engine
+public/fonts/        DejaVu Sans, the one font the burn-in tool has, with its licence
 lib/engine/
   types.ts           the engine contract, and the OutputFormat shape every tool's catalogue uses
-  ffmpegEngine.ts    ffmpeg.wasm implementation - mount, probe, run a plan (one pass or two), scan
+  ffmpegEngine.ts    ffmpeg.wasm implementation - mount, probe, run a plan (one pass or two), scan, merge
   coreLoader.ts      fetches the ~31 MB core with byte-level progress; verifies its checksum
   formats.ts         the audio catalogue; decides stream-copy vs re-encode
-  video.ts           the video catalogues: convert, compress, trim, GIF, mute, strip metadata
+  audio.ts           loudness, compression to a rate or a size, channel operations, pictures of audio
+  burn.ts            subtitles drawn into the picture: the filter, the font, a file or the file's own track
+  video.ts           the video catalogues: convert, compress, trim, GIF, mute, strip metadata, speed
+  picture.ts         resize and crop, rotate and flip, single frames and contact sheets
+  captions.ts        subtitle tracks out as SRT or WebVTT; bitmap tracks refused
+  chapters.ts        chapter markers from a typed list: parsed, written as ffmetadata, mapped in with every stream copied
+  split.ts           one stream-copy format per chapter, for cutting a file at its markers
+  tracks.ts          one stream-copy format per audio track, into the container its codec belongs in
+  merge.ts           the merger's decision - copy or re-encode, and why - and both command lines
   trim.ts            pure trim logic - ranges, timecodes, silence parsing
   probe.ts           pure parsers for ffmpeg's stderr, audio and video streams alike
   constants.ts       pinned versions, checksums and asset URLs
@@ -187,6 +223,28 @@ instant and lossless but can only start on a keyframe, so it lands up to a few s
 marker; a re-encode lands on the frame and encodes the audio too, since a copied audio track would
 keep the packets between the keyframe and the marker and drift out of sync.
 
+The speed changer is always a re-encode, since every frame's timestamp moves and every audio
+sample is resampled. Video goes through `setpts=(PTS-STARTPTS)/f` and then the `fps` filter at
+the source's own rate, so a 2x speed-up drops frames and a 0.5x slow-down repeats them rather
+than the file coming out at 60 or 15 fps; audio goes through `atempo`, which holds the pitch,
+chained in steps between 0.5 and 2 because that is the range every ffmpeg accepts and the
+documented way past it. Two things about the engine had to change for it. Progress is measured
+on the output's clock, so a plan says how long its output is relative to the range it reads
+(`durationFactor`), or a 2x job would stop at 50%. And the range's `-t` moves to the input side
+(`limitInput`): as an output option it stops the encoder once the *output* reaches the length of
+the range, which cut every slow-down off halfway.
+
+The merger decides between the two joins ffmpeg offers and says why. When every clip has the
+same codec and profile, frame size and pixel format, frame rate, rotation and audio layout, the
+concat demuxer copies the packets straight through - lossless, seconds, and the source container
+kept - from a list the engine writes into the core's filesystem for the run. When anything
+differs, and the summary line names each difference against clip 1, each clip is decoded, scaled
+into the first clip's frame with black bars where the shape differs, brought to its frame rate,
+and the concat filter writes one H.264 stream; clips without audio are given silence of their own
+length so the sound stays in step. The clips are mounted together in one WORKERFS mount, so a
+join of several multi-gigabyte files never copies any of them. Clips are read as they arrive and
+the join waits for the button, so the decision is on screen before anything is committed to.
+
 ### Stream copy vs re-encode
 
 Every audio format copies the track without decoding it whenever the source codec already matches -
@@ -251,6 +309,101 @@ so it costs roughly one re-encode and is only ever run when asked for. It report
 other phase. Files with no duration in their container - a browser's MediaRecorder never writes
 one - are measured by the decode itself, so a trailing silence can still be told apart from a pause.
 
+### Loudness
+
+Loudness normalisation is the one tool whose final command line cannot be written up front.
+`loudnorm` in a single pass is a dynamic normaliser that rides the gain through the file and pumps
+on music; the honest version measures first and then applies one linear gain, and the second
+pass's arguments are the numbers the first one printed. So a plan may now carry a `refine` hook:
+the engine runs the analysis pass, keeps the log lines the plan asks for (loudnorm's JSON block,
+five lines out of thousands), and hands them to the plan to write the final pass from. Without a
+usable measurement - a silent file prints `-inf` - the plan falls back to the dynamic mode rather
+than failing. Two more details worth knowing: `loudnorm` resamples to 192 kHz internally and would
+write that out, so the source's sample rate is set on the output; and an audio file comes back in
+its own format (MP3 as MP3, FLAC as FLAC, WAV as WAV) while a video keeps its picture copied and
+gets an AAC soundtrack. The integration test measures the result with `ebur128` and expects it on
+the number.
+
+### More audio
+
+The audio compressor's presets are codec and rate: Opus for speech, which is unmatched at low
+rates and plays in every browser and messaging app, AAC and MP3 for music, which have to open in a
+car stereo as well. A target size becomes a rate the way the video compressor's does, from the
+length, with Opus below 64 kbps and mono below 32. The channel tool is `-ac` and `pan`: the card
+offers only what applies to the file's channels, so a mono file is offered stereo and a stereo file
+its sides, and vocal removal is the old centre cut, offered honestly as something that works on
+some mixes and not on others. The waveform is `showwavespic` on a mono mix, on a transparent
+background; the spectrogram is `showspectrumpic` with its legend. All of them write an audio file
+back in its own format.
+
+### Pictures and frames
+
+Resize crops first and scales second, so "720p, 9:16" is a vertical crop of the source scaled to
+fit 720 on its short side. The crop is written in ffmpeg's own arithmetic (`min(iw, ih*9/16)`),
+which is what lets it be centred and even without the plan knowing the frame size; the scale is
+the same bounded, portrait-aware box the compressor uses, and nothing is ever enlarged, which
+`offer` uses to keep the sizes a file already fits under off its card. The rotator applies
+`transpose` to the picture as a player shows it: ffmpeg turns a phone clip upright from its
+rotation tag on decode, and the output carries no tag, which is what fixes a clip that plays
+sideways in one app and upright in another. Both keep the source container where it can hold
+H.264 and the audio as they are (a MOV stays a MOV, an MKV an MKV) and otherwise write an MP4 with
+AAC, since a resized WebM coming back as an MKV would be a surprise.
+
+Thumbnails are two formats on one card. The contact sheet runs on arrival: `fps` at
+frames-per-length picks one frame every so many seconds, `tile` packs them into a near-square grid,
+and `-frames:v 1` keeps the one sheet that comes out; it needs the length to space the frames, so
+a file without a duration is asked for a range. A single frame seeks to the start marker with the
+same `-ss`-before-`-i` the poster uses, which is why the card's "Start here" button is the way to
+pick a moment off the preview.
+
+### Subtitles
+
+The probe now reads subtitle tracks - codec, language and title - and the engine has a fourth
+expectation, `subtitles`, for a tool that needs at least one. Extraction is a stream copy through
+the `srt` or `webvtt` encoder, one file per track, offered for as many tracks as the file has; an
+image-based track (the PGS of a Blu-ray, the bitmaps of a DVD) is refused with a reason rather than
+written out empty, since reading pictures of words is OCR. Text outputs are a fourth output kind,
+which the card never tries to preview.
+
+Burning subtitles in is the one Tier A tool the catalogue asked to verify before promising. The
+pinned core is built with libass, freetype and fribidi but without fontconfig, so the `subtitles`
+filter is there and cannot find a font on its own: without one it draws nothing and says so only
+in the log. So the site ships DejaVu Sans, a plan may now carry *scratch files* that the engine
+writes into the core's filesystem before the run and removes after it (a font, a subtitle file,
+the merger's concat list), and the filter is pointed at the font's directory with every style's
+family forced to it by name. A subtitle file the visitor adds is read in the browser and turned
+into ASS in the chosen size, position and style, so what the filter renders is always something
+the shipped font can draw; an ASS file is passed through in its own styling. A video's own text
+track can be burned instead, read by the filter straight out of the mounted input, which is why
+a plan now also knows where its input is mounted. The integration test burns onto a black frame
+and measures the bottom third lighting up where the cue is and staying black where it is not.
+
+The subtitle converter is the first tool with no WebAssembly in it: SRT, WebVTT and ASS are
+plain text, and `lib/subtitles/` reads all three into one shape - a start, an end and some text
+with only `<i>`, `<b>` and `<u>` kept as markup - and writes any of them back, or a plain
+transcript. The parsers are lenient on purpose, since subtitle files in the wild have Windows
+line endings, byte-order marks, missing sequence numbers, dots where commas should be, and
+position tags from one format pasted into another; they take what they can read and say what they
+skipped. Files that are not valid UTF-8 are read as Windows-1252, which is what nearly every
+pre-2010 subtitle file is, and everything is written back as UTF-8.
+
+Timing is fixed with two knobs, because two cover nearly every out-of-sync file: a shift for
+subtitles that are early or late throughout, and a stretch for ones that start in sync and drift
+because they were made for a video at a different frame rate (25 fps PAL against a 23.976 fps film
+transfer, say; the factor is the ratio of the two rates and the presets name the common pairs).
+Outputs are a function of the parsed cues and the panel, so changing a setting changes every file
+already on the page with nothing to re-run.
+
+Merging two languages is the same library again. The second language's file is chosen once and
+every first-language file dropped is merged with it, in one of two layouts. Stacked keeps every
+cue of both files with its own timing and puts the second language at the top of the picture, as
+`{\an8}` in SRT and ASS and `line:0` in WebVTT, which the common players honour. Combined folds a
+first-language cue and a second-language cue that overlap by at least half into one two-line cue,
+for players that show a single region; cues that merely touch stay apart, and a second-language
+cue with nothing to sit under is kept on its own, so no line of either file is lost. The parsers
+read a position from either format on the way in, so a stacked file converts back without losing
+which line was on top.
+
 ### Surviving a crash
 
 ffmpeg's own refusals come back as a non-zero exit code with a readable line in the log, and cost
@@ -275,6 +428,33 @@ It is the engine's job rather than each plan's - the same four arguments for eve
 last so they win over anything a plan mapped - and the "Output options" panel on every tool turns
 it off for the case where the tags are the point, such as the title and artist of a music file.
 
+### Chapters
+
+The chapter tool is the one plan that reads the "Output options" switch itself. Its chapters are
+metadata, so the engine's stripping arguments, appended last, would take them straight back out;
+the plan says it has handled the switch, maps the source's global tags in or leaves them out as
+the switch asks (global only: a bare `-map_metadata -1` takes the chapter titles with it), and
+takes its chapters from a second input, an ffmetadata file written into the core for the run the
+way the burn-in tool's font is. The list is typed, one chapter a line, in the forms people paste
+from a video description - `1:23 Title`, `[01:23] Title`, `1:23 - Title`, `83 Title` - and each
+chapter runs to the next, the last to the end of the file, which is why the plan needs the probed
+length; a chapter at or past the end is left out and the row says so. Every stream is copied, so
+writing chapters into a two-hour film takes as long as reading it. MP4, MOV, M4A, MKV, WebM, MP3
+and Ogg carry chapters; WAV and FLAC have nowhere to put them, and the format says so rather than
+writing a file whose chapters nothing will read. The probe reads the chapters a file already has,
+the card lists them, and a new list replaces them.
+
+Splitting at chapters is the reverse, and the first tool whose outputs come from the file rather
+than from a catalogue or a panel: a file has as many pieces as it has chapters, which is not known
+until it has been read. The queue has an option for that, `formatsForFile`: such a file arrives
+with no outputs, is opened regardless, and gets its outputs from the probe, each labelled by what
+the format says of it - "Chapter 3: The first part" rather than "Chapter 3". Every piece is a
+stream copy of its range, seeking before the input the way the fast cut does, with the file's
+chapter list left out of it and the piece titled after its chapter unless tags are being stripped.
+The extractor of every audio track is the same shape: one copy per track, named by the track's
+language, into the container its codec belongs in; the probe now reads a track's language and
+title along with its codec.
+
 ### Cancelling one format
 
 Each output is a format *and* a range, and each can be cancelled on its own. Cancelling one that is
@@ -292,6 +472,14 @@ Cancelling a whole file while the core is still downloading has nothing to kill:
 left to finish, since the next file needs it anyway, and the card says "Cancelling..." until it does.
 Cancelling a file that has not started costs nothing at all, and a queued file whose every format
 has been cancelled is settled without ever being opened.
+
+### Navigation
+
+The header is a wordmark, an "All tools" menu on Base UI's Navigation Menu grouped by category,
+and the name of the tool in use. The plain row of links it replaced wrapped to three lines once
+the catalogue passed a dozen tools. The menu's content is kept mounted, so every link is in the
+server-rendered HTML for a crawler, and the footer carries the same list as plain anchors either
+way; the current tool's link is marked `aria-current="page"` in the menu and named beside it.
 
 ### Styling
 
@@ -456,15 +644,22 @@ The `dist/esm` build has a real default export and must be used.
 npm test                                                    # unit tests, plus the plans against a local ffmpeg when there is one
 NEXT_PUBLIC_FFMPEG_CORE_BASE_URL=/core npm run build
 node scripts/verify-e2e.mjs                                 # the audio extractor in a browser
-node scripts/verify-video-tools.mjs                         # the six video tools in a browser
+node scripts/verify-video-tools.mjs                         # the video tools and the subtitle converter in a browser
 node scripts/verify-large-file.mjs                          # >2 GiB input
 ```
 
 The unit tests include the conversion queue itself, driven through a fake engine behind the
 engine interface, so every cancel, retry and re-queue transition is pinned without ffmpeg in the
-loop, and every format's argument strings. `tests/plans.integration.test.ts` then runs each video
-plan through whatever ffmpeg is on `PATH` and checks the result with ffprobe, so a filter that
-does not parse fails in seconds rather than in a browser; it is skipped where ffmpeg is absent.
+loop, and every format's argument strings. `tests/plans.integration.test.ts` and
+`tests/merge.integration.test.ts` then run each video plan, the speed plan and both merge plans
+through whatever ffmpeg is on `PATH` and check the result with ffprobe, so a filter that does not
+parse fails in seconds rather than in a browser; they are skipped where ffmpeg is absent.
+`tests/picture-audio-captions.integration.test.ts` does the same for the resize, rotate, frame,
+sheet, loudness, subtitle, burn-in, audio compression, channel, waveform, chapter, chapter-split and
+audio-track plans, running the
+loudness plan's two passes the way the engine does and measuring the result with `ebur128`, and
+writing a plan's scratch files where that ffmpeg can read them. The subtitle library is pure and
+its tests round-trip every format.
 The browser scripts need ffmpeg and ffprobe on `PATH`, plus a Chromium: one Playwright can find
 on its own (`npx playwright install chromium`), or any Chrome/Chromium binary named in
 `CHROMIUM_PATH`.
@@ -475,8 +670,19 @@ conversion that used to trap and take the engine with it), an audio file refused
 a 19 MB file compressed to under 8 MB in two passes and a file already under the target reported as
 a note rather than a failure; a video muted; a tagged MP4 and a tagged MP3 stripped; a fast cut and
 a precise cut of the same range, under names that tell them apart; a switch to another tool and
-back, which has to find the queue where it was left; and a two-second GIF at 15 fps bounded to
-480 px on its longest side. Every download is checked with `ffprobe`.
+back, which has to find the queue where it was left; a two-second GIF at 15 fps bounded to
+480 px on its longest side; a six-second clip at 2x and at 0.5x; two matching clips joined by
+stream copy and a third, mismatched one joined by re-encoding; an SRT converted to WebVTT and
+shifted by a second and a half; a 640x360 clip resized to 240p and turned a quarter clockwise; a
+3x3 contact sheet and a PNG of the frame at 0:02; an MP3 copied as MP3 and converted to FLAC; a
+-24 dB tone normalised to -14 LUFS and measured there; the SRT track of an MKV extracted as
+SRT and as WebVTT; an SRT burned onto a black video and the bottom third measured lighting up
+where the cue is, then an MKV's own track burned in; an MP3 compressed to Opus and to MP3; stereo
+made from a mono MP3 and the vocals cut from a stereo MP4; a waveform and a spectrogram drawn as
+PNGs; a chapter list written into a tagged MP4 and into an MP3 shorter than the list; a French
+SRT merged under an English one, stacked and then combined; a three-chapter MP4 split into three
+pieces and a file without chapters refused; and the French track of a two-language MKV extracted
+as an M4A with its language tag. Every media download is checked with `ffprobe`.
 
 `verify-e2e.mjs` drives a real Chromium through the audio extractor's seven cases - an MP4 with AAC, a video with no
 audio track, an MKV with 5.1 FLAC, a hand-set 1s-3s clip, an 8s file padded with two seconds of
@@ -514,6 +720,35 @@ calling large-file support universal.
 - The source preview on the trimmer and GIF maker only appears for containers the browser itself
   can play (MP4, WebM, MOV); an MKV or AVI is trimmed by timecode and, on the trimmer, by the
   waveform.
+- A join by stream copy needs every clip to match exactly: codec and profile, frame size and pixel
+  format, frame rate, rotation and audio layout. A mix of sources is re-encoded to H.264 at the
+  first clip's size instead, and the summary says which difference caused it.
+- Slow motion repeats frames rather than inventing them, so it is smooth at half speed and visibly
+  steppy at a quarter. Frame interpolation (`minterpolate`) exists and is far too slow on one
+  WebAssembly thread to offer.
+- The subtitle converter keeps italics, bold and underline and drops everything else: fonts,
+  colours, positions, karaoke timing. SRT cannot express them and a file that depended on them
+  would not look the same anywhere else.
+- Subtitle extraction reads text tracks only. Blu-ray and DVD subtitles are bitmaps, and turning
+  them into text is OCR, which is a different tool; they are refused with a reason.
+- Burned-in subtitles are set in DejaVu Sans, the one font the site ships, which covers Latin,
+  Greek and Cyrillic and not Chinese, Japanese, Korean or Arabic; a font for those is tens of
+  megabytes and would need its own download step. An ASS file's own fonts are replaced by it.
+- The subtitle merger's combined layout pairs cues by overlap, so it is right when both files were
+  timed to the same cut of the video and wrong when one runs early or late; shift that one with
+  the converter first. The stacked layout's position tag is honoured by VLC, mpv, the browsers and
+  most players, and a player that ignores it shows both languages at the bottom.
+- Chapter markers go only where the container has a place for them: MP4, MOV, M4A, MKV, WebM, MP3
+  and Ogg. WAV and FLAC have none and are refused with a reason rather than converted.
+- A video split at its chapters is cut by stream copy, so each piece starts on the keyframe before
+  its chapter and can begin a few seconds early; the sound is cut to the frame. A cut to the frame
+  would be a re-encode of every piece, which is the precise cut on the trimmer, one chapter at a
+  time.
+- The track extractor copies; a track in a codec no container of its own will hold (TrueHD, DTS)
+  comes out in a Matroska audio file, which fewer players open. Extract it and drop it on the
+  audio converter for an M4A or MP3.
+- Vocal removal is a centre cut, not a separation model: it takes out whatever is identical in
+  both channels, which on many mixes includes the bass and the drums, and does nothing to mono.
 - Cancelling terminates the ffmpeg worker, since ffmpeg blocks its worker while running and cannot
   be interrupted cooperatively. See [Cancelling one format](#cancelling-one-format) for why that is
   survivable. The engine restarts on the next job; the core is already cached, so this costs a
