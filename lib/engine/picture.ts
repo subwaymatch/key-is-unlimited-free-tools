@@ -7,7 +7,7 @@
  * copied when the container can hold it; the frame tools write one image
  * and stop.
  */
-import { trimDuration } from "./trim";
+import { compactTimecode, trimDuration } from "./trim";
 import type { FormatBlocker, OutputFormat, PlanContext, ProbeResult, VideoStreamInfo } from "./types";
 import {
   containerArgs,
@@ -261,7 +261,8 @@ export function frameFormat(image: FrameImage): OutputFormat {
       : "The frame at the start marker, as a small JPEG",
     lossless: isPng,
     requiredEncoder: isPng ? "png" : "mjpeg",
-    plan() {
+    plan(_probe, context) {
+      const at = context?.trim?.startSeconds ?? 0;
       return {
         args: [
           "-map",
@@ -281,7 +282,9 @@ export function frameFormat(image: FrameImage): OutputFormat {
         mimeType: isPng ? "image/png" : "image/jpeg",
         mode: "encode",
         kind: "image",
-        fileSuffix: "-frame",
+        // Named by its moment, not by a range: "frame-at-1m30s".
+        fileSuffix: `-frame-at-${compactTimecode(at)}`,
+        omitRangeSuffix: true,
       };
     },
   };

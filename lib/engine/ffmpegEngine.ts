@@ -849,7 +849,7 @@ export class FFmpegEngine implements AudioExtractor {
 
     // A trimmed output carries its range in the filename, so several clips from
     // one video do not all land in Downloads under the same name.
-    const suffix = trimFileSuffix(trim, probe.durationSeconds);
+    const suffix = plan.omitRangeSuffix ? "" : trimFileSuffix(trim, probe.durationSeconds);
 
     return {
       blob,

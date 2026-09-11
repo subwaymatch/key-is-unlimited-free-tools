@@ -613,7 +613,7 @@ async function main() {
     const frameRow = sheetCard.locator("li").filter({ hasText: /^Frame as PNG/ });
     await frameRow.getByText("Download").waitFor({ timeout: 240_000 });
     const frame = await download(frameRow.getByText("Download"));
-    check("frame carries its moment in the name", frame.name === "tagged-frame-from-2s.png", frame.name);
+    check("frame carries its moment in the name", frame.name === "tagged-frame-at-2s.png", frame.name);
     check("frame is a full-size PNG", stream(frame.info, "video")?.codec_name === "png" && stream(frame.info, "video")?.width === 640, stream(frame.info, "video")?.codec_name);
 
     // ---- Convert audio --------------------------------------------------

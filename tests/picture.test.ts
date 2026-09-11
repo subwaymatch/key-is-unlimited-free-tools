@@ -151,13 +151,18 @@ describe("the rotator", () => {
 });
 
 describe("still frames", () => {
-  it("writes one frame as JPEG or PNG through image2", () => {
+  it("writes one frame as JPEG or PNG through image2, named by its moment", () => {
     const jpg = frameFormat("jpg").plan(probe(), context());
     expect(joined(jpg.args)).toContain("-frames:v 1");
     expect(joined(jpg.args)).toContain("-c:v mjpeg");
     expect(joined(jpg.args)).toContain("-f image2 -update 1");
     expect(jpg.extension).toBe("jpg");
     expect(jpg.kind).toBe("image");
+    expect(jpg.fileSuffix).toBe("-frame-at-0s");
+    // The start marker names it; the range the card holds does not.
+    const later = frameFormat("jpg").plan(probe(), context({ startSeconds: 90, endSeconds: null }));
+    expect(later.fileSuffix).toBe("-frame-at-1m30s");
+    expect(later.omitRangeSuffix).toBe(true);
     const png = frameFormat("png").plan(probe(), context());
     expect(joined(png.args)).toContain("-c:v png");
     expect(png.extension).toBe("png");

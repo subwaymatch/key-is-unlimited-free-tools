@@ -186,6 +186,14 @@ export interface FormatPlan {
   /** True when the plan already drops metadata, so the engine does not repeat it. */
   stripsMetadata?: boolean;
   /**
+   * Leave the range out of the filename; the plan has named the output itself.
+   *
+   * A clipped output carries its range in its name so several clips of one
+   * file can sit in one folder. A single frame is not a clip: it is taken at
+   * the start marker, and "frame-at-2s" says that where "2s-6s" would not.
+   */
+  omitRangeSuffix?: boolean;
+  /**
    * How long the output is compared with the range it was made from.
    *
    * A plan that re-times its output - a speed change - produces a file that
