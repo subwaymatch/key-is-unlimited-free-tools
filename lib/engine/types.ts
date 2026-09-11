@@ -45,6 +45,16 @@ export interface VideoStreamInfo {
   rotationDegrees: number | null;
 }
 
+/** A subtitle track, as far as the probe can tell. */
+export interface SubtitleStreamInfo {
+  /** ffmpeg codec name: "subrip", "ass", "mov_text", "hdmv_pgs_subtitle". */
+  codec: string;
+  /** ISO 639 language tag from the stream, e.g. "eng", or null when unset. */
+  language: string | null;
+  /** The stream's title tag, when it has one: "English (SDH)". */
+  title: string | null;
+}
+
 export interface ProbeResult {
   /** Media duration in seconds, or null when ffmpeg reports "N/A". */
   durationSeconds: number | null;
@@ -59,6 +69,8 @@ export interface ProbeResult {
   /** First video stream (the one the video tools work on), or null. */
   video: VideoStreamInfo | null;
   hasVideo: boolean;
+  /** Every subtitle track ffmpeg found, in file order. */
+  subtitleStreams: SubtitleStreamInfo[];
   /** Container/format name(s) ffmpeg detected, e.g. "mov,mp4,m4a,3gp,3g2,mj2". */
   formatName: string | null;
   /** ffmpeg's stderr for this probe, kept for the per-file log panel. */
@@ -91,8 +103,8 @@ export interface ExtractProgress {
 
 export type ExtractMode = "copy" | "encode";
 
-/** What a finished output is, which decides how the card previews it. */
-export type OutputKind = "audio" | "video" | "image";
+/** What a finished output is, which decides how the card previews it. "text" is never previewed. */
+export type OutputKind = "audio" | "video" | "image" | "text";
 
 /**
  * A slice of the source timeline, in seconds measured from the start of the
@@ -182,6 +194,20 @@ export interface FormatPlan {
    * 0.5x slow-down would sit at 100% for half the run. Defaults to 1.
    */
   durationFactor?: number;
+  /**
+   * Builds the final pass's arguments from what the analysis passes printed,
+   * in place of `args`.
+   *
+   * Loudness normalisation measures the file in one pass and corrects it in
+   * the next with the numbers it found, so the final command line cannot be
+   * written until the first pass has run. `keep` picks the log lines worth
+   * holding on to - a chatty run prints thousands - and `args` turns them into
+   * the output options.
+   */
+  refine?: {
+    keep(line: string): boolean;
+    args(lines: readonly string[]): string[];
+  };
   /**
    * Put the range's length before `-i`, so it bounds what is read rather than
    * what is written.
@@ -273,7 +299,7 @@ export interface OutputFormat {
  * converter has nothing to convert in an MP3; "media" is for tools that work
  * on whatever is there, such as stripping metadata.
  */
-export type MediaExpectation = "audio" | "video" | "media";
+export type MediaExpectation = "audio" | "video" | "media" | "subtitles";
 
 export interface OpenSessionOptions {
   /** Defaults to "audio". */

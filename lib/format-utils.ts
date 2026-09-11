@@ -91,6 +91,18 @@ export function describeVideo(video: {
   return parts.join(", ");
 }
 
+/** "2 subtitle tracks (eng, spa)", for the card's metadata line. */
+export function describeSubtitles(
+  streams: readonly { language: string | null; title: string | null }[],
+): string {
+  if (streams.length === 0) return "";
+  const names = streams
+    .map((stream) => stream.language ?? stream.title)
+    .filter((name): name is string => name !== null);
+  const count = `${streams.length} subtitle ${streams.length === 1 ? "track" : "tracks"}`;
+  return names.length > 0 ? `${count} (${names.join(", ")})` : count;
+}
+
 /** Media types the <audio> element can be expected to play. */
 const PLAYABLE_EXTENSIONS = new Set(["m4a", "mp3", "wav", "opus", "ogg", "flac", "mp2", "aac"]);
 

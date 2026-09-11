@@ -18,6 +18,7 @@ import type {
 import { fileExtension } from "@/lib/mediaTypes";
 import {
   describeAudio,
+  describeSubtitles,
   describeVideo,
   formatBytes,
   formatDuration,
@@ -116,6 +117,7 @@ function outputPlan(output: JobOutput, job: Job, context: PlanContext): FormatPl
 
 /** Whether the browser can be expected to show this finished output inline. */
 function isPreviewable(kind: OutputKind, extension: string): boolean {
+  if (kind === "text") return false;
   if (kind === "image") return true;
   if (kind === "video") return isLikelyPlayableVideo(extension);
   return isLikelyPlayable(extension);
@@ -422,6 +424,7 @@ export function FileCard({
     if (job.probe.video) meta.push(describeVideo(job.probe.video));
     if (job.probe.audio) meta.push(describeAudio(job.probe.audio));
     else if (!job.probe.video) meta.push("No audio");
+    if (job.probe.subtitleStreams.length > 0) meta.push(describeSubtitles(job.probe.subtitleStreams));
   }
 
   const isInfo = job.status === "error" && job.error?.severity === "info";

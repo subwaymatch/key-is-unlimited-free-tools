@@ -19,6 +19,12 @@ The live tools, each on its own route:
 | `/change-speed` | Speed a video up or slow it down, from 0.1x to 100x, audio pitch-corrected | `setpts` and `fps` on the video, an `atempo` chain on the audio, one H.264 encode |
 | `/merge-videos` | Join several clips into one file | The concat demuxer with every stream copied when the clips match; the concat filter and one H.264 encode when they do not |
 | `/convert-subtitles` | Turn SRT, WebVTT and ASS into each other or a transcript, and shift or stretch their timing | Plain TypeScript, no WebAssembly at all |
+| `/resize-video` | Scale a video down to a height or a fraction, or crop it to 16:9, 9:16, 1:1, 4:5 or 4:3 first | A centred `crop` in ffmpeg's own arithmetic, the bounded `scale` the compressor uses, one H.264 encode, audio copied |
+| `/rotate-video` | A quarter turn either way, a half turn, a mirror or a vertical flip | `transpose`, `hflip` and `vflip` on the picture as a player shows it; the output carries no rotation tag |
+| `/video-thumbnails` | A contact sheet of frames spread across the video, or one frame as JPEG or PNG | `fps` at frames-per-length into `tile`, one image out; a single frame seeks to the start marker |
+| `/convert-audio` | WAV, FLAC, M4A, OGG, Opus or a video's soundtrack to MP3, and every other way | The extractor's catalogue pointed at audio files: copied when the source is already the target |
+| `/normalize-audio` | Bring a file or a video's soundtrack to -14 LUFS for streaming, -16 for podcasts, -23 for broadcast, or a custom target | `loudnorm` in two passes: measure, then one linear gain from the measurement; the picture of a video is copied |
+| `/extract-subtitles` | Pull the subtitle tracks out of an MKV or MP4 as SRT or WebVTT | A stream copy through the `srt` or `webvtt` encoder, one file per track; image-based tracks refused with a reason |
 
 Every tool is one configuration of the same machinery: a catalogue of formats in `lib/engine/`,
 a page shell in `components/ToolApp.tsx`, and an entry in the registry in `lib/tools.ts` that
@@ -113,7 +119,10 @@ lib/engine/
   ffmpegEngine.ts    ffmpeg.wasm implementation - mount, probe, run a plan (one pass or two), scan, merge
   coreLoader.ts      fetches the ~31 MB core with byte-level progress; verifies its checksum
   formats.ts         the audio catalogue; decides stream-copy vs re-encode
+  audio.ts           loudness normalisation: the two passes and the printout between them
   video.ts           the video catalogues: convert, compress, trim, GIF, mute, strip metadata, speed
+  picture.ts         resize and crop, rotate and flip, single frames and contact sheets
+  captions.ts        subtitle tracks out as SRT or WebVTT; bitmap tracks refused
   merge.ts           the merger's decision - copy or re-encode, and why - and both command lines
   trim.ts            pure trim logic - ranges, timecodes, silence parsing
   probe.ts           pure parsers for ffmpeg's stderr, audio and video streams alike
@@ -285,7 +294,49 @@ so it costs roughly one re-encode and is only ever run when asked for. It report
 other phase. Files with no duration in their container - a browser's MediaRecorder never writes
 one - are measured by the decode itself, so a trailing silence can still be told apart from a pause.
 
+### Loudness
+
+Loudness normalisation is the one tool whose final command line cannot be written up front.
+`loudnorm` in a single pass is a dynamic normaliser that rides the gain through the file and pumps
+on music; the honest version measures first and then applies one linear gain, and the second
+pass's arguments are the numbers the first one printed. So a plan may now carry a `refine` hook:
+the engine runs the analysis pass, keeps the log lines the plan asks for (loudnorm's JSON block,
+five lines out of thousands), and hands them to the plan to write the final pass from. Without a
+usable measurement - a silent file prints `-inf` - the plan falls back to the dynamic mode rather
+than failing. Two more details worth knowing: `loudnorm` resamples to 192 kHz internally and would
+write that out, so the source's sample rate is set on the output; and an audio file comes back in
+its own format (MP3 as MP3, FLAC as FLAC, WAV as WAV) while a video keeps its picture copied and
+gets an AAC soundtrack. The integration test measures the result with `ebur128` and expects it on
+the number.
+
+### Pictures and frames
+
+Resize crops first and scales second, so "720p, 9:16" is a vertical crop of the source scaled to
+fit 720 on its short side. The crop is written in ffmpeg's own arithmetic (`min(iw, ih*9/16)`),
+which is what lets it be centred and even without the plan knowing the frame size; the scale is
+the same bounded, portrait-aware box the compressor uses, and nothing is ever enlarged, which
+`offer` uses to keep the sizes a file already fits under off its card. The rotator applies
+`transpose` to the picture as a player shows it: ffmpeg turns a phone clip upright from its
+rotation tag on decode, and the output carries no tag, which is what fixes a clip that plays
+sideways in one app and upright in another. Both keep the source container where it can hold
+H.264 and the audio as they are (a MOV stays a MOV, an MKV an MKV) and otherwise write an MP4 with
+AAC, since a resized WebM coming back as an MKV would be a surprise.
+
+Thumbnails are two formats on one card. The contact sheet runs on arrival: `fps` at
+frames-per-length picks one frame every so many seconds, `tile` packs them into a near-square grid,
+and `-frames:v 1` keeps the one sheet that comes out; it needs the length to space the frames, so
+a file without a duration is asked for a range. A single frame seeks to the start marker with the
+same `-ss`-before-`-i` the poster uses, which is why the card's "Start here" button is the way to
+pick a moment off the preview.
+
 ### Subtitles
+
+The probe now reads subtitle tracks - codec, language and title - and the engine has a fourth
+expectation, `subtitles`, for a tool that needs at least one. Extraction is a stream copy through
+the `srt` or `webvtt` encoder, one file per track, offered for as many tracks as the file has; an
+image-based track (the PGS of a Blu-ray, the bitmaps of a DVD) is refused with a reason rather than
+written out empty, since reading pictures of words is OCR. Text outputs are a fourth output kind,
+which the card never tries to preview.
 
 The subtitle converter is the first tool with no WebAssembly in it: SRT, WebVTT and ASS are
 plain text, and `lib/subtitles/` reads all three into one shape - a start, an end and some text
@@ -517,8 +568,11 @@ engine interface, so every cancel, retry and re-queue transition is pinned witho
 loop, and every format's argument strings. `tests/plans.integration.test.ts` and
 `tests/merge.integration.test.ts` then run each video plan, the speed plan and both merge plans
 through whatever ffmpeg is on `PATH` and check the result with ffprobe, so a filter that does not
-parse fails in seconds rather than in a browser; they are skipped where ffmpeg is absent. The
-subtitle library is pure and its tests round-trip every format.
+parse fails in seconds rather than in a browser; they are skipped where ffmpeg is absent.
+`tests/picture-audio-captions.integration.test.ts` does the same for the resize, rotate, frame,
+sheet, loudness and subtitle plans, running the loudness plan's two passes the way the engine does
+and measuring the result with `ebur128`. The subtitle library is pure and its tests round-trip
+every format.
 The browser scripts need ffmpeg and ffprobe on `PATH`, plus a Chromium: one Playwright can find
 on its own (`npx playwright install chromium`), or any Chrome/Chromium binary named in
 `CHROMIUM_PATH`.
@@ -531,8 +585,11 @@ a note rather than a failure; a video muted; a tagged MP4 and a tagged MP3 strip
 a precise cut of the same range, under names that tell them apart; a switch to another tool and
 back, which has to find the queue where it was left; a two-second GIF at 15 fps bounded to
 480 px on its longest side; a six-second clip at 2x and at 0.5x; two matching clips joined by
-stream copy and a third, mismatched one joined by re-encoding; and an SRT converted to WebVTT and
-shifted by a second and a half. Every media download is checked with `ffprobe`.
+stream copy and a third, mismatched one joined by re-encoding; an SRT converted to WebVTT and
+shifted by a second and a half; a 640x360 clip resized to 240p and turned a quarter clockwise; a
+3x3 contact sheet and a PNG of the frame at 0:02; an MP3 copied as MP3 and converted to FLAC; a
+-24 dB tone normalised to -14 LUFS and measured there; and the SRT track of an MKV extracted as
+SRT and as WebVTT. Every media download is checked with `ffprobe`.
 
 `verify-e2e.mjs` drives a real Chromium through the audio extractor's seven cases - an MP4 with AAC, a video with no
 audio track, an MKV with 5.1 FLAC, a hand-set 1s-3s clip, an 8s file padded with two seconds of
@@ -579,6 +636,13 @@ calling large-file support universal.
 - The subtitle converter keeps italics, bold and underline and drops everything else: fonts,
   colours, positions, karaoke timing. SRT cannot express them and a file that depended on them
   would not look the same anywhere else.
+- Subtitle extraction reads text tracks only. Blu-ray and DVD subtitles are bitmaps, and turning
+  them into text is OCR, which is a different tool; they are refused with a reason. Burning
+  subtitles into the picture is not offered yet: the pinned core links libass, but a font has to
+  be shipped and mounted for it to draw anything, which is its own piece of work.
+- The header lists every live tool as a plain link, which at sixteen tools wraps to two rows on a
+  laptop. The plan's grouped navigation menu (section 7.4 of the catalogue) is the fix and is not
+  built yet; the footer already carries the whole catalogue grouped by category.
 - Cancelling terminates the ffmpeg worker, since ffmpeg blocks its worker while running and cannot
   be interrupted cooperatively. See [Cancelling one format](#cancelling-one-format) for why that is
   survivable. The engine restarts on the next job; the core is already cached, so this costs a

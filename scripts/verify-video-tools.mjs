@@ -16,7 +16,7 @@
  */
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { extname, join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -107,7 +107,29 @@ function ensureFixtures() {
       }
       return path;
     })(),
+    // A quiet tone for the normaliser, and an MKV carrying a subtitle track.
+    quiet: build("quiet.mp3", [
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
+      "-t", "6", "-af", "volume=-24dB", "-c:a", "libmp3lame", "-b:a", "128k",
+    ]),
+    subbed: build("subbed.mkv", [
+      "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25",
+      "-i", join(FIXTURES, "sample.srt"),
+      "-t", "8", "-map", "0:v", "-map", "1:s",
+      "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+      "-c:s", "srt", "-metadata:s:s:0", "language=eng",
+    ]),
   };
+}
+
+/** Integrated loudness of a file, in LUFS, as ebur128 measures it. */
+function integratedLoudness(path) {
+  const result = spawnSync("ffmpeg", ["-hide_banner", "-i", path, "-af", "ebur128", "-f", "null", "-"], {
+    encoding: "utf8",
+  });
+  const matches = result.stderr.match(/I:\s+(-?\d+(?:\.\d+)?)\s+LUFS/g) ?? [];
+  const last = matches[matches.length - 1]?.match(/(-?\d+(?:\.\d+)?)/);
+  return last ? Number(last[1]) : Number.NaN;
 }
 
 /** Serves the static export, plus the ffmpeg core under /core. */
@@ -219,6 +241,12 @@ async function main() {
       "change-speed",
       "merge-videos",
       "convert-subtitles",
+      "resize-video",
+      "rotate-video",
+      "video-thumbnails",
+      "convert-audio",
+      "normalize-audio",
+      "extract-subtitles",
     ]) {
       check(`index links to /${slug}`, links.includes(`/${slug}`));
     }
@@ -535,6 +563,108 @@ async function main() {
     const shiftedText = readFileSync(shifted.path, "utf8");
     check("shifted SRT moves every cue by the offset", shiftedText.includes("00:00:02,500 --> 00:00:05,500") && shiftedText.includes("00:00:07,000 --> 00:00:08,750"), shiftedText.split("\n")[1]);
     await page.screenshot({ path: join(FIXTURES, "verify-subtitles.png"), fullPage: true });
+
+    // ---- Resize ---------------------------------------------------------
+    log("\nResize - 640x360 to 240p:");
+    await open("resize-video");
+    await page.getByRole("radio", { name: /^240p/ }).click();
+    await drop(fixtures.tagged);
+    const resizeCard = cardFor("tagged.mp4");
+    await resizeCard.getByText("Done", { exact: true }).waitFor({ timeout: 600_000 });
+    const resized = await download(resizeCard.getByText("Download"));
+    check("resized file carries the size in its name", resized.name === "tagged-240p.mp4", resized.name);
+    check("resized picture is 240 high", stream(resized.info, "video")?.height === 240 && stream(resized.info, "video")?.width === 426, `${stream(resized.info, "video")?.width}x${stream(resized.info, "video")?.height}`);
+    check("resized audio was copied", stream(resized.info, "audio")?.codec_name === "aac");
+    check(
+      "sizes the picture already fits are not offered",
+      (await resizeCard.getByRole("button", { name: /^\+?\s*720p$/ }).count()) === 0,
+    );
+
+    // ---- Rotate ---------------------------------------------------------
+    log("\nRotate - a quarter turn clockwise, chosen from the card:");
+    await open("rotate-video");
+    await drop(fixtures.tagged);
+    const rotateCard = cardFor("tagged.mp4");
+    await rotateCard.getByText("Ready", { exact: true }).waitFor({ timeout: 240_000 });
+    check("reads the file and waits for a turn", (await rotateCard.getByText("Download").count()) === 0);
+    await rotateCard.getByRole("button", { name: /90 clockwise/ }).click();
+    const turnRow = rotateCard.locator("li").filter({ hasText: /^90 clockwise/ });
+    await turnRow.getByText("Download").waitFor({ timeout: 600_000 });
+    const turned = await download(turnRow.getByText("Download"));
+    check("turned file says so in its name", turned.name === "tagged-rotated-90.mp4", turned.name);
+    check("turned picture is portrait", stream(turned.info, "video")?.width === 360 && stream(turned.info, "video")?.height === 640, `${stream(turned.info, "video")?.width}x${stream(turned.info, "video")?.height}`);
+
+    // ---- Thumbnails -----------------------------------------------------
+    log("\nThumbnails - a 3x3 sheet on arrival, then one frame at 0:02 as PNG:");
+    await open("video-thumbnails");
+    await drop(fixtures.tagged);
+    const sheetCard = cardFor("tagged.mp4");
+    await sheetCard.getByText("Done", { exact: true }).waitFor({ timeout: 240_000 });
+    const sheetRow = sheetCard.locator("li").filter({ hasText: /^Contact sheet/ });
+    const sheet = await download(sheetRow.getByText("Download"));
+    check("sheet is named for its frames", sheet.name === "tagged-sheet-9.jpg", sheet.name);
+    // 3x3 tiles of 320x180, 4 px between and around them.
+    check("sheet is a 3x3 grid of 320 px tiles", stream(sheet.info, "video")?.width === 976 && stream(sheet.info, "video")?.height === 556, `${stream(sheet.info, "video")?.width}x${stream(sheet.info, "video")?.height}`);
+    const sheetHref = await sheetRow.locator("a[download]").getAttribute("href");
+    check("shows the sheet inline", (await sheetCard.locator(`img[src="${sheetHref}"]`).count()) === 1);
+    const frameMarkers = sheetCard.getByRole("group", { name: "Clip markers" });
+    await frameMarkers.getByLabel("Start", { exact: true }).fill("2");
+    await frameMarkers.getByRole("button", { name: "Frame as PNG" }).click();
+    const frameRow = sheetCard.locator("li").filter({ hasText: /^Frame as PNG/ });
+    await frameRow.getByText("Download").waitFor({ timeout: 240_000 });
+    const frame = await download(frameRow.getByText("Download"));
+    check("frame carries its moment in the name", frame.name === "tagged-frame-from-2s.png", frame.name);
+    check("frame is a full-size PNG", stream(frame.info, "video")?.codec_name === "png" && stream(frame.info, "video")?.width === 640, stream(frame.info, "video")?.codec_name);
+
+    // ---- Convert audio --------------------------------------------------
+    log("\nConvert audio - an MP3 copied as MP3, then to FLAC:");
+    await open("convert-audio");
+    await drop(fixtures.music);
+    const audioCard = cardFor("music.mp3");
+    await audioCard.getByText("Done", { exact: true }).waitFor({ timeout: 240_000 });
+    check("an MP3 asked for as MP3 is copied, not re-encoded", /stream copy/i.test(await audioCard.innerText()));
+    await audioCard.getByRole("button", { name: /^\+?\s*FLAC$/ }).first().click();
+    const flacRow = audioCard.locator("li").filter({ hasText: /^FLAC/ });
+    await flacRow.getByText("Download").waitFor({ timeout: 120_000 });
+    const flac = await download(flacRow.getByText("Download"));
+    check("FLAC comes out as FLAC", flac.name === "music.flac" && stream(flac.info, "audio")?.codec_name === "flac", flac.name);
+
+    // ---- Normalize loudness ---------------------------------------------
+    log("\nNormalize - a -24 dB tone to -14 LUFS in two passes:");
+    await open("normalize-audio");
+    check("the target panel is open on arrival", (await page.getByRole("radio", { name: /^-14 LUFS/ }).count()) === 1);
+    await drop(fixtures.quiet);
+    const quietCard = cardFor("quiet.mp3");
+    await quietCard.getByText("Done", { exact: true }).waitFor({ timeout: 240_000 });
+    const loud = await download(quietCard.getByText("Download"));
+    check("normalized file carries the target in its name", loud.name === "quiet-14lufs.mp3", loud.name);
+    check("normalized file stays an MP3 at its sample rate", stream(loud.info, "audio")?.codec_name === "mp3" && stream(loud.info, "audio")?.sample_rate === "44100");
+    const loudBefore = integratedLoudness(fixtures.quiet);
+    const loudAfter = integratedLoudness(loud.path);
+    check("normalized file measures at the target", Math.abs(loudAfter + 14) < 1.5, `${loudBefore.toFixed(1)} LUFS before, ${loudAfter.toFixed(1)} LUFS after`);
+
+    // ---- Extract subtitles ----------------------------------------------
+    log("\nExtract subtitles - the SRT track of an MKV, as SRT then as WebVTT:");
+    await open("extract-subtitles");
+    await drop(fixtures.subbed);
+    const subbedCard = cardFor("subbed.mkv");
+    await subbedCard.getByText("Done", { exact: true }).waitFor({ timeout: 240_000 });
+    check("the card names the track", /1 subtitle track \(eng\)/.test(await subbedCard.innerText()));
+    const [srtEvent] = await Promise.all([page.waitForEvent("download"), subbedCard.getByText("Download").click()]);
+    const srtPath = join(downloadDir, srtEvent.suggestedFilename());
+    await srtEvent.saveAs(srtPath);
+    const srtText = readFileSync(srtPath, "utf8");
+    check("SRT is named for the track's language", srtEvent.suggestedFilename() === "subbed-eng.srt", srtEvent.suggestedFilename());
+    check("SRT carries the cues", srtText.includes("Hello there.") && srtText.includes("00:00:01,000 --> 00:00:04,000"), srtText.split("\n")[1]);
+    check("nothing tries to preview a text file", (await subbedCard.locator("video, audio, img[src^='blob']").count()) <= 1);
+    await subbedCard.getByRole("button", { name: /Track 1 as VTT/ }).first().click();
+    const vttRow = subbedCard.locator("li").filter({ hasText: /^Track 1 as VTT/ });
+    await vttRow.getByText("Download").waitFor({ timeout: 120_000 });
+    const [vttEvent] = await Promise.all([page.waitForEvent("download"), vttRow.getByText("Download").click()]);
+    const vttPath = join(downloadDir, vttEvent.suggestedFilename());
+    await vttEvent.saveAs(vttPath);
+    check("WebVTT comes out with its header", readFileSync(vttPath, "utf8").startsWith("WEBVTT"), vttEvent.suggestedFilename());
+    await page.screenshot({ path: join(FIXTURES, "verify-more-tools.png"), fullPage: true });
 
     // ---- Engine-level assertions ----------------------------------------
     log("\nEngine:");

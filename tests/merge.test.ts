@@ -50,6 +50,7 @@ function probe(
     videoStreams: videoStream ? [videoStream] : [],
     video: videoStream,
     hasVideo: videoStream !== null,
+    subtitleStreams: [],
     formatName: "mov,mp4,m4a,3gp,3g2,mj2",
     log: [],
   };

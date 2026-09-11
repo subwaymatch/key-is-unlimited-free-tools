@@ -1,11 +1,17 @@
 import {
   AudioLines,
+  AudioWaveform,
   Captions,
+  FileText,
   Gauge,
   ImagePlay,
+  LayoutGrid,
   Merge,
   MessageSquareText,
+  Music,
   RefreshCw,
+  RotateCw,
+  Scaling,
   Scissors,
   ShieldCheck,
   Shrink,
@@ -33,6 +39,12 @@ export const TOOL_ICONS = {
   merge: Merge,
   subtitles: Captions,
   transcribe: MessageSquareText,
+  music: Music,
+  loudness: AudioWaveform,
+  resize: Scaling,
+  rotate: RotateCw,
+  thumbnails: LayoutGrid,
+  captions: FileText,
 } as const satisfies Record<ToolIconName, unknown>;
 
 interface ToolIconProps {

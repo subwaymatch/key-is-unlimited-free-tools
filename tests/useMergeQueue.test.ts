@@ -57,6 +57,7 @@ const fake = vi.hoisted(() => {
     videoStreams: [VIDEO],
     video: VIDEO,
     hasVideo: true,
+    subtitleStreams: [],
     formatName: "mov,mp4,m4a,3gp,3g2,mj2",
     log: [],
   };

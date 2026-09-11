@@ -96,6 +96,9 @@ const WAVEFORM_BUCKETS = 600;
 /** Retained log lines per command, so a chatty run cannot grow without bound. */
 const MAX_LOG_LINES = 400;
 
+/** Lines an analysis pass may hand back to its plan; the plan's filter keeps these few. */
+const MAX_ANALYSIS_LINES = 200;
+
 /**
  * Arguments that leave an output carrying nothing about where it came from.
  *
@@ -631,7 +634,9 @@ export class FFmpegEngine implements AudioExtractor {
         ? probe.audio !== null
         : expects === "video"
           ? probe.hasVideo
-          : probe.audio !== null || probe.hasVideo;
+          : expects === "subtitles"
+            ? probe.subtitleStreams.length > 0
+            : probe.audio !== null || probe.hasVideo;
 
     if (!satisfied) {
       const reason = summarizeFailure(log.lines);
@@ -651,6 +656,13 @@ export class FFmpegEngine implements AudioExtractor {
         throw new ExtractionError(
           "No video track found.",
           "This file has no video stream to work on. It may be audio only.",
+          { retryable: false },
+        );
+      }
+      if (expects === "subtitles") {
+        throw new ExtractionError(
+          "No subtitle track found.",
+          "This file carries no subtitles of its own. Subtitles that are drawn into the picture cannot be extracted, only ones stored as a track, which is usual in MKV and some MP4 files.",
           { retryable: false },
         );
       }
@@ -730,12 +742,14 @@ export class FFmpegEngine implements AudioExtractor {
      */
     const metadataArgs =
       options?.stripMetadata && !plan.stripsMetadata ? STRIP_METADATA_ARGS : [];
-    const finalArgs = [...plan.args, ...metadataArgs];
 
     const analysisPasses = plan.analysisPasses ?? [];
     const totalPasses = analysisPasses.length + 1;
     // Every pass reads the whole clip, so each gets an equal share of the bar.
     const passLog = analysisPasses.length > 0 ? ["-passlogfile", PASS_LOG_PREFIX] : [];
+    // What the analysis passes printed, for a plan that writes its final
+    // arguments from them.
+    const analysisLines: string[] = [];
 
     const command = (passArgs: string[], output: string[]) => [
       "-hide_banner",
@@ -752,44 +766,58 @@ export class FFmpegEngine implements AudioExtractor {
 
     const startedAt = performance.now();
 
-    try {
-      for (const [index, passArgs] of [...analysisPasses, finalArgs].entries()) {
-        const isFinal = index === analysisPasses.length;
+    const runPass = async (index: number, passArgs: string[], isFinal: boolean) => {
+      // ffmpeg's own `progress` ratio is unreliable when it cannot infer the
+      // duration, so the ratio is computed from processed media time instead.
+      this.#progressSink = ({ time }) => {
+        const processedSeconds = Math.max(0, time / 1_000_000);
+        const passRatio = duration ? Math.min(1, processedSeconds / duration) : null;
+        onProgress?.({
+          processedSeconds,
+          ratio: passRatio === null ? null : (index + passRatio) / totalPasses,
+        });
+      };
 
-        // ffmpeg's own `progress` ratio is unreliable when it cannot infer the
-        // duration, so the ratio is computed from processed media time instead.
-        this.#progressSink = ({ time }) => {
-          const processedSeconds = Math.max(0, time / 1_000_000);
-          const passRatio = duration ? Math.min(1, processedSeconds / duration) : null;
-          onProgress?.({
-            processedSeconds,
-            ratio: passRatio === null ? null : (index + passRatio) / totalPasses,
-          });
-        };
-
-        const log = this.#capture();
-        let exitCode: number;
-        try {
-          // The null muxer discards every packet and is AVFMT_NOFILE, so "-"
-          // is never actually opened.
-          exitCode = await this.#exec(
-            ffmpeg,
-            command(passArgs, isFinal ? [outputPath] : ["-f", "null", "-"]),
-          );
-        } finally {
-          log.release();
-          this.#progressSink = null;
-        }
-
-        if (exitCode !== 0) {
-          throw new ExtractionError(
-            isFinal
-              ? `${format.label} conversion failed.`
-              : `${format.label} conversion failed during its analysis pass.`,
-            summarizeFailure(log.lines) ?? `ffmpeg exited with code ${exitCode}.`,
-          );
-        }
+      // Two captures for an analysis pass a plan reads back: a bounded tail
+      // for a failure message, and a filtered one that keeps every line the
+      // plan asked for however chatty the run gets. Released innermost-first.
+      const log = this.#capture();
+      const kept =
+        !isFinal && plan.refine ? this.#capture(MAX_ANALYSIS_LINES, plan.refine.keep) : null;
+      let exitCode: number;
+      try {
+        // The null muxer discards every packet and is AVFMT_NOFILE, so "-"
+        // is never actually opened.
+        exitCode = await this.#exec(
+          ffmpeg,
+          command(passArgs, isFinal ? [outputPath] : ["-f", "null", "-"]),
+        );
+      } finally {
+        kept?.release();
+        log.release();
+        this.#progressSink = null;
       }
+      if (kept) analysisLines.push(...kept.lines);
+
+      if (exitCode !== 0) {
+        throw new ExtractionError(
+          isFinal
+            ? `${format.label} conversion failed.`
+            : `${format.label} conversion failed during its analysis pass.`,
+          summarizeFailure(log.lines) ?? `ffmpeg exited with code ${exitCode}.`,
+        );
+      }
+    };
+
+    try {
+      for (const [index, passArgs] of analysisPasses.entries()) {
+        await runPass(index, passArgs, false);
+      }
+      const finalArgs = [
+        ...(plan.refine ? plan.refine.args(analysisLines) : plan.args),
+        ...metadataArgs,
+      ];
+      await runPass(analysisPasses.length, finalArgs, true);
     } finally {
       if (analysisPasses.length > 0) {
         for (const name of PASS_LOG_FILES) {
