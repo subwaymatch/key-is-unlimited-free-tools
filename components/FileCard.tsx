@@ -9,6 +9,7 @@ import { isFormatAvailable } from "@/lib/engine/formats";
 import { formatTimecode } from "@/lib/engine/trim";
 import type {
   EngineCapabilities,
+  FormatPlan,
   OutputFormat,
   OutputKind,
   PlanContext,
@@ -100,9 +101,14 @@ function statusStyle(job: Job): string {
 function outputExtension(output: JobOutput, job: Job, context: PlanContext): string | null {
   const fromResult = output.result?.fileName.split(".").pop();
   if (fromResult) return fromResult;
+  return outputPlan(output, job, context)?.extension ?? null;
+}
+
+/** What the format would write for this file, or null before it can be known. */
+function outputPlan(output: JobOutput, job: Job, context: PlanContext): FormatPlan | null {
   if (!job.probe) return null;
   try {
-    return output.format.plan(job.probe, { ...context, trim: output.trim }).extension;
+    return output.format.plan(job.probe, { ...context, trim: output.trim });
   } catch {
     return null;
   }
@@ -499,10 +505,13 @@ export function FileCard({
               <p className={styles.elapsed}>
                 {formatDuration(runningOutput.processedSeconds)} /{" "}
                 {formatDuration(
-                  runningOutput.trim
+                  (runningOutput.trim
                     ? (runningOutput.trim.endSeconds ?? totalDuration) -
-                        runningOutput.trim.startSeconds
-                    : totalDuration,
+                      runningOutput.trim.startSeconds
+                    : totalDuration) *
+                    // The counter runs on the output's clock, which a speed
+                    // change makes shorter or longer than the range it reads.
+                    (outputPlan(runningOutput, job, planContext)?.durationFactor ?? 1),
                 )}
               </p>
             )}

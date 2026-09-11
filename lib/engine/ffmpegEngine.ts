@@ -48,6 +48,10 @@ import {
   type ExtractProgress,
   type ExtractSession,
   type MediaExpectation,
+  type MergeOptions,
+  type MergePlan,
+  type MountedInput,
+  type MultiSession,
   type OpenSessionOptions,
   type OutputFormat,
   type PosterFrame,
@@ -178,7 +182,7 @@ function loadFFmpegModule(): Promise<FFmpegModule> {
  * could be misread as a protocol prefix. The extension is preserved because
  * ffmpeg uses it as a hint when probing the container.
  */
-export function safeMountName(fileName: string): string {
+export function safeMountName(fileName: string, index?: number): string {
   const lastDot = fileName.lastIndexOf(".");
   const extension =
     lastDot > 0 && lastDot < fileName.length - 1
@@ -188,7 +192,10 @@ export function safeMountName(fileName: string): string {
           .slice(0, 8)
           .toLowerCase()
       : "";
-  return extension ? `source.${extension}` : "source";
+  // Several files mounted together need distinct names; one file keeps the
+  // plain one, so nothing about a single-file job changes.
+  const stem = index === undefined ? "source" : `source-${index}`;
+  return extension ? `${stem}.${extension}` : stem;
 }
 
 /** Strips the extension so outputs can be named after the source file. */
@@ -459,19 +466,7 @@ export class FFmpegEngine implements AudioExtractor {
     const mountName = safeMountName(file.name);
 
     try {
-      await this.#ensureMountPoint(ffmpeg);
-      // The File is mounted, never copied: this is what lifts the 2 GB limit.
-      const mounted = await ffmpeg.mount(
-        this.#mountType(),
-        { blobs: [{ name: mountName, data: file }] },
-        MOUNT_POINT,
-      );
-      if (!mounted) {
-        throw new ExtractionError(
-          "Could not mount the video for reading.",
-          "WORKERFS is unavailable in this ffmpeg build.",
-        );
-      }
+      await this.#mountInputs(ffmpeg, [{ name: mountName, data: file }]);
     } catch (error) {
       this.#busy = false;
       throw error;
@@ -486,6 +481,78 @@ export class FFmpegEngine implements AudioExtractor {
       await this.#safeUnmount(ffmpeg);
       this.#busy = false;
       throw error;
+    }
+  }
+
+  async openFiles(files: File[], options?: OpenSessionOptions): Promise<MultiSession> {
+    const capabilities = await this.load();
+    if (this.#busy) {
+      throw new ExtractionError("The engine is already processing another file.");
+    }
+    const ffmpeg = this.#ffmpeg;
+    if (!ffmpeg) throw new ExtractionError("The ffmpeg engine is not loaded.");
+    if (files.length === 0) throw new ExtractionError("There are no files to open.");
+
+    const largest = files.reduce((max, file) => Math.max(max, file.size), 0);
+    if (!capabilities.supportsWorkerFs && largest > 2 * 1024 ** 3) {
+      throw new ExtractionError(
+        "This ffmpeg build cannot read files larger than 2 GB.",
+        "The core was built without WORKERFS, so the file would have to be copied into memory.",
+      );
+    }
+
+    this.#busy = true;
+    // One mount for all of them: WORKERFS takes a list, and every entry is a
+    // reference to its File rather than a copy, exactly as for one file.
+    const names = files.map((file, index) => safeMountName(file.name, index + 1));
+
+    try {
+      await this.#mountInputs(
+        ffmpeg,
+        files.map((file, index) => ({ name: names[index], data: file })),
+      );
+    } catch (error) {
+      this.#busy = false;
+      throw error;
+    }
+
+    const expects = options?.expects ?? "video";
+    const inputs: MountedInput[] = [];
+    try {
+      for (const [index, file] of files.entries()) {
+        const inputPath = `${MOUNT_POINT}/${names[index]}`;
+        try {
+          inputs.push({ file, inputPath, probe: await this.#probe(ffmpeg, inputPath, expects), error: null });
+        } catch (error) {
+          // A file that cannot be read is that file's problem, unless the
+          // engine died reading it, in which case nothing else can be read.
+          if (isFatalRuntimeFailure(error)) throw error;
+          const failure =
+            error instanceof ExtractionError
+              ? error
+              : new ExtractionError("This file could not be read.", describeCause(error));
+          inputs.push({ file, inputPath, probe: null, error: failure });
+        }
+      }
+    } catch (error) {
+      await this.#safeUnmount(ffmpeg);
+      this.#busy = false;
+      throw error;
+    }
+
+    return new FFmpegMultiSession(this, ffmpeg, inputs);
+  }
+
+  /** Mounts every blob under MOUNT_POINT, never copying any of them. */
+  async #mountInputs(ffmpeg: FFmpeg, blobs: { name: string; data: Blob }[]): Promise<void> {
+    await this.#ensureMountPoint(ffmpeg);
+    // The File is mounted, never copied: this is what lifts the 2 GB limit.
+    const mounted = await ffmpeg.mount(this.#mountType(), { blobs }, MOUNT_POINT);
+    if (!mounted) {
+      throw new ExtractionError(
+        "Could not mount the video for reading.",
+        "WORKERFS is unavailable in this ffmpeg build.",
+      );
     }
   }
 
@@ -644,9 +711,16 @@ export class FFmpegEngine implements AudioExtractor {
 
     const outputPath = `/out.${plan.extension}`;
     // With input seeking the output timeline restarts at zero, so progress is
-    // measured against the length of the clip, not the length of the file.
-    const duration = trimDuration(trim, probe.durationSeconds);
-    const { input: trimInput, output: trimOutput } = trimArgs(trim);
+    // measured against the length of the clip, not the length of the file -
+    // scaled by whatever the plan does to it, since a speed change writes an
+    // output that is not the length of its input.
+    const clipSeconds = trimDuration(trim, probe.durationSeconds);
+    const duration = clipSeconds === null ? null : clipSeconds * (plan.durationFactor ?? 1);
+    const { input: trimInput, output: trimLength } = trimArgs(trim);
+    // A plan that re-times its output wants the range to bound the input, not
+    // the output; see FormatPlan.limitInput.
+    const lengthBeforeInput = plan.limitInput ? trimLength : [];
+    const lengthAfterInput = plan.limitInput ? [] : trimLength;
 
     /*
      * Dropping the source's tags is the engine's job rather than each plan's:
@@ -666,12 +740,13 @@ export class FFmpegEngine implements AudioExtractor {
     const command = (passArgs: string[], output: string[]) => [
       "-hide_banner",
       ...trimInput,
+      ...lengthBeforeInput,
       ...(plan.inputArgs ?? []),
       "-i",
       inputPath,
       ...passArgs,
       ...passLog,
-      ...trimOutput,
+      ...lengthAfterInput,
       ...output,
     ];
 
@@ -730,7 +805,7 @@ export class FFmpegEngine implements AudioExtractor {
      * something already in memory, but it is not free.
      */
     const actualTrim = plan.verifyDuration
-      ? await this.#measureActualTrim(ffmpeg, outputPath, trim, duration)
+      ? await this.#measureActualTrim(ffmpeg, outputPath, trim, clipSeconds)
       : null;
 
     const data = await ffmpeg.readFile(outputPath);
@@ -759,6 +834,78 @@ export class FFmpegEngine implements AudioExtractor {
       kind: plan.kind ?? "audio",
       trim,
       actualTrim,
+      warning: plan.warning,
+    };
+  }
+
+  /**
+   * @internal - driven by FFmpegMultiSession.
+   *
+   * Runs one command over every mounted input and reads back the one file it
+   * writes. The plan decides how the inputs are named on the command line; the
+   * engine's part is the scratch files, the tags, the progress and the output.
+   */
+  async runMerge(ffmpeg: FFmpeg, plan: MergePlan, options?: MergeOptions): Promise<ExtractOutput> {
+    const onProgress = options?.onProgress;
+    const outputPath = `/out.${plan.extension}`;
+    const expected = plan.expectedSeconds;
+    const metadataArgs =
+      options?.stripMetadata && !plan.stripsMetadata ? STRIP_METADATA_ARGS : [];
+    const scratch = plan.scratchFiles ?? [];
+    const startedAt = performance.now();
+
+    for (const file of scratch) await ffmpeg.writeFile(file.path, file.contents);
+
+    this.#progressSink = ({ time }) => {
+      const processedSeconds = Math.max(0, time / 1_000_000);
+      onProgress?.({
+        processedSeconds,
+        ratio: expected ? Math.min(1, processedSeconds / expected) : null,
+      });
+    };
+
+    const log = this.#capture();
+    let exitCode: number;
+    try {
+      exitCode = await this.#exec(ffmpeg, [
+        "-hide_banner",
+        ...plan.inputArgs,
+        ...plan.args,
+        ...metadataArgs,
+        outputPath,
+      ]);
+    } finally {
+      log.release();
+      this.#progressSink = null;
+      for (const file of scratch) await ffmpeg.deleteFile(file.path).catch(() => {});
+    }
+
+    if (exitCode !== 0) {
+      throw new ExtractionError(
+        "Joining the clips failed.",
+        summarizeFailure(log.lines) ?? `ffmpeg exited with code ${exitCode}.`,
+      );
+    }
+
+    const data = await ffmpeg.readFile(outputPath);
+    await ffmpeg.deleteFile(outputPath).catch(() => {});
+    if (typeof data === "string") {
+      throw new ExtractionError("ffmpeg returned text where media was expected.");
+    }
+
+    const blob = new Blob([data as BlobPart], { type: plan.mimeType });
+    onProgress?.({ processedSeconds: expected ?? 0, ratio: 1 });
+
+    return {
+      blob,
+      fileName: `${plan.baseName}.${plan.extension}`,
+      extension: plan.extension,
+      mimeType: plan.mimeType,
+      bytes: blob.size,
+      elapsedMs: performance.now() - startedAt,
+      mode: plan.mode,
+      kind: plan.kind,
+      trim: null,
       warning: plan.warning,
     };
   }
@@ -1125,6 +1272,35 @@ class FFmpegSession implements ExtractSession {
       options,
       onProgress,
     );
+  }
+
+  async close(): Promise<void> {
+    if (this.#closed) return;
+    this.#closed = true;
+    await this.engine.closeSession(this.ffmpeg);
+  }
+}
+
+class FFmpegMultiSession implements MultiSession {
+  #closed = false;
+
+  constructor(
+    private readonly engine: FFmpegEngine,
+    private readonly ffmpeg: FFmpeg,
+    readonly inputs: readonly MountedInput[],
+  ) {}
+
+  poster(index: number): Promise<PosterFrame | null> {
+    const input = this.inputs[index];
+    if (this.#closed || !input?.probe) return Promise.resolve(null);
+    return this.engine.runPoster(this.ffmpeg, input.inputPath, input.probe);
+  }
+
+  merge(plan: MergePlan, options?: MergeOptions): Promise<ExtractOutput> {
+    if (this.#closed) {
+      return Promise.reject(new ExtractionError("These files are no longer open."));
+    }
+    return this.engine.runMerge(this.ffmpeg, plan, options);
   }
 
   async close(): Promise<void> {

@@ -79,6 +79,13 @@ export function fileExtension(fileName: string): string | null {
   return fileName.slice(lastDot + 1).toLowerCase();
 }
 
+/** The filename without its extension, so outputs can be named after the source. */
+export function fileStem(fileName: string, fallback = "file"): string {
+  const extension = fileExtension(fileName);
+  const stem = extension ? fileName.slice(0, fileName.length - extension.length - 1) : fileName;
+  return stem.trim() || fallback;
+}
+
 /**
  * The `accept` list for a file input, as extensions plus the MIME wildcards.
  *

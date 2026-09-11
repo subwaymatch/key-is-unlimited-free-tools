@@ -24,6 +24,18 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 import { getEngine, resetEngine } from "./engine/ffmpegEngine";
 import {
+  getEngineState,
+  isFatal,
+  loadEngine,
+  markEngineFailed,
+  markEngineRestarted,
+  PROGRESS_THROTTLE_MS,
+  resetEngineState,
+  subscribeEngineState,
+  toFailure,
+  type JobFailure,
+} from "./engineState";
+import {
   DEFAULT_FORMAT_IDS,
   findFormat,
   isFormatAvailable,
@@ -33,9 +45,7 @@ import { DEFAULT_SILENCE_OPTIONS, sameTrimRange } from "./engine/trim";
 import { ExtractionError } from "./engine/types";
 import type {
   EngineCapabilities,
-  EngineLoadStage,
   ExtractOutput,
-  FailureSeverity,
   MediaExpectation,
   OutputFormat,
   ProbeResult,
@@ -63,14 +73,7 @@ export type JobStatus =
 
 export type OutputStatus = "pending" | "running" | "done" | "error" | "cancelled";
 
-export interface JobFailure {
-  message: string;
-  hint?: string;
-  /** "info" is a job with nothing to do rather than one that went wrong. */
-  severity?: FailureSeverity;
-  /** False when running the same job again can only produce the same result. */
-  retryable?: boolean;
-}
+export type { EngineState, JobFailure } from "./engineState";
 
 export interface JobOutput {
   /**
@@ -258,55 +261,9 @@ export const DEFAULT_TRIM_SETTINGS: TrimSettings = {
   silence: DEFAULT_SILENCE_OPTIONS,
 };
 
-export interface EngineState {
-  stage: EngineLoadStage | "error";
-  ratio: number | null;
-  receivedBytes: number;
-  totalBytes: number;
-  capabilities: EngineCapabilities | null;
-  error?: JobFailure;
-  /**
-   * How many times a crashed engine has been replaced this session.
-   *
-   * Shown once as a note rather than counted at the visitor: what matters is
-   * that the restart was deliberate and their other files are unaffected.
-   */
-  restarts: number;
-}
-
 const MAX_JOB_LOG_LINES = 500;
 /** How often buffered ffmpeg output is pushed into React state. */
 const LOG_FLUSH_MS = 300;
-/** Minimum gap between progress-driven re-renders. */
-const PROGRESS_THROTTLE_MS = 100;
-
-const INITIAL_ENGINE_STATE: EngineState = {
-  stage: "idle",
-  ratio: null,
-  receivedBytes: 0,
-  totalBytes: 0,
-  capabilities: null,
-  restarts: 0,
-};
-
-function toFailure(error: unknown): JobFailure {
-  if (error instanceof ExtractionError) {
-    return {
-      message: error.message,
-      hint: error.hint,
-      severity: error.severity,
-      retryable: error.retryable,
-    };
-  }
-  if (error instanceof Error) return { message: error.message };
-  if (typeof error === "string") return { message: error };
-  return { message: "Something went wrong." };
-}
-
-/** True for a failure that took the ffmpeg instance down with it. */
-function isFatal(error: unknown): boolean {
-  return error instanceof ExtractionError && error.fatal;
-}
 
 let outputCounter = 0;
 const nextOutputId = () => `output-${(outputCounter += 1)}`;
@@ -458,35 +415,13 @@ function notify(store: QueueStore): void {
   for (const listener of store.listeners) listener();
 }
 
-/* ---- Engine state, shared by every tool --------------------------------- */
-
-/*
- * There is one ffmpeg worker for the page, so there is one engine state for
- * the page: the core downloaded on the convert page is loaded when the trimmer
- * opens, and its banner should say so rather than starting again at "idle".
- */
-let engineState: EngineState = INITIAL_ENGINE_STATE;
-const engineListeners = new Set<() => void>();
-
-function setEngineState(patch: (previous: EngineState) => EngineState): void {
-  engineState = patch(engineState);
-  for (const listener of engineListeners) listener();
-}
-
-function subscribeEngine(listener: () => void): () => void {
-  engineListeners.add(listener);
-  return () => engineListeners.delete(listener);
-}
-
-const getEngineState = () => engineState;
-
 /** @internal - lets tests start from a clean page. */
 export function resetQueueStores(): void {
   for (const store of stores.values()) {
     for (const job of store.jobs) releaseJobUrls(job);
   }
   stores.clear();
-  engineState = INITIAL_ENGINE_STATE;
+  resetEngineState();
 }
 
 /* ---- The hook ----------------------------------------------------------- */
@@ -511,7 +446,7 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
   const selectedFormats = useSyncExternalStore(subscribe, getSelected, getSelected);
   const trimSettings = useSyncExternalStore(subscribe, getTrimSettings, getTrimSettings);
   const stripMetadata = useSyncExternalStore(subscribe, getStripMetadata, getStripMetadata);
-  const engine = useSyncExternalStore(subscribeEngine, getEngineState, getEngineState);
+  const engine = useSyncExternalStore(subscribeEngineState, getEngineState, getEngineState);
 
   /*
    * The tool's catalogue as it stands on this render. A settings change is
@@ -654,26 +589,7 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
 
       let session: Awaited<ReturnType<typeof ffmpeg.openSession>> | null = null;
       try {
-        let lastEngineTick = 0;
-        const capabilities = await ffmpeg.load((progress) => {
-          const now = Date.now();
-          const isMilestone = progress.stage !== "downloading-core" || progress.ratio === 1;
-          if (!isMilestone && now - lastEngineTick < PROGRESS_THROTTLE_MS) return;
-          lastEngineTick = now;
-          setEngineState((previous) => ({
-            ...previous,
-            stage: progress.stage,
-            ratio: progress.ratio,
-            receivedBytes: progress.receivedBytes,
-            totalBytes: progress.totalBytes,
-          }));
-        });
-        setEngineState((previous) => ({
-          ...previous,
-          stage: "ready",
-          capabilities,
-          error: undefined,
-        }));
+        await loadEngine(ffmpeg);
         if (isCancelled()) throw new ExtractionError("Cancelled.");
 
         patchJob(jobId, { phase: "Reading file details..." });
@@ -916,13 +832,7 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
             store.crashed.add(jobId);
           }
           // A failure to load the engine is global, not specific to this file.
-          if (!ffmpeg.loaded) {
-            setEngineState((previous) => ({
-              ...previous,
-              stage: "error",
-              error: failure,
-            }));
-          }
+          if (!ffmpeg.loaded) markEngineFailed(failure);
         }
       } finally {
         clearInterval(logTimer);
@@ -942,12 +852,7 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
           // The worker was killed mid-command, or it died on its own; either
           // way the next job needs a fresh one.
           resetEngine();
-          setEngineState((previous) => ({
-            ...previous,
-            stage: "idle",
-            capabilities: null,
-            restarts: previous.restarts + (crashed ? 1 : 0),
-          }));
+          markEngineRestarted(crashed);
         } else if (session) {
           await session.close().catch(() => {});
         }
@@ -979,7 +884,7 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
         // A tool whose formats come from a settings panel has no selection to
         // honour: the panel is the selection, and it is already in the ids.
         current.formatPicker ? store.selectedFormats : current.defaultFormatIds,
-        engineState.capabilities,
+        getEngineState().capabilities,
         current,
       );
       const settings = store.trimSettings;

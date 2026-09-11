@@ -14,7 +14,7 @@
  * named in CHROMIUM_PATH). The core is served locally, which keeps the run
  * hermetic and doubles as a test of the self-hosted-core configuration.
  */
-import { createReadStream, existsSync, mkdirSync, statSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { execFileSync } from "node:child_process";
 import { extname, join, dirname, resolve } from "node:path";
@@ -96,6 +96,17 @@ function ensureFixtures() {
       "-t", "3", "-c:a", "libmp3lame", "-b:a", "128k",
       "-metadata", "title=Song", "-metadata", "artist=Someone",
     ]),
+    // Two cues, for the subtitle converter: one to convert, one to shift.
+    subtitles: (() => {
+      const path = join(FIXTURES, "sample.srt");
+      if (!existsSync(path)) {
+        writeFileSync(
+          path,
+          "1\r\n00:00:01,000 --> 00:00:04,000\r\nHello there.\r\n\r\n2\r\n00:00:05,500 --> 00:00:07,250\r\n<i>Second</i> cue\r\n",
+        );
+      }
+      return path;
+    })(),
   };
 }
 
@@ -205,10 +216,13 @@ async function main() {
       "video-to-gif",
       "remove-audio",
       "remove-metadata",
+      "change-speed",
+      "merge-videos",
+      "convert-subtitles",
     ]) {
       check(`index links to /${slug}`, links.includes(`/${slug}`));
     }
-    check("index does not link a planned tool", !links.includes("/change-speed"));
+    check("index does not link a planned tool", !links.includes("/transcribe-video"));
 
     // ---- Convert --------------------------------------------------------
     log("\nConvert - H.264 + AAC MP4 (a copy) and an MPEG-4/MP2 AVI (an encode):");
@@ -445,6 +459,82 @@ async function main() {
     await silentCard.getByText("Ready", { exact: true }).waitFor({ timeout: 120_000 });
     check("a silent video is accepted by a video tool", true);
     await page.screenshot({ path: join(FIXTURES, "verify-gif.png"), fullPage: true });
+
+    // ---- Change speed ---------------------------------------------------
+    log("\nChange speed - 2x from the panel, then 0.5x from the card:");
+    await open("change-speed");
+    check(
+      "the speed panel is open on arrival",
+      (await page.getByRole("radio", { name: /^2x/ }).count()) === 1,
+    );
+    await page.getByRole("radio", { name: /^2x/ }).click();
+    await drop(fixtures.tagged);
+    const speedCard = cardFor("tagged.mp4");
+    await speedCard.getByText("Re-timing the video at 2x...").waitFor({ timeout: 240_000 });
+    check("says what it is doing", true, "phase line");
+    await speedCard.getByText("Done", { exact: true }).waitFor({ timeout: 600_000 });
+    const doubled = await download(speedCard.getByText("Download"));
+    check("2x output carries the speed in its name", doubled.name === "tagged-2x.mp4", doubled.name);
+    check("2x output is half the length", Math.abs(seconds(doubled.info) - 3) < 0.3, `${seconds(doubled.info).toFixed(2)}s`);
+    check("2x output keeps the frame rate", stream(doubled.info, "video")?.r_frame_rate === "25/1", stream(doubled.info, "video")?.r_frame_rate);
+    check("2x output keeps the audio, as AAC", stream(doubled.info, "audio")?.codec_name === "aac");
+
+    // The other speeds are one click away on the card.
+    await speedCard.getByRole("button", { name: /^\+?\s*0\.5x$/ }).first().click();
+    const slowRow = speedCard.locator("li").filter({ hasText: /^0\.5x/ });
+    await slowRow.getByText("Download").waitFor({ timeout: 600_000 });
+    const halved = await download(slowRow.getByText("Download"));
+    check("0.5x output is twice the length", Math.abs(seconds(halved.info) - 12) < 0.3, `${seconds(halved.info).toFixed(2)}s`);
+    check("0.5x output keeps the frame rate", stream(halved.info, "video")?.r_frame_rate === "25/1", stream(halved.info, "video")?.r_frame_rate);
+    await page.screenshot({ path: join(FIXTURES, "verify-speed.png"), fullPage: true });
+
+    // ---- Merge ----------------------------------------------------------
+    log("\nMerge - two matching clips copied, then a third mismatched one re-encoded:");
+    await open("merge-videos");
+    await page.locator('input[type="file"]').setInputFiles([fixtures.tagged, fixtures.tagged]);
+    const mergeSection = page.locator('section[aria-label="Clips to join"]');
+    await mergeSection.getByText(/They match, so they will be joined without re-encoding/).waitFor({ timeout: 240_000 });
+    check("reads the clips and promises a copy for matching ones", true);
+    check("shows both clips with their details", (await mergeSection.getByText(/H264 640x360/).count()) === 2);
+    await mergeSection.getByRole("button", { name: "Join 2 clips" }).click();
+    await mergeSection.getByText("Download").waitFor({ timeout: 240_000 });
+    const joined = await download(mergeSection.getByText("Download"));
+    check("joined file is named after the first clip", joined.name === "tagged-merged.mp4", joined.name);
+    check("joined file is twice the length", Math.abs(seconds(joined.info) - 12) < 0.5, `${seconds(joined.info).toFixed(2)}s`);
+    check("joined file was a stream copy", /stream copy/i.test(await mergeSection.innerText()) && stream(joined.info, "video")?.codec_name === "h264");
+    check("shows a video preview of the join", (await mergeSection.locator("video").count()) === 1);
+
+    await drop(fixtures.avi);
+    await mergeSection.getByText(/They will be re-encoded to H\.264/).waitFor({ timeout: 240_000 });
+    check("a mismatched clip turns the join into a re-encode, and says why", /clip 3 is MPEG4 while clip 1 is H264/.test(await mergeSection.innerText()));
+    check("adding a clip clears the old join", (await mergeSection.getByText("Download").count()) === 0);
+    await mergeSection.getByRole("button", { name: "Join 3 clips" }).click();
+    await mergeSection.getByText("Download").waitFor({ timeout: 600_000 });
+    const encodedJoin = await download(mergeSection.getByText("Download"));
+    check("re-encoded join is the length of all three", Math.abs(seconds(encodedJoin.info) - 16) < 0.5, `${seconds(encodedJoin.info).toFixed(2)}s`);
+    check("re-encoded join is fitted to the first clip's frame", stream(encodedJoin.info, "video")?.width === 640 && stream(encodedJoin.info, "video")?.height === 360, `${stream(encodedJoin.info, "video")?.width}x${stream(encodedJoin.info, "video")?.height}`);
+    check("re-encoded join is H.264 + AAC", stream(encodedJoin.info, "video")?.codec_name === "h264" && stream(encodedJoin.info, "audio")?.codec_name === "aac");
+    await page.screenshot({ path: join(FIXTURES, "verify-merge.png"), fullPage: true });
+
+    // ---- Subtitles ------------------------------------------------------
+    log("\nConvert subtitles - SRT to WebVTT, then shifted by 1.5 s:");
+    await open("convert-subtitles");
+    await drop(fixtures.subtitles);
+    const subtitleCard = cardFor("sample.srt");
+    await subtitleCard.getByText("Ready", { exact: true }).waitFor({ timeout: 30_000 });
+    check("reads the file without an engine", /SRT, 2 cues/.test(await subtitleCard.innerText()), await subtitleCard.locator("p").nth(1).innerText());
+    const vtt = await download(subtitleCard.getByRole("button", { name: "Download sample.vtt" }));
+    const vttText = readFileSync(vtt.path, "utf8");
+    check("WebVTT output has the header and the cue", vttText.startsWith("WEBVTT\n\n00:00:01.000 --> 00:00:04.000\nHello there."), vttText.slice(0, 60));
+    check("WebVTT output keeps italics", vttText.includes("<i>Second</i> cue"));
+
+    await page.getByRole("button", { name: /Output formats & timing/ }).click();
+    await page.getByLabel("Shift by").fill("1.5");
+    await subtitleCard.getByText(/shifted later by 1.5 s/).waitFor({ timeout: 10_000 });
+    const shifted = await download(subtitleCard.getByRole("button", { name: "Download sample-retimed.srt" }));
+    const shiftedText = readFileSync(shifted.path, "utf8");
+    check("shifted SRT moves every cue by the offset", shiftedText.includes("00:00:02,500 --> 00:00:05,500") && shiftedText.includes("00:00:07,000 --> 00:00:08,750"), shiftedText.split("\n")[1]);
+    await page.screenshot({ path: join(FIXTURES, "verify-subtitles.png"), fullPage: true });
 
     // ---- Engine-level assertions ----------------------------------------
     log("\nEngine:");

@@ -173,6 +173,25 @@ export interface FormatPlan {
   verifyDuration?: boolean;
   /** True when the plan already drops metadata, so the engine does not repeat it. */
   stripsMetadata?: boolean;
+  /**
+   * How long the output is compared with the range it was made from.
+   *
+   * A plan that re-times its output - a speed change - produces a file that
+   * is not the length of its input, and the engine measures progress against
+   * the output timeline. Without this a 2x speed-up would stop at 50% and a
+   * 0.5x slow-down would sit at 100% for half the run. Defaults to 1.
+   */
+  durationFactor?: number;
+  /**
+   * Put the range's length before `-i`, so it bounds what is read rather than
+   * what is written.
+   *
+   * `-t` as an output option stops the encoder once the *output* reaches the
+   * length of the range, which cuts a slow-down off halfway through. As an
+   * input option it limits the input to the range and the output is however
+   * long the plan makes it.
+   */
+  limitInput?: boolean;
 }
 
 /**
@@ -380,11 +399,73 @@ export interface ExtractSession {
   close(): Promise<void>;
 }
 
+/**
+ * One ffmpeg invocation over several inputs, producing one file.
+ *
+ * The merger's shape. Unlike a FormatPlan the inputs are part of the plan,
+ * because how they are given - a concat list for a stream copy, one `-i` per
+ * file for a filter graph - is the decision the plan exists to make.
+ */
+export interface MergePlan {
+  /** Everything up to and including the inputs: `-f concat -safe 0 -i list` or `-i a -i b`. */
+  inputArgs: string[];
+  /** Output options: everything between the inputs and the output path. */
+  args: string[];
+  /**
+   * Text files the run needs in the core's filesystem, such as the concat
+   * demuxer's list. Written before the command and removed after it.
+   */
+  scratchFiles?: { path: string; contents: string }[];
+  extension: string;
+  mimeType: string;
+  mode: ExtractMode;
+  kind: OutputKind;
+  /** Name for the download, without the extension. */
+  baseName: string;
+  /** Length of the joined output in seconds, for progress; null when unknown. */
+  expectedSeconds: number | null;
+  warning?: string;
+  stripsMetadata?: boolean;
+}
+
+export interface MergeOptions {
+  stripMetadata?: boolean;
+  onProgress?: (progress: ExtractProgress) => void;
+}
+
+/** One of several files mounted together, probed on its own. */
+export interface MountedInput {
+  file: File;
+  /** Where the file is inside the core's filesystem, for the plan's `-i`. */
+  inputPath: string;
+  /** Null when the file could not be read; `error` then says why. */
+  probe: ProbeResult | null;
+  error: ExtractionError | null;
+}
+
+/** Several files open at once: mounted together, ready to be joined. */
+export interface MultiSession {
+  readonly inputs: readonly MountedInput[];
+  /** A frame from one of the inputs, for its row. Null for audio, or on failure. */
+  poster(index: number): Promise<PosterFrame | null>;
+  merge(plan: MergePlan, options?: MergeOptions): Promise<ExtractOutput>;
+  /** Unmounts every input and releases engine-side resources. */
+  close(): Promise<void>;
+}
+
 export interface AudioExtractor {
   readonly id: string;
   readonly capabilities: EngineCapabilities | null;
   load(onProgress?: (progress: EngineLoadProgress) => void): Promise<EngineCapabilities>;
   openSession(file: File, options?: OpenSessionOptions): Promise<ExtractSession>;
+  /**
+   * Opens several files together, for the tools that take more than one.
+   *
+   * Every file is mounted in one go, so the plan can name them all on one
+   * command line. A file that fails to probe does not fail the session: it is
+   * reported on its own input, and the caller decides what to do about it.
+   */
+  openFiles(files: File[], options?: OpenSessionOptions): Promise<MultiSession>;
   /** Hard-stops in-flight work; the engine reloads lazily on next use. */
   terminate(): void;
 }

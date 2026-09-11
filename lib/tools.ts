@@ -33,7 +33,8 @@ export type ToolIconName =
   | "clean"
   | "speed"
   | "merge"
-  | "subtitles";
+  | "subtitles"
+  | "transcribe";
 
 export interface ToolMeta {
   /** URL segment. Verb-object, lowercase, hyphenated, and permanent once shipped. */
@@ -162,7 +163,7 @@ export const TOOLS: readonly ToolMeta[] = [
     category: "video",
     icon: "speed",
     accepts: "Video files",
-    status: "planned",
+    status: "live",
   },
   {
     slug: "merge-videos",
@@ -173,7 +174,7 @@ export const TOOLS: readonly ToolMeta[] = [
     category: "video",
     icon: "merge",
     accepts: "Video files",
-    status: "planned",
+    status: "live",
   },
   {
     slug: "convert-subtitles",
@@ -184,6 +185,17 @@ export const TOOLS: readonly ToolMeta[] = [
     category: "subtitles",
     icon: "subtitles",
     accepts: "Subtitle files",
+    status: "live",
+  },
+  {
+    slug: "transcribe-video",
+    name: "Transcribe video or audio",
+    tagline: "Turn speech into subtitles with a model that runs in your browser.",
+    description:
+      "Turn the speech in a video or audio file into SRT, WebVTT or plain text subtitles entirely in your browser, with a speech-recognition model downloaded once and run locally. Nothing is uploaded.",
+    category: "subtitles",
+    icon: "transcribe",
+    accepts: "Video and audio files",
     status: "planned",
   },
 ];

@@ -1,0 +1,287 @@
+/* ---- The clip list ----------------------------------------------------- */
+
+.clips {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.clip {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.clipError {
+  opacity: 0.85;
+}
+
+/* The order is the point of the list, so the number is not decoration. */
+.index {
+  flex: none;
+  width: 1.5rem;
+  text-align: center;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+
+.poster,
+.posterEmpty {
+  flex: none;
+  width: 5rem;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-sm);
+  background: var(--muted);
+  object-fit: cover;
+}
+
+.identity {
+  min-width: 0;
+  flex: 1 1 0%;
+}
+
+.fileName {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+}
+
+.fileStem {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileExt {
+  flex: none;
+  white-space: nowrap;
+}
+
+.meta {
+  margin-top: 0.125rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--muted-foreground);
+}
+
+.clipProblem {
+  margin-top: 0.125rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--destructive);
+}
+
+.clipHint {
+  color: var(--muted-foreground);
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+/* ---- The decision and the button --------------------------------------- */
+
+.summary {
+  margin-top: 1rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--muted-foreground);
+}
+
+.mergeRow {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.progress {
+  min-width: 0;
+  flex: 1 1 16rem;
+}
+
+.phaseRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.375rem;
+}
+
+.phase {
+  color: var(--muted-foreground);
+}
+
+.elapsed {
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+
+.alert {
+  margin-top: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--destructive) 40%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--destructive-soft);
+  padding: 0.5rem 0.75rem;
+}
+
+.alertMessage {
+  font-weight: 500;
+  color: var(--destructive);
+}
+
+.alertHint {
+  margin-top: 0.125rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--muted-foreground);
+}
+
+/* ---- The result -------------------------------------------------------- */
+
+.output {
+  margin-top: 1.25rem;
+}
+
+.outputHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem 0.75rem;
+}
+
+.outputLabel {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.outputName {
+  font-weight: 500;
+}
+
+.tag {
+  border-radius: var(--radius-sm);
+  padding: 0.125rem 0.375rem;
+  font-size: var(--text-sm);
+  line-height: 1.2;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.tagExt {
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+
+.tagCopy {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.outputState {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.outputMeta {
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+
+.download {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border-radius: var(--radius);
+  background: var(--primary);
+  padding: 0.25rem 0.625rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  font-weight: 500;
+  color: var(--primary-foreground);
+  transition: background-color 150ms;
+}
+
+.download:hover {
+  background: var(--primary-hover);
+}
+
+.outputNote {
+  margin-top: 0.375rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--muted-foreground);
+}
+
+.videoPreview {
+  margin-top: 0.75rem;
+  width: 100%;
+  max-height: 24rem;
+  border-radius: var(--radius);
+  background: #000000;
+}
+
+.disclosure {
+  margin-top: 0.75rem;
+}
+
+.disclosureButton {
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--subtle);
+  text-underline-offset: 2px;
+}
+
+.disclosureButton:hover {
+  color: var(--muted-foreground);
+  text-decoration: underline;
+}
+
+.log {
+  margin-top: 0.5rem;
+  max-height: 16rem;
+  overflow: auto;
+  border-radius: var(--radius-lg);
+  background: var(--muted);
+  padding: 0.75rem;
+  font-size: var(--text-sm);
+  line-height: 1.625;
+  color: var(--muted-foreground);
+}
+
+/* ---- Narrow screens ---------------------------------------------------- */
+
+@media (max-width: 480px) {
+  .clip {
+    flex-wrap: wrap;
+  }
+
+  .actions {
+    width: 100%;
+    padding-left: 2.125rem;
+  }
+
+  .poster,
+  .posterEmpty {
+    width: 4rem;
+  }
+}

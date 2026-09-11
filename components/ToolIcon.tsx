@@ -4,6 +4,7 @@ import {
   Gauge,
   ImagePlay,
   Merge,
+  MessageSquareText,
   RefreshCw,
   Scissors,
   ShieldCheck,
@@ -31,6 +32,7 @@ export const TOOL_ICONS = {
   speed: Gauge,
   merge: Merge,
   subtitles: Captions,
+  transcribe: MessageSquareText,
 } as const satisfies Record<ToolIconName, unknown>;
 
 interface ToolIconProps {

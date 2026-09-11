@@ -1,0 +1,205 @@
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.card {
+  padding: 0;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.identity {
+  min-width: 0;
+  flex: 1 1 0%;
+}
+
+.fileName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.meta {
+  margin-top: 0.125rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--muted-foreground);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.status {
+  border-radius: 9999px;
+  padding: 0.125rem 0.5rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  font-weight: 500;
+}
+
+.statusIdle {
+  background: var(--border);
+  color: var(--muted-foreground);
+}
+
+.statusDone {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.statusError {
+  background: var(--destructive-soft);
+  color: var(--destructive);
+}
+
+.alert {
+  margin-top: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--destructive) 40%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--destructive-soft);
+  padding: 0.5rem 0.75rem;
+}
+
+.alertMessage {
+  font-weight: 500;
+  color: var(--destructive);
+}
+
+.alertHint {
+  margin-top: 0.125rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--muted-foreground);
+}
+
+.note {
+  margin-top: 0.5rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--muted-foreground);
+}
+
+/* ---- Outputs ----------------------------------------------------------- */
+
+.outputs {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem 0.75rem;
+}
+
+.rowLabel {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.formatName {
+  font-weight: 500;
+}
+
+.tag {
+  border-radius: var(--radius-sm);
+  background: var(--muted);
+  padding: 0.125rem 0.375rem;
+  font-size: var(--text-sm);
+  line-height: 1.2;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+}
+
+.rowState {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.rowMeta {
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+
+/* ---- The settings panel's own row -------------------------------------- */
+
+.timingRow {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.stretchField {
+  min-width: 14rem;
+}
+
+/* ---- Preview ----------------------------------------------------------- */
+
+.disclosure {
+  margin-top: 0.75rem;
+}
+
+.disclosureButton {
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--subtle);
+  text-underline-offset: 2px;
+}
+
+.disclosureButton:hover {
+  color: var(--muted-foreground);
+  text-decoration: underline;
+}
+
+.preview {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  border-radius: var(--radius-lg);
+  background: var(--muted);
+  padding: 0.75rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+}
+
+.previewCue {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+}
+
+.previewTime {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--subtle);
+}
+
+.previewText {
+  min-width: 0;
+  color: var(--foreground);
+}
