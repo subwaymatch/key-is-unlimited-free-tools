@@ -5,10 +5,11 @@ import { useMemo, useState } from "react";
 import {
   DEFAULT_GIF_SETTINGS,
   GIF_FPS_OPTIONS,
-  GIF_WIDTH_OPTIONS,
+  GIF_SIZE_OPTIONS,
   gifFormat,
   type GifSettings,
 } from "@/lib/engine/video";
+import { storageKey, useStoredSettings } from "@/lib/persist";
 import type { ToolFeatures } from "@/lib/toolFeatures";
 import { requireTool } from "@/lib/tools";
 import type { QueueOptions } from "@/lib/useConversionQueue";
@@ -19,13 +20,33 @@ import styles from "../Settings.module.css";
 
 const tool = requireTool("video-to-gif");
 
+/** Guards a stored settings object, which may be from an older build. */
+function isGifSettings(value: unknown): value is GifSettings {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<GifSettings>;
+  return (
+    typeof candidate.fps === "number" &&
+    GIF_FPS_OPTIONS.includes(candidate.fps) &&
+    (candidate.width === null || typeof candidate.width === "number")
+  );
+}
+
+/**
+ * A GIF of a whole film is absurd, so a range is required - but a short clip
+ * is exactly what people want a GIF of, and asking for two markers that mean
+ * "all of it" is a chore. Thirty seconds at 480 px and 15 fps is around 25 MB,
+ * which is the point where a whole-clip GIF stops being a reasonable offer.
+ */
+const WHOLE_CLIP_SECONDS = 30;
+
 const FEATURES: ToolFeatures = {
   trim: true,
   silence: false,
   requireTrim: true,
-  wholeLabel: "",
   clipLabel: "Make a GIF of this clip:",
   alsoLabel: "",
+  busyLabel: "Making the GIF",
+  wholeClipSeconds: WHOLE_CLIP_SECONDS,
 };
 
 const FPS_OPTIONS = GIF_FPS_OPTIONS.map((fps) => ({
@@ -41,15 +62,15 @@ const FPS_OPTIONS = GIF_FPS_OPTIONS.map((fps) => ({
           : "Smooth, and the largest file",
 }));
 
-const WIDTH_OPTIONS = GIF_WIDTH_OPTIONS.map((width) => ({
-  value: width === null ? "source" : String(width),
-  label: width === null ? "Source width" : `${width} px`,
+const SIZE_OPTIONS = GIF_SIZE_OPTIONS.map((size) => ({
+  value: size === null ? "source" : String(size),
+  label: size === null ? "Source size" : `${size} px`,
   blurb:
-    width === null
+    size === null
       ? "As large as the video. Very large files"
-      : width <= 320
+      : size <= 320
         ? "Chat and forum size"
-        : width <= 480
+        : size <= 480
           ? "The usual choice"
           : "Large, for a page of its own",
 }));
@@ -64,8 +85,12 @@ const WIDTH_OPTIONS = GIF_WIDTH_OPTIONS.map((width) => ({
 export function VideoToGifApp() {
   const [settings, setSettings] = useState<GifSettings>(DEFAULT_GIF_SETTINGS);
 
+
+  useStoredSettings(storageKey("settings", "video-to-gif"), settings, setSettings, isGifSettings);
+
   const queue = useMemo<QueueOptions>(
     () => ({
+      key: "video-to-gif",
       formats: [gifFormat(settings)],
       defaultFormatIds: [],
       expects: "video",
@@ -80,7 +105,9 @@ export function VideoToGifApp() {
   const toolSettings: ToolSettings = {
     title: "Frame rate & size",
     summary: () =>
-      `${settings.fps} fps, ${settings.width === null ? "source width" : `${settings.width} px wide`}`,
+      `${settings.fps} fps, ${
+        settings.width === null ? "source size" : `up to ${settings.width} px`
+      }`,
     render: () => (
       <>
         <fieldset className={styles.fieldset}>
@@ -95,10 +122,14 @@ export function VideoToGifApp() {
           />
         </fieldset>
         <fieldset className={styles.fieldset}>
-          <legend className={styles.legend}>Width</legend>
-          <p className={styles.intro}>Never enlarged: a smaller video keeps its own width.</p>
+          <legend className={styles.legend}>Size</legend>
+          <p className={styles.intro}>
+            The limit is the longest side, so a portrait clip and a landscape one at the same
+            setting come out about the same size rather than the portrait one being the larger of
+            the two. Never enlarged: a smaller video keeps its own size.
+          </p>
           <RadioCards
-            aria-label="Width"
+            aria-label="Size"
             value={settings.width === null ? "source" : String(settings.width)}
             onValueChange={(value) =>
               setSettings((previous) => ({
@@ -106,7 +137,7 @@ export function VideoToGifApp() {
                 width: value === "source" ? null : Number(value),
               }))
             }
-            options={WIDTH_OPTIONS}
+            options={SIZE_OPTIONS}
           />
         </fieldset>
       </>
@@ -121,7 +152,7 @@ export function VideoToGifApp() {
       features={FEATURES}
       settings={toolSettings}
       dropZone={{ subhead: "The file is read first; then pick the range to turn into a GIF" }}
-      note="GIFs get big quickly: ten seconds at 480 pixels wide and 15 frames a second is around 8 MB, and a minute is closer to 50 MB. Keep clips short, or lower the width and the frame rate."
+      note="GIFs get big quickly: ten seconds at 480 px and 15 frames a second is around 8 MB, and a minute is closer to 50 MB. Keep clips short, or lower the size and the frame rate."
     />
   );
 }

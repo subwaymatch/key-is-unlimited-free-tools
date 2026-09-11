@@ -6,9 +6,13 @@ import {
   COMPRESS_PRESETS,
   compressFormat,
   DEFAULT_COMPRESS_SETTINGS,
+  formatMegabytes,
+  MIN_TARGET_MEGABYTES,
+  targetBytesFromMegabytes,
   type CompressResolution,
   type CompressSettings,
 } from "@/lib/engine/video";
+import { storageKey, useStoredSettings } from "@/lib/persist";
 import type { ToolFeatures } from "@/lib/toolFeatures";
 import { requireTool } from "@/lib/tools";
 import type { QueueOptions } from "@/lib/useConversionQueue";
@@ -24,10 +28,23 @@ const FEATURES: ToolFeatures = {
   trim: true,
   silence: false,
   requireTrim: false,
-  wholeLabel: "Compress to:",
   clipLabel: "Compress this clip to:",
-  alsoLabel: "Also compress to:",
+  alsoLabel: "Compress to:",
+  busyLabel: "Compressing",
 };
+
+/** Guards a stored settings object, which may be from an older build. */
+function isCompressSettings(value: unknown): value is CompressSettings {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<CompressSettings>;
+  const resolution = candidate.resolution;
+  return (
+    typeof candidate.targetBytes === "number" &&
+    candidate.targetBytes > 0 &&
+    typeof candidate.twoPass === "boolean" &&
+    (resolution === "auto" || resolution === "source" || typeof resolution === "number")
+  );
+}
 
 const CUSTOM = "custom";
 
@@ -85,17 +102,54 @@ function resolutionSummary(resolution: CompressResolution): string {
 export function CompressVideoApp() {
   const [settings, setSettings] = useState<CompressSettings>(DEFAULT_COMPRESS_SETTINGS);
   const [sizeChoice, setSizeChoice] = useState<string>(
-    String(DEFAULT_COMPRESS_SETTINGS.targetBytes / 1_000_000),
+    formatMegabytes(DEFAULT_COMPRESS_SETTINGS.targetBytes),
   );
   const [customText, setCustomText] = useState("15");
 
-  const megabytes = Math.round(settings.targetBytes / 1_000_000);
+  useStoredSettings(
+    storageKey("settings", "compress-video"),
+    settings,
+    (stored) => {
+      setSettings(stored);
+      const storedSize = formatMegabytes(stored.targetBytes);
+      const isPreset = COMPRESS_PRESETS.some((preset) => String(preset.megabytes) === storedSize);
+      setSizeChoice(isPreset ? storedSize : CUSTOM);
+      if (!isPreset) setCustomText(storedSize);
+    },
+    isCompressSettings,
+  );
+
+  const megabytes = formatMegabytes(settings.targetBytes);
+
+  /*
+   * Whatever the custom field says right now, or null when it does not say a
+   * usable size. Everything that reads the target - the summary, the chips,
+   * the job itself - goes through this, so the number on the button cannot
+   * drift from the number the encoder is given, which is exactly what an
+   * `<input type=number min=1>` with no step did: 0 was ignored and the last
+   * good value ran silently, and 2.5 was rounded *up* to 3 MB, handing someone
+   * with a 2.5 MB limit a file their form would reject.
+   */
+  const customBytes =
+    customText.trim() === "" ? null : targetBytesFromMegabytes(Number(customText));
+  const customInvalid = sizeChoice === CUSTOM && customBytes === null;
 
   const queue = useMemo<QueueOptions>(() => {
-    const format = compressFormat(settings);
+    const current = compressFormat(settings);
+    /*
+     * Every preset smaller than this file, as well as the chosen size. A file
+     * already under the target is not a failure and not a dead end: its card
+     * offers the sizes that would actually shrink it, one click each. The
+     * formats filter themselves by `offer`, so only the useful ones appear.
+     */
+    const presets = COMPRESS_PRESETS.map((preset) =>
+      compressFormat({ ...settings, targetBytes: preset.megabytes * 1_000_000 }),
+    ).filter((format) => format.id !== current.id);
+
     return {
-      formats: [format],
-      defaultFormatIds: [format.id],
+      key: "compress-video",
+      formats: [current, ...presets],
+      defaultFormatIds: [current.id],
       expects: "video",
       waveform: false,
       sourcePreview: true,
@@ -103,35 +157,43 @@ export function CompressVideoApp() {
     };
   }, [settings]);
 
+  const applyMegabytes = (size: number) => {
+    const targetBytes = targetBytesFromMegabytes(size);
+    if (targetBytes === null) return;
+    setSettings((previous) => ({ ...previous, targetBytes }));
+  };
+
   const chooseSize = (value: string) => {
     setSizeChoice(value);
-    const mb = value === CUSTOM ? Number(customText) : Number(value);
-    if (Number.isFinite(mb) && mb >= 1) {
-      setSettings((previous) => ({ ...previous, targetBytes: Math.round(mb) * 1_000_000 }));
-    }
+    applyMegabytes(Number(value === CUSTOM ? customText : value));
   };
 
   const chooseCustom = (text: string) => {
     setCustomText(text);
-    const mb = Number(text);
-    if (Number.isFinite(mb) && mb >= 1) {
-      setSettings((previous) => ({ ...previous, targetBytes: Math.round(mb) * 1_000_000 }));
-    }
+    applyMegabytes(Number(text));
   };
 
   const toolSettings: ToolSettings = {
     title: "Target size & quality",
+    defaultOpen: true,
+    invalid: () =>
+      customInvalid
+        ? `A target size of at least ${MIN_TARGET_MEGABYTES} MB is needed before a file can be compressed.`
+        : null,
     summary: () =>
-      `${megabytes} MB, ${resolutionSummary(settings.resolution)}, ${
-        settings.twoPass ? "two passes" : "one pass"
-      }`,
+      customInvalid
+        ? "no size chosen"
+        : `${megabytes} MB, ${resolutionSummary(settings.resolution)}, ${
+            settings.twoPass ? "two passes" : "one pass"
+          }`,
     render: () => (
       <>
         <fieldset className={styles.fieldset}>
           <legend className={styles.legend}>Target size</legend>
           <p className={styles.intro}>
-            The file will come out just under this. Applied to files you add next; each file can be
-            compressed again to another size afterwards.
+            The file will come out just under this. MB here means 1,000,000 bytes, the same unit
+            your file manager shows. Applied to files you add next; each file can be compressed
+            again to another size from its own card afterwards.
           </p>
           <RadioCards
             aria-label="Target size"
@@ -145,14 +207,21 @@ export function CompressVideoApp() {
                 <span className={styles.fieldLabel}>Size in megabytes</span>
                 <input
                   type="number"
-                  inputMode="numeric"
-                  min={1}
-                  step={1}
+                  inputMode="decimal"
+                  min={MIN_TARGET_MEGABYTES}
+                  step="0.1"
                   value={customText}
+                  aria-invalid={customInvalid}
+                  aria-describedby="compress-custom-note"
                   onChange={(event) => chooseCustom(event.target.value)}
                   className={styles.input}
                 />
               </label>
+              <p id="compress-custom-note" className={styles.panelNote}>
+                {customInvalid
+                  ? `Type a size of at least ${MIN_TARGET_MEGABYTES} MB. Nothing will start until you do.`
+                  : `Decimals are fine, and the number is never rounded up: 2.5 means a file under 2.5 MB, not under 3. Using ${megabytes} MB.`}
+              </p>
             </div>
           )}
         </fieldset>
@@ -201,8 +270,12 @@ export function CompressVideoApp() {
       queue={queue}
       features={FEATURES}
       settings={toolSettings}
-      dropZone={{ subhead: "Compression starts automatically at the size chosen below" }}
-      note="Encoding runs on one core in your browser, so expect real time or slower for 1080p, and twice that with two passes. A smaller resolution is much faster as well as much smaller, which is why Auto is the default."
+      dropZone={{
+        subhead: customInvalid
+          ? "Choose a target size below before adding a file"
+          : `Compression starts automatically at ${megabytes} MB - change it below`,
+      }}
+      note="Encoding runs on one core in your browser, so expect real time or slower for 1080p, and twice that with two passes. A smaller resolution is much faster as well as much smaller, which is why Auto is the default. A file that is already under the target is left alone and its card offers the smaller sizes."
     />
   );
 }

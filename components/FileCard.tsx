@@ -11,8 +11,10 @@ import type {
   EngineCapabilities,
   OutputFormat,
   OutputKind,
+  PlanContext,
   TrimRange,
 } from "@/lib/engine/types";
+import { fileExtension } from "@/lib/mediaTypes";
 import {
   describeAudio,
   describeVideo,
@@ -54,15 +56,37 @@ const STATUS_STYLE: Record<Job["status"], string> = {
   cancelled: styles.statusIdle,
 };
 
-const STATUS_LABEL: Record<Job["status"], string> = {
-  queued: "Queued",
-  preparing: "Preparing",
-  converting: "Converting",
-  ready: "Ready",
-  done: "Done",
-  error: "Failed",
-  cancelled: "Cancelled",
-};
+/**
+ * What the badge says, given the job and the tool.
+ *
+ * Two of these are not fixed. "Converting" is the wrong verb on the tool that
+ * compresses and the one that trims, so the tool supplies its own; and a
+ * failure that is really a note ("already under 25 MB") must not wear the word
+ * Failed or the red that goes with it.
+ */
+function statusLabel(job: Job, features: ToolFeatures): string {
+  switch (job.status) {
+    case "queued":
+      return "Queued";
+    case "preparing":
+      return "Preparing";
+    case "converting":
+      return `${features.busyLabel ?? "Converting"}`;
+    case "ready":
+      return "Ready";
+    case "done":
+      return "Done";
+    case "error":
+      return job.error?.severity === "info" ? "Nothing to do" : "Failed";
+    case "cancelled":
+      return "Cancelled";
+  }
+}
+
+function statusStyle(job: Job): string {
+  if (job.status === "error" && job.error?.severity === "info") return styles.statusIdle;
+  return STATUS_STYLE[job.status];
+}
 
 /**
  * Extension the output will carry.
@@ -73,13 +97,12 @@ const STATUS_LABEL: Record<Job["status"], string> = {
  * reason this is not simply the format id: its container depends on the
  * source codec.
  */
-function outputExtension(output: JobOutput, job: Job): string | null {
+function outputExtension(output: JobOutput, job: Job, context: PlanContext): string | null {
   const fromResult = output.result?.fileName.split(".").pop();
   if (fromResult) return fromResult;
   if (!job.probe) return null;
   try {
-    return output.format.plan(job.probe, { trim: output.trim, fileBytes: job.file.size })
-      .extension;
+    return output.format.plan(job.probe, { ...context, trim: output.trim }).extension;
   } catch {
     return null;
   }
@@ -92,31 +115,58 @@ function isPreviewable(kind: OutputKind, extension: string): boolean {
   return isLikelyPlayable(extension);
 }
 
+/** A range as "0:03-0:05", with the file's own end standing in for an open one. */
+function describeRange(trim: TrimRange, durationSeconds: number | null): string {
+  const end =
+    trim.endSeconds !== null
+      ? formatTimecode(trim.endSeconds)
+      : durationSeconds !== null
+        ? formatTimecode(durationSeconds)
+        : "end";
+  return `${formatTimecode(trim.startSeconds)}-${end}`;
+}
+
+/**
+ * The preview an output row shows for itself, if any.
+ *
+ * Previews used to hang off the bottom of the card, which put the player for
+ * one output directly under the error message of another and made it read as
+ * that row's result.
+ */
+type RowPreview = "video" | "audio" | "image" | null;
+
 function OutputRow({
   output,
   durationSeconds,
   extension,
+  preview,
   onCancel,
   onRetry,
+  mediaRef,
 }: {
   output: JobOutput;
   durationSeconds: number | null;
   /** File extension this output will carry, e.g. "mp3". Null before probing. */
   extension: string | null;
+  preview: RowPreview;
   onCancel: () => void;
   onRetry: () => void;
+  mediaRef?: (element: HTMLMediaElement | null) => void;
 }) {
   const { result, trim } = output;
 
-  const range = trim
-    ? `${formatTimecode(trim.startSeconds)}-${
-        trim.endSeconds !== null
-          ? formatTimecode(trim.endSeconds)
-          : durationSeconds !== null
-            ? formatTimecode(durationSeconds)
-            : "end"
-      }`
-    : null;
+  const range = trim ? describeRange(trim, durationSeconds) : null;
+  /*
+   * A stream copy can only begin on a keyframe, so a "fast cut" from 0:03 can
+   * really start at 0:00. The engine measures the file that came out; this is
+   * where the card stops claiming otherwise.
+   */
+  const actual = result?.actualTrim ?? null;
+  const overshootSeconds =
+    actual && trim ? Math.max(0, trim.startSeconds - actual.startSeconds) : 0;
+
+  const isInfo = output.error?.severity === "info";
+  const canRetry = output.status === "cancelled" || output.error?.retryable !== false;
 
   return (
     <div className={styles.row}>
@@ -144,14 +194,8 @@ function OutputRow({
 
         {output.status === "done" && result && (
           <div className={styles.rowState}>
-            <span className={styles.rowMeta}>
-              {formatBytes(result.bytes)}
-            </span>
-            <a
-              href={output.url}
-              download={result.fileName}
-              className={styles.download}
-            >
+            <span className={styles.rowMeta}>{formatBytes(result.bytes)}</span>
+            <a href={output.url} download={result.fileName} className={styles.download}>
               <Download aria-hidden="true" size={14} strokeWidth={2} />
               Download
             </a>
@@ -161,9 +205,7 @@ function OutputRow({
         {output.status === "running" && (
           <div className={styles.rowState}>
             <span className={styles.rowMeta}>
-              {output.ratio === null
-                ? "Working..."
-                : formatPercent(output.ratio)}
+              {output.ratio === null ? "Working..." : formatPercent(output.ratio)}
             </span>
             <Button onClick={onCancel} aria-label={`Cancel ${output.label}`}>
               Cancel
@@ -185,30 +227,75 @@ function OutputRow({
             {output.status === "cancelled" && (
               <span className={styles.rowWaiting}>Cancelled</span>
             )}
-            <Button onClick={onRetry} aria-label={`Retry ${output.label}`}>
-              <RotateCcw aria-hidden="true" size={13} strokeWidth={2} />
-              Retry
-            </Button>
+            {/*
+             * Retry is only offered where running the same job again could end
+             * differently. "No audio track found" and "already under 25 MB"
+             * will say exactly the same thing the second time.
+             */}
+            {canRetry && (
+              <Button onClick={onRetry} aria-label={`Retry ${output.label}`}>
+                <RotateCcw aria-hidden="true" size={13} strokeWidth={2} />
+                Retry
+              </Button>
+            )}
           </div>
         )}
       </div>
 
       {output.status === "running" && (
         <div className={styles.rowBar}>
-          <ProgressBar
-            ratio={output.ratio}
-            label={`${output.label} conversion progress`}
-          />
+          <ProgressBar ratio={output.ratio} label={`${output.label} conversion progress`} />
         </div>
       )}
 
       {output.status === "error" && output.error && (
-        <div className={styles.rowError}>
-          <p className={styles.rowErrorMessage}>{output.error.message}</p>
-          {output.error.hint && (
-            <p className={styles.rowErrorHint}>{output.error.hint}</p>
-          )}
+        <div className={isInfo ? styles.rowNote : styles.rowError}>
+          <p className={isInfo ? styles.rowNoteMessage : styles.rowErrorMessage}>
+            {output.error.message}
+          </p>
+          {output.error.hint && <p className={styles.rowErrorHint}>{output.error.hint}</p>}
         </div>
+      )}
+
+      {output.status === "done" && actual && overshootSeconds > 0 && (
+        <p className={styles.rowNoteMessage}>
+          {`The cut starts at ${formatTimecode(actual.startSeconds)}, ${formatDuration(
+            overshootSeconds,
+          )} before the marker: a copied stream can only begin on a keyframe. Use the precise cut to land on the frame.`}
+        </p>
+      )}
+
+      {output.status === "done" && result?.warning && (
+        <p className={styles.rowNoteMessage}>{result.warning}</p>
+      )}
+
+      {preview === "video" && output.url && (
+        <video
+          ref={mediaRef}
+          controls
+          preload="metadata"
+          src={output.url}
+          className={styles.videoPreview}
+        >
+          Your browser cannot play this video format.
+        </video>
+      )}
+
+      {preview === "audio" && output.url && (
+        <audio
+          ref={mediaRef}
+          controls
+          preload="metadata"
+          src={output.url}
+          className={styles.preview}
+        >
+          Your browser cannot play this audio format.
+        </audio>
+      )}
+
+      {preview === "image" && output.url && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={output.url} alt="" className={styles.imagePreview} />
       )}
     </div>
   );
@@ -230,12 +317,10 @@ export function FileCard({
   const [showLogs, setShowLogs] = useState(false);
   // One of these holds the preview, depending on what the tool shows.
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioRef = useRef<HTMLMediaElement | null>(null);
 
   const isRunning = job.status === "preparing" || job.status === "converting";
-  const runningOutput = job.outputs.find(
-    (output) => output.status === "running",
-  );
+  const runningOutput = job.outputs.find((output) => output.status === "running");
 
   /** The first finished audio or video output a browser is likely to play inline. */
   const playable = useMemo(
@@ -259,7 +344,9 @@ export function FileCard({
     () =>
       [...job.outputs]
         .reverse()
-        .find((output) => output.status === "done" && output.url && output.result!.kind === "image"),
+        .find(
+          (output) => output.status === "done" && output.url && output.result!.kind === "image",
+        ),
     [job.outputs],
   );
 
@@ -273,7 +360,19 @@ export function FileCard({
     job.probe !== undefined &&
     (playable === undefined || playable.trim !== null);
 
-  /** Formats with no full-file output yet; clips are offered by the trim panel. */
+  const planContext: PlanContext = {
+    trim: null,
+    fileBytes: job.file.size,
+    sourceExtension: fileExtension(job.file.name),
+  };
+
+  /**
+   * Formats with no full-file output yet; clips are offered by the trim panel.
+   *
+   * `offer` is what keeps the compressor's chip row useful: every preset is in
+   * its catalogue so a file can be re-compressed from its own card, and only
+   * the sizes actually smaller than this file appear.
+   */
   const remainingFormats = features.requireTrim
     ? []
     : formats.filter((format) => {
@@ -284,7 +383,9 @@ export function FileCard({
             // A cancelled output produced nothing, so the format is still on offer.
             output.status !== "cancelled",
         );
-        return !covered && isFormatAvailable(format, capabilities);
+        if (covered || !isFormatAvailable(format, capabilities)) return false;
+        if (!job.probe || !format.offer) return true;
+        return format.offer(job.probe, planContext);
       });
 
   const totalDuration = job.probe?.durationSeconds ?? null;
@@ -298,11 +399,16 @@ export function FileCard({
   const getPreviewPosition = previewIsWhole
     ? () => {
         const element = videoRef.current ?? audioRef.current;
-        return element && Number.isFinite(element.currentTime)
-          ? element.currentTime
-          : null;
+        return element && Number.isFinite(element.currentTime) ? element.currentTime : null;
       }
     : null;
+
+  /** Which row, if any, carries the inline player for this card. */
+  const previewFor = (output: JobOutput): RowPreview => {
+    if (latestImage && output.id === latestImage.id) return "image";
+    if (showSource || !playable || output.id !== playable.id) return null;
+    return playable.result!.kind === "video" ? "video" : "audio";
+  };
 
   const meta = [formatBytes(job.file.size)];
   if (job.probe) {
@@ -311,6 +417,19 @@ export function FileCard({
     if (job.probe.audio) meta.push(describeAudio(job.probe.audio));
     else if (!job.probe.video) meta.push("No audio");
   }
+
+  const isInfo = job.status === "error" && job.error?.severity === "info";
+  const canRetryJob = job.status === "cancelled" || job.error?.retryable !== false;
+
+  /*
+   * A middle ellipsis, so a long name keeps the one part that identifies what
+   * kind of file it is. At 375 px the old single-line clamp left about nine
+   * characters and no extension, which is a filename nobody can recognise.
+   */
+  const extension = fileExtension(job.file.name);
+  const stem = extension
+    ? job.file.name.slice(0, job.file.name.length - extension.length - 1)
+    : job.file.name;
 
   return (
     <li className={styles.card}>
@@ -327,30 +446,28 @@ export function FileCard({
           )}
           <div className={styles.identityText}>
             <p className={styles.fileName} title={job.file.name}>
-              {job.file.name}
+              <span className={styles.fileStem}>{stem}</span>
+              {extension && <span className={styles.fileExt}>.{extension}</span>}
             </p>
             <p className={styles.meta}>
               {meta.join(", ")}
               {job.probe && job.probe.audioStreams.length > 1 && (
-                <>
-                  {" "}
-                  {`, ${job.probe.audioStreams.length} audio tracks (using the first)`}
-                </>
+                <>{`, ${job.probe.audioStreams.length} audio tracks (using the first)`}</>
               )}
             </p>
           </div>
         </div>
 
         <div className={styles.actions}>
-          <span className={`${styles.status} ${STATUS_STYLE[job.status]}`}>
-            {STATUS_LABEL[job.status]}
+          <span className={`${styles.status} ${statusStyle(job)}`}>
+            {statusLabel(job, features)}
           </span>
 
           {isRunning ? (
             <Button onClick={() => onCancel(job.id)}>Cancel</Button>
           ) : (
             <>
-              {(job.status === "error" || job.status === "cancelled") && (
+              {(job.status === "error" || job.status === "cancelled") && canRetryJob && (
                 <Button onClick={() => onRetry(job.id)}>
                   <RotateCcw aria-hidden="true" size={13} strokeWidth={2} />
                   Retry
@@ -400,27 +517,38 @@ export function FileCard({
       )}
 
       {job.status === "error" && job.error && (
-        <div role="alert" className={styles.alert}>
-          <p className={styles.alertMessage}>{job.error.message}</p>
-          {job.error.hint && (
-            <p className={styles.alertHint}>{job.error.hint}</p>
-          )}
+        <div role={isInfo ? undefined : "alert"} className={isInfo ? styles.note : styles.alert}>
+          <p className={isInfo ? styles.noteMessage : styles.alertMessage}>{job.error.message}</p>
+          {job.error.hint && <p className={styles.alertHint}>{job.error.hint}</p>}
         </div>
       )}
 
       {job.outputs.length > 0 && (
         <ul className={styles.outputs}>
-          {job.outputs.map((output) => (
-            <li key={output.id}>
-              <OutputRow
-                output={output}
-                durationSeconds={totalDuration}
-                extension={outputExtension(output, job)}
-                onCancel={() => onCancelOutput(job.id, output.id)}
-                onRetry={() => onRetryOutput(job.id, output.id)}
-              />
-            </li>
-          ))}
+          {job.outputs.map((output) => {
+            const preview = previewFor(output);
+            return (
+              <li key={output.id}>
+                <OutputRow
+                  output={output}
+                  durationSeconds={totalDuration}
+                  extension={outputExtension(output, job, planContext)}
+                  preview={preview}
+                  mediaRef={(element) => {
+                    // The clip panel reads markers off whichever element is
+                    // showing the whole source, so it needs a handle on it.
+                    if (preview === "video") {
+                      videoRef.current = element as HTMLVideoElement | null;
+                    } else if (preview === "audio") {
+                      audioRef.current = element;
+                    }
+                  }}
+                  onCancel={() => onCancelOutput(job.id, output.id)}
+                  onRetry={() => onRetryOutput(job.id, output.id)}
+                />
+              </li>
+            );
+          })}
         </ul>
       )}
 
@@ -434,35 +562,6 @@ export function FileCard({
         >
           Your browser cannot play this video.
         </video>
-      )}
-
-      {!showSource && playable?.url && playable.result!.kind === "video" && (
-        <video
-          ref={videoRef}
-          controls
-          preload="metadata"
-          src={playable.url}
-          className={styles.videoPreview}
-        >
-          Your browser cannot play this video format.
-        </video>
-      )}
-
-      {!showSource && playable?.url && playable.result!.kind === "audio" && (
-        <audio
-          ref={audioRef}
-          controls
-          preload="metadata"
-          src={playable.url}
-          className={styles.preview}
-        >
-          Your browser cannot play this audio format.
-        </audio>
-      )}
-
-      {latestImage?.url && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={latestImage.url} alt="" className={styles.imagePreview} />
       )}
 
       {!isRunning && job.probe && (

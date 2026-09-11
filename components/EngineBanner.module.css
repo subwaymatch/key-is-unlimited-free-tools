@@ -55,3 +55,26 @@
   line-height: var(--leading-sm);
   color: var(--subtle);
 }
+
+/* A statement of fact rather than an alarm: the restart already worked. */
+.restart {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  border-radius: var(--radius-lg);
+  background: var(--warning-soft);
+  padding: 0.5rem 0.75rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--warning);
+}
+
+.dismiss {
+  flex: none;
+  font-weight: 500;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

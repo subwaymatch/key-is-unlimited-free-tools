@@ -17,6 +17,7 @@ import { join } from "node:path";
 
 import { beforeAll, describe, expect, it } from "vitest";
 
+import { STRIP_METADATA_ARGS } from "@/lib/engine/ffmpegEngine";
 import { parseProbeOutput } from "@/lib/engine/probe";
 import { trimArgs } from "@/lib/engine/trim";
 import type { OutputFormat, PlanContext, ProbeResult, TrimRange } from "@/lib/engine/types";
@@ -47,7 +48,7 @@ function probe(path: string): ProbeResult {
 }
 
 interface Probed {
-  format: { duration: string; tags?: Record<string, string> };
+  format: { duration: string; format_name?: string; tags?: Record<string, string> };
   streams: Array<{
     codec_type: string;
     codec_name: string;
@@ -76,17 +77,27 @@ function run(
   format: OutputFormat,
   input: string,
   trim: TrimRange | null = null,
+  stripMetadata = false,
 ): { output: string; probed: Probed } {
-  const context: PlanContext = { trim, fileBytes: statSync(input).size };
+  const context: PlanContext = {
+    trim,
+    fileBytes: statSync(input).size,
+    // The engine passes this so a plan can keep the source's container.
+    sourceExtension: input.split(".").pop()?.toLowerCase() ?? null,
+  };
   const blocker = format.blocker?.(probe(input), context);
   expect(blocker, `${format.id} was blocked: ${blocker?.message}`).toBeNull();
 
   const plan = format.plan(probe(input), context);
+  // Exactly what runExtract appends, and only where the plan does not already.
+  const metadata = stripMetadata && !plan.stripsMetadata ? STRIP_METADATA_ARGS : [];
   const output = join(dir, `out-${(counter += 1)}-${format.id}.${plan.extension}`);
   const { input: seek, output: length } = trimArgs(trim);
   const passLog = plan.analysisPasses?.length ? ["-passlogfile", join(dir, "twopass")] : [];
 
-  for (const [index, passArgs] of [...(plan.analysisPasses ?? []), plan.args].entries()) {
+  const finalArgs = [...plan.args, ...metadata];
+
+  for (const [index, passArgs] of [...(plan.analysisPasses ?? []), finalArgs].entries()) {
     const isFinal = index === (plan.analysisPasses?.length ?? 0);
     const result = spawnSync(
       "ffmpeg",
@@ -220,6 +231,60 @@ describe.skipIf(!hasFfmpeg)("video plans against a real ffmpeg", () => {
     const precise = run(TRIM_FORMATS[1], tagged, { startSeconds: 1, endSeconds: 3 });
     expect(seconds(precise.probed)).toBeCloseTo(2, 1);
     expect(stream(precise.probed, "audio")?.codec_name).toBe("aac");
+  });
+
+  it("encodes VP8 into a WebM, and copies VP8 back out of one", () => {
+    const webm = CONVERT_FORMATS.find((format) => format.id === "webm")!;
+
+    // VP9 traps in the WebAssembly core, so the plan asks for VP8. That is
+    // only worth pinning if the arguments actually produce a playable file.
+    const encoded = run(webm, avi);
+    expect(stream(encoded.probed, "video")?.codec_name).toBe("vp8");
+    expect(stream(encoded.probed, "audio")?.codec_name).toBe("opus");
+    expect(seconds(encoded.probed)).toBeCloseTo(2, 0);
+
+    const copied = run(webm, encoded.output);
+    expect(stream(copied.probed, "video")?.codec_name).toBe("vp8");
+  });
+
+  it("keeps a MOV a MOV rather than quietly making it an MP4", () => {
+    const mov = fixture("clip.mov", [
+      "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25",
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+      "-t", "2", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+      "-c:a", "aac", "-b:a", "128k", "-ac", "2", "-metadata", "title=Holiday",
+    ]);
+
+    const muted = run(MUTE_FORMAT, mov);
+    expect(muted.output.endsWith(".mov")).toBe(true);
+    expect(muted.probed.format.format_name).toContain("mov");
+    expect(stream(muted.probed, "audio")).toBeUndefined();
+
+    const cleaned = run(STRIP_FORMAT, mov);
+    expect(cleaned.output.endsWith(".mov")).toBe(true);
+    expect(cleaned.probed.format.tags?.title).toBeUndefined();
+  });
+
+  it("drops the source's tags from any output when asked to", () => {
+    const located = fixture("located.mp4", [
+      "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25",
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+      "-t", "2", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+      "-c:a", "aac", "-b:a", "128k", "-ac", "2",
+      "-metadata", "title=Holiday",
+      "-metadata", "location=+40.1106-088.2073/",
+    ]);
+    expect(ffprobe(located).format.tags?.title).toBe("Holiday");
+
+    // Without the switch the tags ride along, which is what a phone's GPS fix
+    // used to do out of a site whose whole promise is that files stay private.
+    const kept = run(MUTE_FORMAT, located);
+    expect(kept.probed.format.tags?.title).toBe("Holiday");
+
+    const stripped = run(MUTE_FORMAT, located, null, true);
+    expect(stripped.probed.format.tags?.title).toBeUndefined();
+    expect(JSON.stringify(stripped.probed.format.tags ?? {})).not.toContain("40.1106");
+    expect(stripped.probed.format.tags?.encoder ?? "").not.toMatch(/Lavf/);
   });
 
   it("strips every tag from a video and from an audio file", () => {

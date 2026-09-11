@@ -8,13 +8,19 @@
  * without making anything faster (the work is I/O- and codec-bound, not
  * parallel). One job at a time also keeps progress reporting unambiguous.
  *
- * Queue state lives in a ref that mirrors React state, because the async pump
- * runs outside the render cycle and must never read a stale snapshot.
+ * The queue's state lives *outside* React, in a module-level store keyed by
+ * tool. Two things need that. The async pump runs outside the render cycle and
+ * must never read a stale snapshot, which a ref would also solve; and moving
+ * between tools unmounts the page, which a ref would not survive. Trimming a
+ * file, glancing at the GIF maker and pressing Back used to lose the file, the
+ * markers and both finished cuts without a word, because the state and the
+ * object URLs went with the component. Now the component is a view onto a
+ * store that outlives it, and going back finds the work where it was left.
  *
  * ffmpeg emits log lines and progress events far faster than a UI needs to
  * repaint, so both are coalesced before they reach React state.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 import { getEngine, resetEngine } from "./engine/ffmpegEngine";
 import {
@@ -29,6 +35,7 @@ import type {
   EngineCapabilities,
   EngineLoadStage,
   ExtractOutput,
+  FailureSeverity,
   MediaExpectation,
   OutputFormat,
   ProbeResult,
@@ -38,6 +45,8 @@ import type {
   WaveformData,
 } from "./engine/types";
 import { canPreviewSource } from "./format-utils";
+import { rejectFile } from "./mediaTypes";
+import { readStored, storageKey, writeStored } from "./persist";
 
 /**
  * "ready" is a file that has been read but has nothing queued: the state a
@@ -57,6 +66,10 @@ export type OutputStatus = "pending" | "running" | "done" | "error" | "cancelled
 export interface JobFailure {
   message: string;
   hint?: string;
+  /** "info" is a job with nothing to do rather than one that went wrong. */
+  severity?: FailureSeverity;
+  /** False when running the same job again can only produce the same result. */
+  retryable?: boolean;
 }
 
 export interface JobOutput {
@@ -151,6 +164,11 @@ export interface TrimSettings {
  */
 export interface QueueOptions {
   /**
+   * Which store this tool's work lives in. One per tool, so switching tools
+   * shows that tool's queue and coming back shows this one's, untouched.
+   */
+  key?: string;
+  /**
    * Every format this tool can produce. Read through a ref, so a tool whose
    * settings shape its formats can pass a fresh catalogue on each render and
    * a file added next gets the current one.
@@ -158,6 +176,18 @@ export interface QueueOptions {
   formats: readonly OutputFormat[];
   /** Ids from the catalogue a newly added file is converted to. May be empty. */
   defaultFormatIds: readonly string[];
+  /**
+   * True when the visitor picks from the catalogue by hand.
+   *
+   * The audio extractor and the converter offer a list of formats and
+   * remember which are ticked. The others generate their catalogue from a
+   * settings panel, where the choice is baked into the format's id - and a
+   * remembered id then means the wrong thing entirely: picking 8 MB in the
+   * compressor left a stored "compress-25mb-auto-2pass" that still resolved,
+   * because every preset is in the catalogue so a file can be re-compressed
+   * from its card, and the job quietly ran at 25 MB.
+   */
+  formatPicker?: boolean;
   /** Which stream the file must have. Defaults to "audio". */
   expects?: MediaExpectation;
   /**
@@ -181,8 +211,10 @@ export interface QueueOptions {
 
 /** The audio extractor's configuration, and the default. */
 export const AUDIO_QUEUE_OPTIONS: QueueOptions = {
+  key: "extract-audio",
   formats: OUTPUT_FORMATS,
   defaultFormatIds: DEFAULT_FORMAT_IDS,
+  formatPicker: true,
   expects: "audio",
   waveform: true,
   verb: "Extracting",
@@ -233,6 +265,13 @@ export interface EngineState {
   totalBytes: number;
   capabilities: EngineCapabilities | null;
   error?: JobFailure;
+  /**
+   * How many times a crashed engine has been replaced this session.
+   *
+   * Shown once as a note rather than counted at the visitor: what matters is
+   * that the restart was deliberate and their other files are unaffected.
+   */
+  restarts: number;
 }
 
 const MAX_JOB_LOG_LINES = 500;
@@ -247,13 +286,26 @@ const INITIAL_ENGINE_STATE: EngineState = {
   receivedBytes: 0,
   totalBytes: 0,
   capabilities: null,
+  restarts: 0,
 };
 
 function toFailure(error: unknown): JobFailure {
-  if (error instanceof ExtractionError) return { message: error.message, hint: error.hint };
+  if (error instanceof ExtractionError) {
+    return {
+      message: error.message,
+      hint: error.hint,
+      severity: error.severity,
+      retryable: error.retryable,
+    };
+  }
   if (error instanceof Error) return { message: error.message };
   if (typeof error === "string") return { message: error };
   return { message: "Something went wrong." };
+}
+
+/** True for a failure that took the ffmpeg instance down with it. */
+function isFatal(error: unknown): boolean {
+  return error instanceof ExtractionError && error.fatal;
 }
 
 let outputCounter = 0;
@@ -317,53 +369,174 @@ export function summarizeOutputs(
   const cancelled =
     !anyDone && !failed && outputs.some((output) => output.status === "cancelled");
 
-  if (failed) return { status: "error", phase: "Failed", error: firstError };
+  if (failed) {
+    // A file that was already small enough has nothing to report as broken.
+    const phase = firstError.severity === "info" ? "Nothing to do" : "Failed";
+    return { status: "error", phase, error: firstError };
+  }
   if (cancelled) return { status: "cancelled", phase: "Cancelled", error: undefined };
   return { status: "done", phase: "Done", error: undefined };
 }
 
-export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) {
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [engineState, setEngineState] = useState<EngineState>(INITIAL_ENGINE_STATE);
-  const [selectedFormats, setSelectedFormats] = useState<string[]>(() => [
-    ...options.defaultFormatIds,
-  ]);
-  const [trimSettings, setTrimSettings] = useState<TrimSettings>(DEFAULT_TRIM_SETTINGS);
+/* ---- The stores --------------------------------------------------------- */
 
-  const jobsRef = useRef<Job[]>([]);
-  const pumpingRef = useRef(false);
-  const activeJobRef = useRef<string | null>(null);
-  const cancelledRef = useRef<Set<string>>(new Set());
+/**
+ * One tool's queue, and the bookkeeping the pump needs.
+ *
+ * Everything here has to outlive the component: `jobs` because the visitor's
+ * work does, and the rest because a conversion that is running when they
+ * navigate away carries on, and has to find the same flags when it finishes.
+ */
+interface QueueStore {
+  jobs: Job[];
   /**
-   * Jobs whose worker was killed to stop one output rather than the whole file.
-   * The engine has to be rebuilt, and any formats still pending re-run on it.
+   * The tool's options as of the last render.
+   *
+   * A run that outlives its page still needs the catalogue and the phase
+   * wording it started with, and a settings panel can hand over a fresh
+   * catalogue on every render.
    */
-  const partialCancelRef = useRef<Set<string>>(new Set());
-  const selectedFormatsRef = useRef<string[]>(selectedFormats);
-  const trimSettingsRef = useRef<TrimSettings>(trimSettings);
-  const engineStateRef = useRef<EngineState>(engineState);
-  /** The tool's current catalogue; a settings change is visible on the next add. */
-  const optionsRef = useRef<QueueOptions>(options);
+  options: QueueOptions;
+  selectedFormats: string[];
+  trimSettings: TrimSettings;
+  /** Whether outputs are written without the source's tags. See ExtractOptions. */
+  stripMetadata: boolean;
+  /** Set once stored settings have had their chance to load. */
+  hydrated: boolean;
+  pumping: boolean;
+  activeJobId: string | null;
+  cancelled: Set<string>;
+  /**
+   * Jobs that need a fresh engine before anything else of theirs can run:
+   * their worker was killed to stop one output, or it died on its own.
+   */
+  restart: Set<string>;
+  /**
+   * The subset of those whose engine *crashed* rather than being killed
+   * deliberately. Only these are worth telling the visitor about; a cancel
+   * they asked for needs no explanation.
+   */
+  crashed: Set<string>;
+  listeners: Set<() => void>;
+}
 
-  selectedFormatsRef.current = selectedFormats;
-  trimSettingsRef.current = trimSettings;
-  engineStateRef.current = engineState;
-  optionsRef.current = options;
+/**
+ * Outputs are stripped of the source's metadata by default.
+ *
+ * A phone writes the time, the model and the GPS fix of every clip into its
+ * container, and an extracted MP3 used to carry all three out of a site whose
+ * entire promise is that files stay private. Keeping the tags is one checkbox
+ * away; leaking them should not be.
+ */
+export const DEFAULT_STRIP_METADATA = true;
 
-  const commit = useCallback((next: Job[]) => {
-    jobsRef.current = next;
-    setJobs(next);
-  }, []);
+const stores = new Map<string, QueueStore>();
+
+function getStore(key: string, options: QueueOptions): QueueStore {
+  let store = stores.get(key);
+  if (!store) {
+    store = {
+      jobs: [],
+      options,
+      selectedFormats: [...options.defaultFormatIds],
+      trimSettings: DEFAULT_TRIM_SETTINGS,
+      stripMetadata: DEFAULT_STRIP_METADATA,
+      hydrated: false,
+      pumping: false,
+      activeJobId: null,
+      cancelled: new Set(),
+      restart: new Set(),
+      crashed: new Set(),
+      listeners: new Set(),
+    };
+    stores.set(key, store);
+  }
+  return store;
+}
+
+function notify(store: QueueStore): void {
+  for (const listener of store.listeners) listener();
+}
+
+/* ---- Engine state, shared by every tool --------------------------------- */
+
+/*
+ * There is one ffmpeg worker for the page, so there is one engine state for
+ * the page: the core downloaded on the convert page is loaded when the trimmer
+ * opens, and its banner should say so rather than starting again at "idle".
+ */
+let engineState: EngineState = INITIAL_ENGINE_STATE;
+const engineListeners = new Set<() => void>();
+
+function setEngineState(patch: (previous: EngineState) => EngineState): void {
+  engineState = patch(engineState);
+  for (const listener of engineListeners) listener();
+}
+
+function subscribeEngine(listener: () => void): () => void {
+  engineListeners.add(listener);
+  return () => engineListeners.delete(listener);
+}
+
+const getEngineState = () => engineState;
+
+/** @internal - lets tests start from a clean page. */
+export function resetQueueStores(): void {
+  for (const store of stores.values()) {
+    for (const job of store.jobs) releaseJobUrls(job);
+  }
+  stores.clear();
+  engineState = INITIAL_ENGINE_STATE;
+}
+
+/* ---- The hook ----------------------------------------------------------- */
+
+export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) {
+  const store = getStore(options.key ?? "default", options);
+
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      store.listeners.add(listener);
+      return () => store.listeners.delete(listener);
+    },
+    [store],
+  );
+
+  const getJobs = useCallback(() => store.jobs, [store]);
+  const getSelected = useCallback(() => store.selectedFormats, [store]);
+  const getTrimSettings = useCallback(() => store.trimSettings, [store]);
+  const getStripMetadata = useCallback(() => store.stripMetadata, [store]);
+
+  const jobs = useSyncExternalStore(subscribe, getJobs, getJobs);
+  const selectedFormats = useSyncExternalStore(subscribe, getSelected, getSelected);
+  const trimSettings = useSyncExternalStore(subscribe, getTrimSettings, getTrimSettings);
+  const stripMetadata = useSyncExternalStore(subscribe, getStripMetadata, getStripMetadata);
+  const engine = useSyncExternalStore(subscribeEngine, getEngineState, getEngineState);
+
+  /*
+   * The tool's catalogue as it stands on this render. A settings change is
+   * visible to the next file added, never to one already in the queue: those
+   * captured their format when they were queued.
+   */
+  store.options = options;
+
+  const commit = useCallback(
+    (next: Job[]) => {
+      store.jobs = next;
+      notify(store);
+    },
+    [store],
+  );
 
   const patchJob = useCallback(
     (id: string, patch: Partial<Job> | ((job: Job) => Partial<Job>)) => {
       commit(
-        jobsRef.current.map((job) =>
+        store.jobs.map((job) =>
           job.id === id ? { ...job, ...(typeof patch === "function" ? patch(job) : patch) } : job,
         ),
       );
     },
-    [commit],
+    [commit, store],
   );
 
   const patchOutput = useCallback(
@@ -377,10 +550,60 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
     [patchJob],
   );
 
+  const setSelectedFormats = useCallback(
+    (next: string[] | ((previous: string[]) => string[])) => {
+      store.selectedFormats = typeof next === "function" ? next(store.selectedFormats) : next;
+      notify(store);
+    },
+    [store],
+  );
+
+  const setTrimSettings = useCallback(
+    (next: TrimSettings) => {
+      store.trimSettings = next;
+      notify(store);
+    },
+    [store],
+  );
+
+  const setStripMetadata = useCallback(
+    (next: boolean) => {
+      store.stripMetadata = next;
+      notify(store);
+    },
+    [store],
+  );
+
+  /**
+   * Settles every output of a file that is not going to run.
+   *
+   * A file that failed to probe, or was cancelled, used to leave its formats
+   * sitting at "Waiting" with a live Cancel button under a red error, waiting
+   * for a run that would never come. Nothing may stay pending once the file
+   * itself is finished with.
+   */
+  const settleOutputs = useCallback(
+    (jobId: string, status: "error" | "cancelled", failure?: JobFailure) => {
+      patchJob(jobId, (job) => ({
+        outputs: job.outputs.map((output) =>
+          output.status === "pending" || output.status === "running"
+            ? {
+                ...output,
+                status,
+                ratio: null,
+                error: status === "error" ? (output.error ?? failure) : undefined,
+              }
+            : output,
+        ),
+      }));
+    },
+    [patchJob],
+  );
+
   /** Runs one job to completion; never throws. */
   const runJob = useCallback(
     async (jobId: string) => {
-      const job = jobsRef.current.find((entry) => entry.id === jobId);
+      const job = store.jobs.find((entry) => entry.id === jobId);
       if (!job) return;
 
       // The tool's options as they stand when the job starts.
@@ -390,7 +613,7 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
         verb = "Extracting",
         phase: describePhase = (output) =>
           output.trim ? `${verb} ${output.label} clip...` : `${verb} ${output.label}...`,
-      } = optionsRef.current;
+      } = store.options;
 
       // Nothing to do: settle without waking the engine. Cancelling every
       // format of a file still in the queue lands here, and downloading the
@@ -401,11 +624,11 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
         return;
       }
 
-      const engine = getEngine();
-      activeJobRef.current = jobId;
+      const ffmpeg = getEngine();
+      store.activeJobId = jobId;
       patchJob(jobId, {
         status: "preparing",
-        phase: engine.loaded ? "Reading file details..." : "Loading the ffmpeg engine...",
+        phase: ffmpeg.loaded ? "Reading file details..." : "Loading the ffmpeg engine...",
         error: undefined,
       });
 
@@ -422,17 +645,17 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
           };
         });
       };
-      engine.setLogListener(({ message }) => {
+      ffmpeg.setLogListener(({ message }) => {
         logBuffer.push(message);
       });
       const logTimer = setInterval(flushLogs, LOG_FLUSH_MS);
 
-      const isCancelled = () => cancelledRef.current.has(jobId);
+      const isCancelled = () => store.cancelled.has(jobId);
 
-      let session: Awaited<ReturnType<typeof engine.openSession>> | null = null;
+      let session: Awaited<ReturnType<typeof ffmpeg.openSession>> | null = null;
       try {
         let lastEngineTick = 0;
-        const capabilities = await engine.load((progress) => {
+        const capabilities = await ffmpeg.load((progress) => {
           const now = Date.now();
           const isMilestone = progress.stage !== "downloading-core" || progress.ratio === 1;
           if (!isMilestone && now - lastEngineTick < PROGRESS_THROTTLE_MS) return;
@@ -445,11 +668,16 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
             totalBytes: progress.totalBytes,
           }));
         });
-        setEngineState((previous) => ({ ...previous, stage: "ready", capabilities }));
+        setEngineState((previous) => ({
+          ...previous,
+          stage: "ready",
+          capabilities,
+          error: undefined,
+        }));
         if (isCancelled()) throw new ExtractionError("Cancelled.");
 
         patchJob(jobId, { phase: "Reading file details..." });
-        session = await engine.openSession(job.file, { expects });
+        session = await ffmpeg.openSession(job.file, { expects });
         if (isCancelled()) throw new ExtractionError("Cancelled.");
 
         patchJob(jobId, { status: "converting", probe: session.probe });
@@ -460,22 +688,27 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
          * not awaited for its errors: runPoster resolves to null on any
          * failure, because a card without a picture is a much smaller problem
          * than a conversion that did not run.
+         *
+         * Taken once per file, not once per run. Every "also convert to" click
+         * hands the job back to the pump, and re-seeking and re-encoding a
+         * frame the card is already showing is pure waste.
          */
-        if (session.probe.hasVideo) {
+        const beforePoster = store.jobs.find((entry) => entry.id === jobId);
+        if (session.probe.hasVideo && !beforePoster?.posterUrl) {
           try {
             const poster = await session.poster();
             if (poster && !isCancelled()) {
               patchJob(jobId, { posterUrl: URL.createObjectURL(poster.blob) });
             }
-          } catch {
-            // Decoration only. The engine already swallows its own failures
-            // here, and this catch covers the rest, so that no way of failing
-            // to get a picture can take the conversion down with it.
+          } catch (error) {
+            // Decoration only - unless the engine itself died taking the frame,
+            // in which case nothing after this would work either.
+            if (isFatal(error)) throw error;
           }
         }
         if (isCancelled()) throw new ExtractionError("Cancelled.");
 
-        const current = jobsRef.current.find((entry) => entry.id === jobId);
+        const current = store.jobs.find((entry) => entry.id === jobId);
 
         // Automatic trimming has to happen here rather than at queue time: the
         // range is not knowable until the audio has been listened to, and the
@@ -503,162 +736,253 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
           }));
         }
 
-        // Re-read the pending output each pass rather than iterating a snapshot:
-        // an output can be cancelled, retried back into the queue, or added,
-        // while the job it belongs to is still running.
-        for (;;) {
-          if (isCancelled()) throw new ExtractionError("Cancelled.");
-
-          const output = jobsRef.current
-            .find((entry) => entry.id === jobId)
-            ?.outputs.find((entry) => entry.status === "pending");
-          if (!output) break;
-
-          patchJob(jobId, { phase: describePhase({ label: output.label, trim: output.trim }) });
-          patchOutput(jobId, output.id, { status: "running", ratio: 0, processedSeconds: 0 });
-
-          try {
-            let lastTick = 0;
-            const result = await session.extract(output.format, {
-              trim: output.trim,
-              onProgress: (progress) => {
-                const now = Date.now();
-                if (now - lastTick < PROGRESS_THROTTLE_MS) return;
-                lastTick = now;
-                patchOutput(jobId, output.id, {
-                  ratio: progress.ratio,
-                  processedSeconds: progress.processedSeconds,
-                });
-              },
-            });
-            patchOutput(jobId, output.id, {
-              status: "done",
-              ratio: 1,
-              // The engine clamps the requested range to the file, so record
-              // what was actually produced rather than what was asked for.
-              trim: result.trim,
-              result,
-              url: URL.createObjectURL(result.blob),
-            });
-          } catch (error) {
-            if (isCancelled()) throw error;
-
-            // cancelOutput marks the output before killing the worker, so this
-            // is how a per-format cancel is told apart from a real failure.
-            // Outputs already finished are JS Blobs and are untouched by the
-            // termination; whatever is still pending re-runs below.
-            const latest = jobsRef.current
-              .find((entry) => entry.id === jobId)
-              ?.outputs.find((entry) => entry.id === output.id);
-            if (latest?.status === "cancelled") break;
-
-            // One failed format should not abandon the others.
-            patchOutput(jobId, output.id, {
-              status: "error",
-              ratio: null,
-              error: toFailure(error),
-            });
-          }
-        }
-
-        if (isCancelled()) throw new ExtractionError("Cancelled.");
-
         /*
-         * The envelope is drawn last, after every output. It costs a full
-         * decode, and the audio someone actually asked for should not wait
-         * behind a picture of it.
+         * Outer pass: outputs, then the envelope, then round again.
          *
-         * Like the thumbnail it is presentational: failing to draw it must not
-         * fail the file, so the flag is cleared either way and the error goes
-         * no further than the panel.
+         * Drawing the envelope is a full decode of a long file, and the card
+         * is live throughout it - the visitor can press Retry on a cancelled
+         * format, or add another one. Those land as pending outputs on a job
+         * whose output loop has already ended, and without coming back round
+         * they would sit at "Waiting" until the page was reloaded: the job
+         * settles as done and the pump has nothing queued to pick up.
          */
-        const beforeWaveform = jobsRef.current.find((entry) => entry.id === jobId);
-        if (beforeWaveform?.wantsWaveform && !beforeWaveform.waveform) {
-          patchJob(jobId, { phase: "Reading the audio shape...", phaseRatio: 0 });
-          try {
-            let lastWaveTick = 0;
-            const waveform = await session.waveform((progress) => {
-              const now = Date.now();
-              if (now - lastWaveTick < PROGRESS_THROTTLE_MS) return;
-              lastWaveTick = now;
-              patchJob(jobId, { phaseRatio: progress.ratio });
+        for (;;) {
+          // Re-read the pending output each pass rather than iterating a snapshot:
+          // an output can be cancelled, retried back into the queue, or added,
+          // while the job it belongs to is still running.
+          for (;;) {
+            if (isCancelled()) throw new ExtractionError("Cancelled.");
+
+            const output = store.jobs
+              .find((entry) => entry.id === jobId)
+              ?.outputs.find((entry) => entry.status === "pending");
+            if (!output) break;
+
+            patchJob(jobId, {
+              phase: describePhase({ label: output.label, trim: output.trim }),
             });
-            patchJob(jobId, { waveform, wantsWaveform: false, phaseRatio: null });
-          } catch {
-            patchJob(jobId, { wantsWaveform: false, phaseRatio: null });
+            patchOutput(jobId, output.id, {
+              status: "running",
+              ratio: 0,
+              processedSeconds: 0,
+            });
+
+            try {
+              let lastTick = 0;
+              const result = await session.extract(output.format, {
+                trim: output.trim,
+                stripMetadata: store.stripMetadata,
+                onProgress: (progress) => {
+                  const now = Date.now();
+                  if (now - lastTick < PROGRESS_THROTTLE_MS) return;
+                  lastTick = now;
+                  patchOutput(jobId, output.id, {
+                    ratio: progress.ratio,
+                    processedSeconds: progress.processedSeconds,
+                  });
+                },
+              });
+              patchOutput(jobId, output.id, {
+                status: "done",
+                ratio: 1,
+                // The engine clamps the requested range to the file, so record
+                // what was actually produced rather than what was asked for.
+                trim: result.trim,
+                result,
+                url: URL.createObjectURL(result.blob),
+              });
+            } catch (error) {
+              if (isCancelled()) throw error;
+
+              // cancelOutput marks the output before killing the worker, so this
+              // is how a per-format cancel is told apart from a real failure.
+              // Outputs already finished are JS Blobs and are untouched by the
+              // termination; whatever is still pending re-runs below.
+              const latest = store.jobs
+                .find((entry) => entry.id === jobId)
+                ?.outputs.find((entry) => entry.id === output.id);
+              if (latest?.status === "cancelled") break;
+
+              // One failed format should not abandon the others.
+              patchOutput(jobId, output.id, {
+                status: "error",
+                ratio: null,
+                error: toFailure(error),
+              });
+
+              /*
+               * A wasm trap is not this format's failure alone: the heap is
+               * gone, so the mount, the probe and every command after it are
+               * gone with it. The format that crashed keeps its error, the
+               * engine is rebuilt below, and everything still pending is handed
+               * back to the pump to run on the new one.
+               */
+              if (isFatal(error)) {
+                store.restart.add(jobId);
+                store.crashed.add(jobId);
+                break;
+              }
+            }
           }
+
           if (isCancelled()) throw new ExtractionError("Cancelled.");
+
+          /*
+           * The envelope is drawn last, after every output. It costs a full
+           * decode, and the audio someone actually asked for should not wait
+           * behind a picture of it.
+           *
+           * Like the thumbnail it is presentational: failing to draw it must not
+           * fail the file, so the flag is cleared either way and the error goes
+           * no further than the panel.
+           */
+          const beforeWaveform = store.jobs.find((entry) => entry.id === jobId);
+          if (
+            beforeWaveform?.wantsWaveform &&
+            !beforeWaveform.waveform &&
+            !store.restart.has(jobId)
+          ) {
+            patchJob(jobId, {
+              phase: "Reading the audio shape...",
+              phaseRatio: 0,
+            });
+            try {
+              let lastWaveTick = 0;
+              const waveform = await session.waveform((progress) => {
+                const now = Date.now();
+                if (now - lastWaveTick < PROGRESS_THROTTLE_MS) return;
+                lastWaveTick = now;
+                patchJob(jobId, { phaseRatio: progress.ratio });
+              });
+              patchJob(jobId, {
+                waveform,
+                wantsWaveform: false,
+                phaseRatio: null,
+              });
+            } catch (error) {
+              patchJob(jobId, { wantsWaveform: false, phaseRatio: null });
+              if (isFatal(error)) {
+                store.restart.add(jobId);
+                store.crashed.add(jobId);
+              }
+            }
+            if (isCancelled()) throw new ExtractionError("Cancelled.");
+          }
+
+          // Anything that arrived while the envelope was being drawn goes round
+          // again; a job that needs a new engine leaves and is re-queued below.
+          const arrived = store.jobs
+            .find((entry) => entry.id === jobId)
+            ?.outputs.some((entry) => entry.status === "pending");
+          if (!arrived || store.restart.has(jobId)) break;
         }
 
-        const outputs = jobsRef.current.find((entry) => entry.id === jobId)?.outputs ?? [];
+        const outputs = store.jobs.find((entry) => entry.id === jobId)?.outputs ?? [];
 
         // The mount died with the worker, so formats that never got their turn
         // need a fresh session. Re-queueing hands the job straight back to the
         // pump, which is already looping.
-        if (partialCancelRef.current.has(jobId) && outputs.some((o) => o.status === "pending")) {
-          patchJob(jobId, { status: "queued", phase: "Waiting...", phaseRatio: null });
+        if (store.restart.has(jobId) && outputs.some((o) => o.status === "pending")) {
+          patchJob(jobId, {
+            status: "queued",
+            phase: "Waiting...",
+            phaseRatio: null,
+          });
         } else {
           patchJob(jobId, { ...summarizeOutputs(outputs), phaseRatio: null });
         }
       } catch (error) {
         if (isCancelled()) {
-          patchJob(jobId, { status: "cancelled", phase: "Cancelled", phaseRatio: null });
+          patchJob(jobId, {
+            status: "cancelled",
+            phase: "Cancelled",
+            phaseRatio: null,
+          });
+          settleOutputs(jobId, "cancelled");
         } else {
           const failure = toFailure(error);
-          patchJob(jobId, { status: "error", phase: "Failed", phaseRatio: null, error: failure });
+          const phase = failure.severity === "info" ? "Nothing to do" : "Failed";
+          patchJob(jobId, {
+            status: "error",
+            phase,
+            phaseRatio: null,
+            error: failure,
+          });
+          // Nothing is going to run for this file, so nothing may still say it
+          // is waiting to.
+          settleOutputs(jobId, "error", failure);
+          if (isFatal(error)) {
+            store.restart.add(jobId);
+            store.crashed.add(jobId);
+          }
           // A failure to load the engine is global, not specific to this file.
-          if (!engine.loaded) {
-            setEngineState((previous) => ({ ...previous, stage: "error", error: failure }));
+          if (!ffmpeg.loaded) {
+            setEngineState((previous) => ({
+              ...previous,
+              stage: "error",
+              error: failure,
+            }));
           }
         }
       } finally {
         clearInterval(logTimer);
-        engine.setLogListener(null);
+        ffmpeg.setLogListener(null);
         flushLogs();
-        activeJobRef.current = null;
+        store.activeJobId = null;
 
         // Both deletes must run: a file can be cancelled outright while one of
         // its formats is already being cancelled on its own.
-        const wasCancelled = cancelledRef.current.delete(jobId);
-        const hadOutputCancelled = partialCancelRef.current.delete(jobId);
+        const wasCancelled = store.cancelled.delete(jobId);
+        const needsRestart = store.restart.delete(jobId);
+        // A cancel is something the visitor did; a crash is something that
+        // happened to them, and only the second is worth a banner.
+        const crashed = store.crashed.delete(jobId) || ffmpeg.poisoned;
 
-        if (wasCancelled || hadOutputCancelled) {
-          // The worker was killed mid-command; the next job needs a fresh one.
+        if (wasCancelled || needsRestart || crashed) {
+          // The worker was killed mid-command, or it died on its own; either
+          // way the next job needs a fresh one.
           resetEngine();
-          setEngineState((previous) => ({ ...previous, stage: "idle", capabilities: null }));
+          setEngineState((previous) => ({
+            ...previous,
+            stage: "idle",
+            capabilities: null,
+            restarts: previous.restarts + (crashed ? 1 : 0),
+          }));
         } else if (session) {
           await session.close().catch(() => {});
         }
       }
     },
-    [patchJob, patchOutput],
+    [patchJob, patchOutput, settleOutputs, store],
   );
 
   /** Drains the queue; safe to call any number of times. */
   const pump = useCallback(async () => {
-    if (pumpingRef.current) return;
-    pumpingRef.current = true;
+    if (store.pumping) return;
+    store.pumping = true;
     try {
       for (;;) {
-        const next = jobsRef.current.find((entry) => entry.status === "queued");
+        const next = store.jobs.find((entry) => entry.status === "queued");
         if (!next) break;
         await runJob(next.id);
       }
     } finally {
-      pumpingRef.current = false;
+      store.pumping = false;
     }
-  }, [runJob]);
+  }, [runJob, store]);
 
   const addFiles = useCallback(
     (files: File[]) => {
       if (files.length === 0) return;
-      const current = optionsRef.current;
+      const current = store.options;
       const formats = availableFormats(
-        selectedFormatsRef.current,
-        engineStateRef.current.capabilities,
+        // A tool whose formats come from a settings panel has no selection to
+        // honour: the panel is the selection, and it is already in the ids.
+        current.formatPicker ? store.selectedFormats : current.defaultFormatIds,
+        engineState.capabilities,
         current,
       );
-      const settings = trimSettingsRef.current;
+      const settings = store.trimSettings;
       /*
        * Newly added files are never pre-clipped. A range is chosen per file on
        * the card, where there is a duration to validate against; and in silence
@@ -667,26 +991,53 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
        */
       const trim: TrimRange | null = null;
 
-      const newJobs: Job[] = files.map((file) => ({
-        id: nextJobId(),
-        file,
-        status: "queued",
-        phase: "Waiting...",
-        phaseRatio: null,
-        trim,
-        autoTrim: settings.mode === "silence",
-        silenceOptions: settings.silence,
-        outputs: makeOutputs(formats, trim),
-        // The clip panel is always open, so the envelope is always wanted.
-        wantsWaveform: current.waveform ?? true,
-        sourceUrl:
-          current.sourcePreview && canPreviewSource(file) ? URL.createObjectURL(file) : undefined,
-        logs: [],
-      }));
-      commit([...jobsRef.current, ...newJobs]);
+      const newJobs: Job[] = files.map((file) => {
+        /*
+         * A text file dropped on a video tool is answerable now. Letting it
+         * through means a 31 MB core download and a mount before ffmpeg says
+         * the same thing, which is a long wait for an answer that was never in
+         * doubt.
+         */
+        const rejection = rejectFile(file);
+        if (rejection) {
+          return {
+            id: nextJobId(),
+            file,
+            status: "error" as const,
+            phase: "Failed",
+            phaseRatio: null,
+            trim,
+            autoTrim: false,
+            silenceOptions: settings.silence,
+            outputs: [],
+            error: { ...rejection, retryable: false },
+            logs: [],
+          };
+        }
+
+        return {
+          id: nextJobId(),
+          file,
+          status: "queued" as const,
+          phase: "Waiting...",
+          phaseRatio: null,
+          trim,
+          autoTrim: settings.mode === "silence",
+          silenceOptions: settings.silence,
+          outputs: makeOutputs(formats, trim),
+          // The clip panel is always open, so the envelope is always wanted.
+          wantsWaveform: current.waveform ?? true,
+          sourceUrl:
+            current.sourcePreview && canPreviewSource(file)
+              ? URL.createObjectURL(file)
+              : undefined,
+          logs: [],
+        };
+      });
+      commit([...store.jobs, ...newJobs]);
       void pump();
     },
-    [commit, pump],
+    [commit, pump, store],
   );
 
   /**
@@ -697,10 +1048,10 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
    */
   const addFormatToJob = useCallback(
     (jobId: string, formatId: string, trim: TrimRange | null = null) => {
-      const job = jobsRef.current.find((entry) => entry.id === jobId);
+      const job = store.jobs.find((entry) => entry.id === jobId);
       if (!job) return;
       // The catalogue as it stands now, so a tool's current settings apply.
-      const format = findFormat(optionsRef.current.formats, formatId);
+      const format = findFormat(store.options.formats, formatId);
       if (!format) return;
       // Same format over the same range is the output that already exists - but
       // a cancelled one has no audio behind it, so it does not block a re-add.
@@ -712,7 +1063,7 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
       );
       if (duplicate) return;
 
-      const isActive = activeJobRef.current === jobId;
+      const isActive = store.activeJobId === jobId;
       patchJob(jobId, (current) => ({
         trim,
         error: undefined,
@@ -721,7 +1072,7 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
       }));
       if (!isActive) void pump();
     },
-    [patchJob, pump],
+    [patchJob, pump, store],
   );
 
   /**
@@ -729,8 +1080,8 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
    * producing any audio - the point is the suggested range it comes back with.
    */
   const detectSilence = useCallback(
-    (jobId: string, options?: Partial<SilenceScanOptions>) => {
-      const job = jobsRef.current.find((entry) => entry.id === jobId);
+    (jobId: string, silenceOptions?: Partial<SilenceScanOptions>) => {
+      const job = store.jobs.find((entry) => entry.id === jobId);
       if (!job || job.status === "preparing" || job.status === "converting") return;
 
       patchJob(jobId, {
@@ -739,16 +1090,16 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
         error: undefined,
         autoTrim: true,
         silence: undefined,
-        silenceOptions: { ...job.silenceOptions, ...options },
+        silenceOptions: { ...job.silenceOptions, ...silenceOptions },
       });
       void pump();
     },
-    [patchJob, pump],
+    [patchJob, pump, store],
   );
 
   const retryJob = useCallback(
     (jobId: string) => {
-      const job = jobsRef.current.find((entry) => entry.id === jobId);
+      const job = store.jobs.find((entry) => entry.id === jobId);
       if (!job) return;
       patchJob(jobId, {
         status: "queued",
@@ -763,7 +1114,7 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
       });
       void pump();
     },
-    [patchJob, pump],
+    [patchJob, pump, store],
   );
 
   /**
@@ -780,34 +1131,38 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
    */
   const cancelOutput = useCallback(
     (jobId: string, outputId: string) => {
-      const job = jobsRef.current.find((entry) => entry.id === jobId);
+      const job = store.jobs.find((entry) => entry.id === jobId);
       const output = job?.outputs.find((entry) => entry.id === outputId);
       if (!job || !output) return;
       if (output.status === "done" || output.status === "cancelled") return;
 
       // Marked before the worker dies so the run loop can tell this apart from
       // a genuine failure, and so the row reacts immediately.
-      patchOutput(jobId, outputId, { status: "cancelled", ratio: null, error: undefined });
+      patchOutput(jobId, outputId, {
+        status: "cancelled",
+        ratio: null,
+        error: undefined,
+      });
 
       if (output.status === "running") {
-        partialCancelRef.current.add(jobId);
+        store.restart.add(jobId);
         getEngine().terminate();
       }
     },
-    [patchOutput],
+    [patchOutput, store],
   );
 
   /** Puts a cancelled or failed output back in the queue on its own. */
   const retryOutput = useCallback(
     (jobId: string, outputId: string) => {
-      const job = jobsRef.current.find((entry) => entry.id === jobId);
+      const job = store.jobs.find((entry) => entry.id === jobId);
       const output = job?.outputs.find((entry) => entry.id === outputId);
       if (!job || !output) return;
       if (output.status === "running" || output.status === "done") return;
 
       // A job that is still running picks this up on its next pass; one that
       // has finished has to be handed back to the pump.
-      const isActive = activeJobRef.current === jobId;
+      const isActive = store.activeJobId === jobId;
 
       patchJob(jobId, (current) => {
         const outputs = current.outputs.map((entry) =>
@@ -823,62 +1178,63 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
         );
         return isActive
           ? { outputs, error: undefined }
-          : { outputs, error: undefined, status: "queued" as const, phase: "Waiting..." };
+          : {
+              outputs,
+              error: undefined,
+              status: "queued" as const,
+              phase: "Waiting...",
+            };
       });
 
       if (!isActive) void pump();
     },
-    [patchJob, pump],
+    [patchJob, pump, store],
   );
 
   const cancelJob = useCallback(
     (jobId: string) => {
-      const job = jobsRef.current.find((entry) => entry.id === jobId);
+      const job = store.jobs.find((entry) => entry.id === jobId);
       if (!job) return;
 
-      if (activeJobRef.current === jobId) {
+      if (store.activeJobId === jobId) {
         // ffmpeg blocks its worker while running, so the only way to stop a
         // conversion in flight is to kill the worker. During the core download
         // there is no worker yet and nothing to kill: the download is left to
         // finish, since the next file needs it anyway, and the job is settled
         // the moment the engine comes back. Say so now, so the card does not
-        // look ignored in the meantime.
-        cancelledRef.current.add(jobId);
+        // look ignored in the meantime, and stop every row that is still
+        // waiting for a turn it will not get.
+        store.cancelled.add(jobId);
         patchJob(jobId, { phase: "Cancelling...", phaseRatio: null });
+        settleOutputs(jobId, "cancelled");
         getEngine().terminate();
         return;
       }
 
       // Still waiting its turn: nothing is running, so the outputs can be
       // settled along with the file rather than left saying "Waiting".
-      patchJob(jobId, (current) => ({
-        status: "cancelled",
-        phase: "Cancelled",
-        outputs: current.outputs.map((output) =>
-          output.status === "pending"
-            ? { ...output, status: "cancelled" as const, ratio: null }
-            : output,
-        ),
-      }));
+      patchJob(jobId, { status: "cancelled", phase: "Cancelled" });
+      settleOutputs(jobId, "cancelled");
     },
-    [patchJob],
+    [patchJob, settleOutputs, store],
   );
 
   const removeJob = useCallback(
     (jobId: string) => {
-      const job = jobsRef.current.find((entry) => entry.id === jobId);
+      const job = store.jobs.find((entry) => entry.id === jobId);
       if (!job) return;
-      if (activeJobRef.current === jobId) cancelJob(jobId);
-      partialCancelRef.current.delete(jobId);
+      if (store.activeJobId === jobId) cancelJob(jobId);
+      store.restart.delete(jobId);
+      store.crashed.delete(jobId);
       releaseJobUrls(job);
-      commit(jobsRef.current.filter((entry) => entry.id !== jobId));
+      commit(store.jobs.filter((entry) => entry.id !== jobId));
     },
-    [cancelJob, commit],
+    [cancelJob, commit, store],
   );
 
   const clearFinished = useCallback(() => {
     const remaining: Job[] = [];
-    for (const job of jobsRef.current) {
+    for (const job of store.jobs) {
       const isFinished =
         job.status === "done" || job.status === "cancelled" || job.status === "error";
       if (isFinished) {
@@ -888,15 +1244,52 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
       }
     }
     commit(remaining);
-  }, [commit]);
+  }, [commit, store]);
 
-  // Release every object URL when the page goes away.
-  useEffect(
-    () => () => {
-      for (const job of jobsRef.current) releaseJobUrls(job);
-    },
-    [],
-  );
+  /*
+   * Object URLs are deliberately *not* revoked when the page unmounts. The
+   * store outlives the component precisely so a finished output survives a
+   * visit to another tool, and revoking here would hand the visitor back a
+   * card full of dead download links. The browser releases them when the
+   * document does; "Remove" and "Clear finished" release them before that.
+   */
+
+  // Settings a tool remembers between visits.
+  useEffect(() => {
+    if (store.hydrated) return;
+    store.hydrated = true;
+
+    if (options.formatPicker) {
+      const stored = readStored(storageKey("formats", options.key ?? "default"), isStringArray);
+      const known = stored?.filter((id) => findFormat(options.formats, id) !== undefined) ?? [];
+      if (known.length > 0) store.selectedFormats = known;
+    }
+
+    const strip = readStored(storageKey("strip-metadata"), isBoolean);
+    if (strip !== null) store.stripMetadata = strip;
+
+    const trim = readStored(storageKey("trim", options.key ?? "default"), isTrimSettings);
+    if (trim) store.trimSettings = trim;
+
+    notify(store);
+    // Options are captured once; the store is created from the same key.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store]);
+
+  useEffect(() => {
+    if (!store.hydrated || !options.formatPicker) return;
+    writeStored(storageKey("formats", options.key ?? "default"), selectedFormats);
+  }, [options.formatPicker, options.key, selectedFormats, store]);
+
+  useEffect(() => {
+    if (!store.hydrated) return;
+    writeStored(storageKey("strip-metadata"), stripMetadata);
+  }, [stripMetadata, store]);
+
+  useEffect(() => {
+    if (!store.hydrated) return;
+    writeStored(storageKey("trim", options.key ?? "default"), trimSettings);
+  }, [options.key, trimSettings, store]);
 
   // Warn before navigating away mid-conversion: the work cannot be resumed.
   useEffect(() => {
@@ -917,11 +1310,13 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
 
   return {
     jobs,
-    engineState,
+    engineState: engine,
     selectedFormats,
     setSelectedFormats,
     trimSettings,
     setTrimSettings,
+    stripMetadata,
+    setStripMetadata,
     addFiles,
     addFormatToJob,
     detectSilence,
@@ -933,4 +1328,26 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
     clearFinished,
     activeCount,
   };
+}
+
+/* ---- Stored-value validators -------------------------------------------- */
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === "boolean";
+}
+
+function isTrimSettings(value: unknown): value is TrimSettings {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<TrimSettings>;
+  return (
+    (candidate.mode === "full" || candidate.mode === "silence") &&
+    typeof candidate.silence === "object" &&
+    candidate.silence !== null &&
+    typeof candidate.silence.thresholdDb === "number" &&
+    typeof candidate.silence.minDurationSeconds === "number"
+  );
 }

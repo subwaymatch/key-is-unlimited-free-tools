@@ -13,6 +13,8 @@
 
 import type { Metadata } from "next";
 
+import { SITE_NAME, SITE_URL } from "./site";
+
 export type ToolCategory = "video" | "audio" | "subtitles" | "images" | "documents" | "data";
 
 /*
@@ -210,6 +212,18 @@ export function requireTool(slug: string): ToolMeta {
   return tool;
 }
 
+/**
+ * Every live tool in the order the site shows them: by category, then by
+ * registry order within a category.
+ *
+ * The header used to render plain registry order, which put "Extract audio"
+ * first there and last on the index, under Audio. Two orders for one list of
+ * seven links is a small thing that makes a site feel like two sites.
+ */
+export function liveToolsInDisplayOrder(): ToolMeta[] {
+  return liveToolsByCategory().flatMap((group) => group.tools);
+}
+
 /** Live tools grouped for display, skipping categories that have none yet. */
 export function liveToolsByCategory(): { category: ToolCategory; tools: ToolMeta[] }[] {
   const live = liveTools();
@@ -248,9 +262,47 @@ export function toolPath(tool: ToolMeta): string {
  */
 export function toolMetadata(slug: string): Metadata {
   const tool = requireTool(slug);
+  const path = toolPath(tool);
   return {
     title: tool.name,
     description: tool.description,
-    alternates: { canonical: toolPath(tool) },
+    alternates: { canonical: path },
+    openGraph: {
+      type: "website",
+      url: path,
+      title: `${tool.name} | ${SITE_NAME}`,
+      description: tool.description,
+      siteName: SITE_NAME,
+    },
+    twitter: {
+      card: "summary",
+      title: `${tool.name} | ${SITE_NAME}`,
+      description: tool.description,
+    },
+  };
+}
+
+/**
+ * schema.org JSON-LD for one tool, as a `WebApplication`.
+ *
+ * Worth stating explicitly rather than leaving to inference: this is a free
+ * browser application with no sign-up, and the two facts search engines
+ * actually surface from this markup - the category and the price - are the two
+ * a visitor most wants to know before clicking.
+ */
+export function toolJsonLd(slug: string): Record<string, unknown> {
+  const tool = requireTool(slug);
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    name: tool.name,
+    url: `${SITE_URL}${toolPath(tool)}`,
+    description: tool.description,
+    applicationCategory: "MultimediaApplication",
+    operatingSystem: "Any browser",
+    browserRequirements: "Requires WebAssembly",
+    isAccessibleForFree: true,
+    offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+    publisher: { "@type": "Organization", name: SITE_NAME, url: SITE_URL },
   };
 }

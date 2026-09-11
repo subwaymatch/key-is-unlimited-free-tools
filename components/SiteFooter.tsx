@@ -39,7 +39,10 @@ export function SiteFooter() {
           {PROMISE} {PROMISE_QUALIFIER}
         </p>
         <p className={styles.privacy}>
-          {SITE_NAME} runs entirely in your browser. Your files are never uploaded.
+          {SITE_NAME} runs entirely in your browser. Your files are never uploaded.{" "}
+          <Link href="/privacy" className={styles.privacyLink}>
+            Privacy
+          </Link>
         </p>
       </div>
     </footer>

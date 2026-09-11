@@ -15,12 +15,26 @@ export interface ToolFeatures {
    * on a range, for the trimmer and the GIF maker.
    */
   requireTrim: boolean;
-  /** Label before the clip panel's chips when no range is set: "Extract as:". */
-  wholeLabel: string;
-  /** The same label once a range is set: "Extract this clip as:". */
+  /** The clip panel's label once a range is set: "Extract this clip as:". */
   clipLabel: string;
   /** Label before the whole-file chips on the card: "Also convert to:". */
   alsoLabel: string;
+  /**
+   * Word for what the tool is doing while a file runs: "Compressing".
+   *
+   * The status badge said "Converting" on every tool, which reads as the wrong
+   * tool entirely on the one that compresses. Defaults to "Converting".
+   */
+  busyLabel?: string;
+  /**
+   * Longest source, in seconds, that a clip-only tool will offer whole.
+   *
+   * The GIF maker insists on a range because a GIF of a whole film would be
+   * absurd - but a four-second clip is exactly what someone wants a GIF of,
+   * and making them set two markers that mean "all of it" is a chore. Null,
+   * the default, keeps the tool strictly clip-only.
+   */
+  wholeClipSeconds?: number | null;
 }
 
 /** The audio extractor's features, and a sensible default for any tool. */
@@ -28,7 +42,7 @@ export const AUDIO_FEATURES: ToolFeatures = {
   trim: true,
   silence: true,
   requireTrim: false,
-  wholeLabel: "Extract as:",
   clipLabel: "Extract this clip as:",
-  alsoLabel: "Also convert to:",
+  alsoLabel: "Extract as:",
+  busyLabel: "Extracting",
 };

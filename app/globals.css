@@ -21,7 +21,16 @@
   --foreground: #0a0a0a;
   --muted: #f5f5f5;
   --muted-foreground: #737373;
-  --subtle: #a3a3a3;
+  /*
+   * The quietest text on the page, and it still has to be readable.
+   *
+   * #a3a3a3 measured 2.52:1 on white, well under the 4.5:1 WCAG AA asks for
+   * body text, and it was carrying real sentences: the privacy line under the
+   * drop zone, the index's "the only limits are your device's", the category
+   * headings and the "Video files" tags. #6b6b6b is 5.33:1 and still reads as
+   * the third level of a three-level hierarchy.
+   */
+  --subtle: #6b6b6b;
   --border: #e5e5e5;
   --border-strong: #d4d4d4;
   --input: #d4d4d4;
@@ -83,7 +92,8 @@
     --foreground: #fafafa;
     --muted: #1c1c1c;
     --muted-foreground: #a3a3a3;
-    --subtle: #737373;
+    /* 6.12:1 on the dark background; #737373 was 4.18:1 and just under AA. */
+    --subtle: #8f8f8f;
     --border: #262626;
     --border-strong: #404040;
     --input: #404040;

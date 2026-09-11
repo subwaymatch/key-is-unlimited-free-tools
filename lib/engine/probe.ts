@@ -142,7 +142,34 @@ function parseVideoDetail(detail: string): VideoStreamInfo {
     height: size ? Number(size[2]) : null,
     fps: fps ? Number(fps) : null,
     bitrateKbps: bitrate ? Number(bitrate) : null,
+    // Filled in from the side-data lines that follow the stream, if any.
+    rotationDegrees: null,
   };
+}
+
+/**
+ * Reads a display-matrix rotation off a side-data line, in degrees.
+ *
+ * ffmpeg prints it under the stream it belongs to:
+ *   Side data:
+ *     displaymatrix: rotation of -90.00 degrees
+ *
+ * The sign convention differs between ffmpeg versions and is not worth
+ * chasing: what the card needs is whether the picture is turned on its side,
+ * which is the same question for -90 and 270.
+ */
+export function parseDisplayRotation(line: string): number | null {
+  const match = line.match(/displaymatrix:\s*rotation of\s*(-?\d+(?:\.\d+)?)\s*degrees/i);
+  if (!match) return null;
+  const degrees = Number(match[1]);
+  return Number.isFinite(degrees) ? degrees : null;
+}
+
+/** True when a display rotation turns a landscape frame into a portrait one. */
+export function isQuarterTurn(rotationDegrees: number | null): boolean {
+  if (rotationDegrees === null) return false;
+  const normalized = ((Math.round(rotationDegrees) % 360) + 360) % 360;
+  return normalized === 90 || normalized === 270;
 }
 
 /** Builds a ProbeResult from the lines ffmpeg printed for `ffmpeg -i <input>`. */
@@ -152,6 +179,9 @@ export function parseProbeOutput(log: string[]): ProbeResult {
   let formatName: string | null = null;
   const audioStreams: AudioStreamInfo[] = [];
   const videoStreams: VideoStreamInfo[] = [];
+  // The side-data block belongs to the stream printed above it, so the last
+  // video stream stays in hand until another Stream line replaces it.
+  let openVideo: VideoStreamInfo | null = null;
 
   for (const line of log) {
     if (formatName === null) {
@@ -171,7 +201,13 @@ export function parseProbeOutput(log: string[]): ProbeResult {
     const stream = line.match(
       /Stream #\d+:\d+(?:\[[^\]]*\])?(?:\([^)]*\))?:\s*(Audio|Video):\s*(.+)$/,
     );
-    if (!stream) continue;
+    if (!stream) {
+      const rotation = openVideo === null ? null : parseDisplayRotation(line);
+      if (rotation !== null && openVideo !== null) openVideo.rotationDegrees = rotation;
+      continue;
+    }
+
+    openVideo = null;
 
     if (stream[1] === "Audio") {
       audioStreams.push(parseAudioDetail(stream[2]));
@@ -182,7 +218,11 @@ export function parseProbeOutput(log: string[]): ProbeResult {
     // artwork is not a video, so it should not count as one.
     const isCoverArt =
       /attached pic/i.test(line) && /\b(?:mjpeg|png|bmp|gif|webp)\b/i.test(stream[2]);
-    if (!isCoverArt) videoStreams.push(parseVideoDetail(stream[2]));
+    if (!isCoverArt) {
+      const video = parseVideoDetail(stream[2]);
+      videoStreams.push(video);
+      openVideo = video;
+    }
   }
 
   return {
@@ -232,11 +272,17 @@ export function parseEncoders(log: string[]): Set<string> {
  */
 export function summarizeFailure(log: string[]): string | null {
   const noise =
-    /^(ffmpeg version|built with|configuration:|\s*lib(av|sw|postproc)|\s*Metadata:|\s*Duration:|\s*Stream #|\s*encoder\s*:|Input #|Output #|\s*Side data:|\s*handler_name|\s*vendor_id|\s*compatible_brands|\s*major_brand|\s*minor_version|Stream mapping:|\s*frame=|size=|video:|\[.*\] Using)/i;
+    /^(ffmpeg version|built with|configuration:|\s*lib(av|sw|postproc)|\s*Metadata:|\s*Duration:|\s*Stream #|\s*encoder\s*:|Input #|Output #|\s*Side data:|\s*displaymatrix|\s*handler_name|\s*vendor_id|\s*compatible_brands|\s*major_brand|\s*minor_version|Stream mapping:|\s*frame=|size=|video:|\[.*\] Using)/i;
+
+  // Emscripten's own trap output. It is the runtime saying the wasm module
+  // stopped, not a reason a person can act on, and showing it under a message
+  // that already explains the failure reads as a second, cryptic error.
+  const runtimeNoise =
+    /^(Aborted\(\)|Aborted\(.*\)|abort\(.*\)|RuntimeError:|exiting due to|Assertion failed|.*native code called abort)/i;
 
   for (let i = log.length - 1; i >= 0; i -= 1) {
     const line = log[i].trim();
-    if (!line || noise.test(line)) continue;
+    if (!line || noise.test(line) || runtimeNoise.test(line)) continue;
     if (/^(Press \[q\]|At least one output|Conversion failed|Error|.*: (No such file|Invalid|Unknown|Unable|Cannot))/i.test(line)) {
       return line;
     }

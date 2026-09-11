@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { baseName, safeMountName } from "@/lib/engine/ffmpegEngine";
-import { formatBytes, formatDuration, formatElapsed } from "@/lib/format-utils";
+import {
+  baseName,
+  extensionOf,
+  isFatalRuntimeFailure,
+  safeMountName,
+} from "@/lib/engine/ffmpegEngine";
+import { ExtractionError } from "@/lib/engine/types";
+import {
+  describeVideo,
+  formatBytes,
+  formatDuration,
+  formatElapsed,
+} from "@/lib/format-utils";
 
 describe("safeMountName", () => {
   it("keeps the extension as a demuxer hint", () => {
@@ -85,5 +96,64 @@ describe("formatElapsed", () => {
   it("rounds longer timings and switches to minutes", () => {
     expect(formatElapsed(45_000)).toBe("45s");
     expect(formatElapsed(92_400)).toBe("1m 32s");
+  });
+});
+
+describe("extensionOf", () => {
+  it("reads the extension the plans use to keep a container", () => {
+    expect(extensionOf("holiday.MOV")).toBe("mov");
+    expect(extensionOf("archive.tar.mkv")).toBe("mkv");
+  });
+
+  it("returns null when there is nothing to read", () => {
+    expect(extensionOf("VIDEO_TS")).toBeNull();
+    expect(extensionOf(".hidden")).toBeNull();
+  });
+});
+
+describe("isFatalRuntimeFailure", () => {
+  it("recognises the traps that leave the ffmpeg instance unusable", () => {
+    // What VP9 in this core actually produces, and what every command after
+    // it produced until the engine was thrown away.
+    expect(isFatalRuntimeFailure(new Error("RuntimeError: memory access out of bounds"))).toBe(
+      true,
+    );
+    expect(isFatalRuntimeFailure("Aborted(native code called abort())")).toBe(true);
+    expect(isFatalRuntimeFailure(new Error("Cannot enlarge memory arrays"))).toBe(true);
+  });
+
+  it("leaves ffmpeg's own refusals alone: they cost one job, not the engine", () => {
+    expect(isFatalRuntimeFailure(new Error("Invalid data found when processing input"))).toBe(
+      false,
+    );
+    expect(isFatalRuntimeFailure(new Error("Unknown encoder 'libopus'"))).toBe(false);
+    expect(isFatalRuntimeFailure(new ExtractionError("No audio track found."))).toBe(false);
+  });
+
+  it("trusts a failure that has already been classified", () => {
+    expect(
+      isFatalRuntimeFailure(new ExtractionError("The engine stopped.", undefined, { fatal: true })),
+    ).toBe(true);
+  });
+});
+
+describe("describeVideo", () => {
+  const video = { codec: "h264", width: 1280, height: 720, fps: 30 };
+
+  it("reports an upright stream as it is coded", () => {
+    expect(describeVideo(video)).toBe("H264 1280x720, 30 fps");
+  });
+
+  it("reports the size a player will show for a rotated phone clip", () => {
+    // A phone records landscape and writes a quarter turn into the file. Left
+    // alone, the card told someone their portrait video was landscape.
+    expect(describeVideo({ ...video, rotationDegrees: 90 })).toBe(
+      "H264 720x1280, 30 fps, rotated",
+    );
+    expect(describeVideo({ ...video, rotationDegrees: -90 })).toContain("720x1280");
+  });
+
+  it("leaves an upside-down clip the right way round", () => {
+    expect(describeVideo({ ...video, rotationDegrees: 180 })).toBe("H264 1280x720, 30 fps");
   });
 });

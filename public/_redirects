@@ -1,0 +1,17 @@
+# Cloudflare static-asset redirects.
+# https://developers.cloudflare.com/workers/static-assets/redirects/
+#
+# Short aliases people type or link. The canonical routes are verb-object and
+# permanent; these are the guesses that would otherwise land on a 404.
+/compress    /compress-video    301
+/convert     /convert-video     301
+/mp4         /convert-video     301
+/trim        /trim-video        301
+/cut         /trim-video        301
+/gif         /video-to-gif      301
+/mute        /remove-audio      301
+/silence     /remove-audio      301
+/metadata    /remove-metadata   301
+/strip       /remove-metadata   301
+/audio       /extract-audio     301
+/mp3         /extract-audio     301

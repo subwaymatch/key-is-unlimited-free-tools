@@ -1,4 +1,5 @@
 /** Presentation helpers shared by the UI components. */
+import { isQuarterTurn } from "./engine/probe";
 import { formatTimecode, trimDuration } from "./engine/trim";
 import type { TrimRange } from "./engine/types";
 
@@ -62,17 +63,31 @@ export function describeAudio(audio: {
   return parts.join(", ");
 }
 
-/** Compact description of a video stream, e.g. "H264 1920x1080, 30 fps". */
+/**
+ * Compact description of a video stream, e.g. "H264 1920x1080, 30 fps".
+ *
+ * The size shown is the size a player will show, not the size the frames are
+ * coded at. A phone records in landscape and writes a rotation into the file,
+ * so a portrait clip is 1280x720 with a quarter turn; reporting that verbatim
+ * tells someone their portrait video is landscape, and the GIF and compression
+ * settings they then choose are the wrong way round.
+ */
 export function describeVideo(video: {
   codec: string;
   width: number | null;
   height: number | null;
   fps: number | null;
+  rotationDegrees?: number | null;
 } | null): string {
   if (!video) return "No video";
   const parts = [video.codec.toUpperCase()];
-  if (video.width && video.height) parts[0] += ` ${video.width}x${video.height}`;
+  const turned = isQuarterTurn(video.rotationDegrees ?? null);
+  if (video.width && video.height) {
+    const [width, height] = turned ? [video.height, video.width] : [video.width, video.height];
+    parts[0] += ` ${width}x${height}`;
+  }
   if (video.fps) parts.push(`${Number.isInteger(video.fps) ? video.fps : video.fps.toFixed(2)} fps`);
+  if (turned) parts.push("rotated");
   return parts.join(", ");
 }
 

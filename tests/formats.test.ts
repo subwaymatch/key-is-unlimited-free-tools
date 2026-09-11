@@ -35,6 +35,7 @@ function probe(
     height: 1080,
     fps: 30,
     bitrateKbps: 4500,
+    rotationDegrees: null,
   };
 
   return {
@@ -238,6 +239,47 @@ describe("findFormatBlocker", () => {
 
   it("keeps the ceiling below the engine's 2 GB heap", () => {
     expect(MAX_SAFE_OUTPUT_BYTES).toBeLessThan(2 * 1024 ** 3);
+  });
+});
+
+describe("copying rather than re-encoding to the same codec", () => {
+  const probeWith = (codec: string) => probe({ codec });
+
+  it("copies an MP3 source into MP3", () => {
+    const plan = getFormat("mp3").plan(probeWith("mp3"));
+    expect(plan.mode).toBe("copy");
+    expect(plan.args).toContain("copy");
+    expect(plan.args).not.toContain("libmp3lame");
+  });
+
+  it("copies an Opus source into Opus", () => {
+    const plan = getFormat("opus").plan(probeWith("opus"));
+    expect(plan.mode).toBe("copy");
+    expect(plan.args).not.toContain("-strict");
+  });
+
+  it("copies FLAC and 16-bit PCM too", () => {
+    expect(getFormat("flac").plan(probeWith("flac")).mode).toBe("copy");
+    expect(getFormat("wav").plan(probeWith("pcm_s16le")).mode).toBe("copy");
+  });
+
+  it("still encodes when the source codec is something else", () => {
+    expect(getFormat("mp3").plan(probeWith("aac")).mode).toBe("encode");
+    expect(getFormat("opus").plan(probeWith("aac")).mode).toBe("encode");
+    expect(getFormat("flac").plan(probeWith("aac")).mode).toBe("encode");
+    expect(getFormat("wav").plan(probeWith("aac")).mode).toBe("encode");
+  });
+});
+
+describe("output names", () => {
+  it("distinguishes Original from the format that would produce the same file", () => {
+    // Both are a stream copy of an AAC track into an .m4a; without a suffix
+    // they would be two downloads under one name.
+    const original = getFormat("original").plan(probe({ codec: "aac" }));
+    const m4a = getFormat("m4a").plan(probe({ codec: "aac" }));
+    expect(original.extension).toBe(m4a.extension);
+    expect(original.fileSuffix).toBe("-original");
+    expect(m4a.fileSuffix).toBeUndefined();
   });
 });
 

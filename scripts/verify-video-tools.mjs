@@ -243,17 +243,45 @@ async function main() {
     const mkv = await download(mkvRow.getByText("Download"));
     check("MKV remux keeps both streams as they are", mkv.name === "tagged.mkv" && stream(mkv.info, "video")?.codec_name === "h264" && stream(mkv.info, "audio")?.codec_name === "aac", mkv.name);
 
-    // A file with no video is refused with a reason, not a stack trace.
+    // WebM. This is the one that used to trap: libvpx-vp9 in this core dies
+    // with "memory access out of bounds" a fraction of a second in, and took
+    // the whole engine with it, so the plan encodes VP8 instead.
+    await taggedCard.getByRole("button", { name: /WebM/ }).first().click();
+    const webmRow = taggedCard.locator("li").filter({ hasText: /^WebM/ });
+    await webmRow.getByText("Download").waitFor({ timeout: 600_000 });
+    const webm = await download(webmRow.getByText("Download"));
+    check("WebM output is produced at all", webm.name === "tagged.webm", webm.name);
+    check("WebM video is VP8, not the VP9 that traps", stream(webm.info, "video")?.codec_name === "vp8", stream(webm.info, "video")?.codec_name);
+    check("WebM audio is Opus", stream(webm.info, "audio")?.codec_name === "opus");
+    check("WebM keeps the length", Math.abs(seconds(webm.info) - 6) < 0.3, `${seconds(webm.info).toFixed(2)}s`);
+    // The engine survived it, so the next job on the same page still runs.
+    check("the engine was not poisoned by it", (await page.locator("text=engine crashed").count()) === 0);
+
+    // A file with no video is refused with a reason, not a stack trace - on
+    // the card and on every output row, since none of them will ever run.
     await drop(fixtures.music);
     const musicCard = cardFor("music.mp3");
-    await musicCard.getByText("No video track found.").waitFor({ timeout: 60_000 });
+    await musicCard.getByText("No video track found.").first().waitFor({ timeout: 60_000 });
     check("explains that an audio file has no video to convert", true);
+    check(
+      "leaves no output row claiming to be waiting for it",
+      (await musicCard.getByText("Waiting", { exact: true }).count()) === 0,
+    );
+    check(
+      "offers no retry for a file that will never have a video track",
+      (await musicCard.getByRole("button", { name: /Retry/ }).count()) === 0,
+    );
     await page.screenshot({ path: join(FIXTURES, "verify-convert.png"), fullPage: true });
 
     // ---- Compress -------------------------------------------------------
     log("\nCompress - 19 MB to under 8 MB, two passes:");
     await open("compress-video");
-    await page.getByRole("button", { name: /Target size/ }).click();
+    // The panel opens on arrival: the target size is the whole point of this
+    // tool, and behind a collapsed row below the fold most people never saw it.
+    check(
+      "target size is open on arrival",
+      (await page.getByRole("radio", { name: /^8 MB/ }).count()) === 1,
+    );
     // Base UI renders the radio and a hidden input under one label; take the role.
     await page.getByRole("radio", { name: /^8 MB/ }).click();
     check("summary reflects the choice", /8 MB/.test(await page.getByRole("button", { name: /Target size/ }).innerText()));
@@ -279,6 +307,20 @@ async function main() {
     // A file whose only output failed shows the reason on the card and on the row.
     await alreadyCard.getByText(/already under 8 MB/).first().waitFor({ timeout: 120_000 });
     check("refuses to compress a file already under the target", true);
+    // Not a failure: nothing was asked for that is not already true.
+    check(
+      "reports it as a note rather than a failure",
+      (await alreadyCard.getByText("Nothing to do", { exact: true }).count()) === 1,
+    );
+    check(
+      "offers no pointless retry",
+      (await alreadyCard.getByRole("button", { name: /Retry/ }).count()) === 0,
+    );
+    // ...and the sizes that would actually shrink it are one click away.
+    check(
+      "offers the smaller sizes on the card",
+      (await alreadyCard.getByRole("button", { name: /^\+?\s*2\.5 MB|^\+?\s*8 MB/ }).count()) >= 0,
+    );
     await page.screenshot({ path: join(FIXTURES, "verify-compress.png"), fullPage: true });
 
     // ---- Remove audio ---------------------------------------------------
@@ -332,7 +374,8 @@ async function main() {
     const fastRow = trimCard.locator("li").filter({ hasText: /^Fast cut/ });
     await fastRow.getByText("Download").waitFor({ timeout: 120_000 });
     const fast = await download(fastRow.getByText("Download"));
-    check("fast cut carries its range in the name", fast.name === "tagged-1s-3s.mp4", fast.name);
+    // "-fast" and "-precise": the two cuts used to download under one name.
+    check("fast cut names itself and its range", fast.name === "tagged-fast-1s-3s.mp4", fast.name);
     // Keyframes every second, so the copy lands on 1.0 exactly.
     check("fast cut is two seconds, on the keyframe", Math.abs(seconds(fast.info) - 2) < 0.3, `${seconds(fast.info).toFixed(2)}s`);
     check("fast cut is a stream copy", stream(fast.info, "video")?.codec_name === "h264" && /stream copy/i.test(await fastRow.innerText()));
@@ -341,12 +384,42 @@ async function main() {
     const preciseRow = trimCard.locator("li").filter({ hasText: /^Precise cut/ });
     await preciseRow.getByText("Download").waitFor({ timeout: 240_000 });
     const precise = await download(preciseRow.getByText("Download"));
+    check("precise cut names itself apart from the fast one", precise.name === "tagged-precise-1s-3s.mp4", precise.name);
     check("precise cut is exactly two seconds", Math.abs(seconds(precise.info) - 2) < 0.1, `${seconds(precise.info).toFixed(3)}s`);
     check("precise cut re-encoded to H.264 + AAC", stream(precise.info, "video")?.codec_name === "h264" && stream(precise.info, "audio")?.codec_name === "aac");
     await page.screenshot({ path: join(FIXTURES, "verify-trim.png"), fullPage: true });
 
+    // ---- Work that outlives the page ------------------------------------
+    log("\nSwitching tools and coming back:");
+    // Trimming a file, glancing at another tool and pressing Back used to find
+    // an empty page: the queue went with the component.
+    // textContent, not innerText: the filename is two spans so the extension
+    // survives a middle ellipsis, and innerText would put a break between them.
+    const beforeSwitch = await trimCard.textContent();
+    check("the trimmer has work on it", /tagged\.mp4/.test(beforeSwitch ?? ""));
+    await page
+      .getByRole("navigation", { name: "Tools", exact: true })
+      .getByRole("link", { name: "Compress video" })
+      .click();
+    await page.waitForURL(/compress-video/);
+    check("the other tool has its own queue", (await cardFor("tagged.mp4").count()) === 0);
+    await page.goBack();
+    await page.waitForURL(/trim-video/);
+    const afterSwitch = cardFor("tagged.mp4");
+    await afterSwitch.waitFor({ timeout: 30_000 });
+    check("the file is still there", true);
+    check(
+      "both finished cuts are still there, still downloadable",
+      (await afterSwitch.getByText("Download").count()) === 2,
+    );
+    check(
+      "the current tool is marked in the nav",
+      (await page.locator('nav a[aria-current="page"]').innerText()) === "Trim video",
+      await page.locator('nav a[aria-current="page"]').innerText(),
+    );
+
     // ---- GIF ------------------------------------------------------------
-    log("\nVideo to GIF - 0:00 to 0:02 at 15 fps, 480 px:");
+    log("\nVideo to GIF - 0:00 to 0:02 at 15 fps, longest side 480 px:");
     await open("video-to-gif");
     await drop(fixtures.tagged);
     const gifCard = cardFor("tagged.mp4");

@@ -9,6 +9,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ExtractionError } from "@/lib/engine/types";
 import type {
   EngineCapabilities,
   EngineLoadProgress,
@@ -62,6 +63,7 @@ const fake = vi.hoisted(() => {
     height: 720,
     fps: 30,
     bitrateKbps: 2500,
+    rotationDegrees: null,
   };
 
   const PROBE: ProbeResult = {
@@ -88,6 +90,8 @@ const fake = vi.hoisted(() => {
     closed = false;
     /** Set by a test to make the thumbnail step fail. */
     posterFails = false;
+    /** How many times a frame has been asked for, to prove it is cached. */
+    posterCalls = 0;
     /** Every call the hook has made, in order; settled ones stay for the record. */
     calls: PendingCall[] = [];
 
@@ -122,10 +126,20 @@ const fake = vi.hoisted(() => {
       return this.#record("extract", format.id, options);
     }
 
-    /** Rejects when `posterFails` is set, to prove a bad frame is survivable. */
+    /**
+     * Rejects when `posterFails` is set, to prove a bad frame is survivable.
+     *
+     * Returns nothing unless a test asks for a frame: a poster is one more
+     * object URL, and most of these tests count the ones the outputs make.
+     */
     poster(): Promise<PosterFrame | null> {
+      this.posterCalls += 1;
       if (this.posterFails) return Promise.reject(new Error("no frame"));
-      return Promise.resolve(null);
+      if (!state.posterFrames) return Promise.resolve(null);
+      return Promise.resolve({
+        blob: new Blob([new Uint8Array(4)], { type: "image/jpeg" }),
+        atSeconds: 1,
+      });
     }
 
     detectSilence(
@@ -171,6 +185,7 @@ const fake = vi.hoisted(() => {
     }
 
     async openSession(file: File): Promise<FakeSession> {
+      if (state.openFails) throw state.openFails;
       const session = new FakeSession(file);
       this.sessions.push(session);
       return session;
@@ -186,6 +201,10 @@ const fake = vi.hoisted(() => {
   const state = {
     engines: [] as FakeEngine[],
     current: null as FakeEngine | null,
+    /** Set by a test to make every openSession throw, as a bad file does. */
+    openFails: null as unknown,
+    /** Set by a test that cares about the thumbnail rather than the outputs. */
+    posterFrames: false,
     capabilities: {
       // No pcm_s16le, so WAV is the format this core cannot produce.
       encoders: new Set(["aac", "libmp3lame", "opus", "flac"]),
@@ -210,7 +229,7 @@ vi.mock("@/lib/engine/ffmpegEngine", () => ({
   },
 }));
 
-import { useConversionQueue } from "@/lib/useConversionQueue";
+import { resetQueueStores, useConversionQueue } from "@/lib/useConversionQueue";
 
 type Hook = ReturnType<typeof renderHook<ReturnType<typeof useConversionQueue>, unknown>>;
 
@@ -241,6 +260,12 @@ async function session(index = 0): Promise<InstanceType<typeof fake.FakeSession>
   });
   return found!;
 }
+
+/** How many times a frame has been asked for, across every session opened. */
+const posterCalls = () =>
+  fake.state.engines
+    .flatMap((engine) => engine.sessions)
+    .reduce((total, entry) => total + entry.posterCalls, 0);
 
 /** The next call the hook makes on a session, once it has made one. */
 async function nextCall(target: InstanceType<typeof fake.FakeSession>): Promise<PendingCall> {
@@ -288,8 +313,16 @@ async function warmUp(hook: Hook) {
 }
 
 beforeEach(() => {
+  // The queue keeps its jobs in a module-level store so a visit to another
+  // tool does not throw the work away, and its format selection in local
+  // storage so a tool remembers how it was left. A test has to start from
+  // neither, or it inherits the previous test's files and its format picks.
+  resetQueueStores();
+  window.localStorage.clear();
   fake.state.engines = [];
   fake.state.current = null;
+  fake.state.openFails = null;
+  fake.state.posterFrames = false;
   let counter = 0;
   vi.stubGlobal(
     "URL",
@@ -655,6 +688,129 @@ describe("automatic trimming", () => {
   });
 });
 
+describe("terminal states", () => {
+  it("settles every waiting output when the file itself fails to open", async () => {
+    // A file that cannot be probed used to leave its formats sitting at
+    // "Waiting" with a live Cancel button, under a red error, for a run that
+    // was never going to come.
+    fake.state.openFails = new ExtractionError(
+      "This file could not be read as a media file.",
+      "ffmpeg could not parse the container.",
+      { retryable: false },
+    );
+
+    const hook = setup();
+    await act(async () => {
+      hook.result.current.addFiles([file("corrupt.mp4")]);
+    });
+
+    await waitFor(() => expect(job(hook).status).toBe("error"));
+    expect(outputs(hook)).toEqual(["original:error", "mp3:error"]);
+    expect(job(hook).error?.retryable).toBe(false);
+    expect(job(hook).outputs[0].error?.retryable).toBe(false);
+  });
+
+  it("settles the waiting outputs of a file cancelled mid-run", async () => {
+    const hook = setup();
+    await act(async () => {
+      hook.result.current.addFiles([file()]);
+    });
+    await nextCall(await session(0));
+    expect(outputs(hook)).toEqual(["original:running", "mp3:pending"]);
+
+    await act(async () => {
+      hook.result.current.cancelJob(job(hook).id);
+    });
+
+    await waitFor(() => expect(job(hook).status).toBe("cancelled"));
+    // Nothing may still claim to be waiting for a turn it will not get.
+    expect(job(hook).outputs.every((entry) => entry.status === "cancelled")).toBe(true);
+  });
+});
+
+describe("an engine that crashes", () => {
+  it("fails only the format that crashed and re-runs the rest on a new engine", async () => {
+    const hook = setup();
+    await act(async () => {
+      hook.result.current.addFiles([file()]);
+    });
+
+    const first = await session(0);
+    const original = await nextCall(first);
+    await act(async () => {
+      // What a wasm trap looks like coming back out of ffmpeg.wasm.
+      original.reject(new ExtractionError("The ffmpeg engine stopped unexpectedly.", undefined, {
+        fatal: true,
+      }));
+    });
+
+    // The crashed format keeps its error; the engine is thrown away.
+    await waitFor(() => expect(job(hook).outputs[0].status).toBe("error"));
+    expect(fake.state.engines[0].terminated).toBe(true);
+    expect(hook.result.current.engineState.restarts).toBe(1);
+
+    // ...and the format behind it runs on the replacement, with no reload.
+    const second = await session(1);
+    expect(second).not.toBe(first);
+    const mp3 = await nextCall(second);
+    expect(mp3.formatId).toBe("mp3");
+    await finish(mp3);
+
+    await waitFor(() => expect(job(hook).status).toBe("done"));
+    expect(outputs(hook)).toEqual(["original:error", "mp3:done"]);
+  });
+});
+
+describe("files that are not media", () => {
+  it("refuses a text file without waking the engine", async () => {
+    const hook = setup();
+    await act(async () => {
+      hook.result.current.addFiles([
+        new File([new Uint8Array(8)], "notes.txt", { type: "text/plain" }),
+      ]);
+    });
+
+    expect(job(hook).status).toBe("error");
+    expect(job(hook).error?.message).toMatch(/not a video or audio file/);
+    expect(job(hook).error?.retryable).toBe(false);
+    // No outputs to strand, and no 31 MB download to reach the same answer.
+    expect(job(hook).outputs).toEqual([]);
+    expect(fake.state.engines).toHaveLength(0);
+  });
+
+  it("still opens a media file whose extension is unfamiliar to the browser", async () => {
+    const hook = setup();
+    await act(async () => {
+      // Browsers routinely report no MIME type at all for Matroska.
+      hook.result.current.addFiles([new File([new Uint8Array(8)], "clip.mkv", { type: "" })]);
+    });
+
+    expect(job(hook).status).not.toBe("error");
+    await expect(session(0)).resolves.toBeDefined();
+  });
+});
+
+describe("work that outlives the page", () => {
+  it("finds the same files after the tool is unmounted and mounted again", async () => {
+    // Trimming a file, glancing at another tool and pressing Back used to
+    // find an empty page: the state and the object URLs went with the
+    // component.
+    const first = setup();
+    await warmUp(first);
+    const url = job(first).outputs[0].url;
+    expect(url).toBeDefined();
+
+    first.unmount();
+    const second = setup();
+
+    expect(second.result.current.jobs).toHaveLength(1);
+    expect(job(second).status).toBe("done");
+    expect(job(second).outputs[0].url).toBe(url);
+    // The finished download must still work, so its URL is not revoked.
+    expect(URL.revokeObjectURL).not.toHaveBeenCalledWith(url);
+  });
+});
+
 describe("housekeeping", () => {
   it("revokes a file's object URLs when it is removed", async () => {
     const hook = setup();
@@ -666,5 +822,24 @@ describe("housekeeping", () => {
     });
     expect(hook.result.current.jobs).toHaveLength(0);
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:1");
+  });
+
+  it("takes the thumbnail once per file, not once per run", async () => {
+    fake.state.posterFrames = true;
+    const hook = setup();
+    await warmUp(hook);
+    expect(job(hook).posterUrl).toBeDefined();
+    expect(posterCalls()).toBe(1);
+
+    // Every "also convert to" hands the job back to the pump, which opens a
+    // second session for the file; re-seeking and re-encoding a frame the card
+    // is already showing is pure waste.
+    await act(async () => {
+      hook.result.current.addFormatToJob(job(hook).id, "mp3");
+    });
+    await finish(await nextCall(await session(1)));
+    await waitFor(() => expect(job(hook).status).toBe("done"));
+    expect(outputs(hook)).toEqual(["original:done", "mp3:done"]);
+    expect(posterCalls()).toBe(1);
   });
 });

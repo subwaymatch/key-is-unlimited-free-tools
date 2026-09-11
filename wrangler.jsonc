@@ -23,5 +23,21 @@
   "routes": [
     { "pattern": "key.is", "custom_domain": true },
     { "pattern": "www.key.is", "custom_domain": true }
-  ]
+  ],
+
+  // Preview URLs for pull request builds, served by Workers Builds at
+  // <version>-key-is-unlimited-free-tools.<subdomain>.workers.dev.
+  //
+  // Stated here rather than left to be derived, which is the whole point of
+  // the line. `preview_urls` defaults to `workers_dev`, and `workers_dev`
+  // defaults to false the moment `routes` above is set - so a config that
+  // never mentions previews computes them as off, and every deploy quietly
+  // undid the toggle in the dashboard. Same failure as the DNS records above,
+  // one layer up: state edited by hand loses to state declared in this file.
+  //
+  // If previews still do not appear, they may also need "workers_dev": true,
+  // which publishes production at a second, public workers.dev origin. Every
+  // page already declares https://key.is as its canonical URL, so that is
+  // survivable, but it is a real cost and worth confirming it is necessary.
+  "preview_urls": true
 }

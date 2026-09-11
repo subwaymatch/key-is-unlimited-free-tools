@@ -33,6 +33,16 @@ export interface VideoStreamInfo {
   height: number | null;
   fps: number | null;
   bitrateKbps: number | null;
+  /**
+   * Display rotation from the stream's display matrix, in degrees, or null
+   * when the stream carries none.
+   *
+   * A phone holds its sensor in landscape and records 1280x720 with a 90
+   * degree matrix; every player shows 720x1280. The coded size is what ffmpeg
+   * prints, so the rotation has to travel with it or the card reports a
+   * portrait clip as landscape.
+   */
+  rotationDegrees: number | null;
 }
 
 export interface ProbeResult {
@@ -104,6 +114,14 @@ export interface TrimRange {
 export interface PlanContext {
   trim: TrimRange | null;
   fileBytes: number;
+  /**
+   * Lower-case extension of the source file, without the dot, when it has one.
+   *
+   * ffmpeg's format name cannot tell a MOV from an MP4 - both probe as
+   * "mov,mp4,m4a,3gp,3g2,mj2" - so the only way to keep a MOV a MOV is the
+   * name the file arrived under.
+   */
+  sourceExtension?: string | null;
 }
 
 /**
@@ -140,11 +158,43 @@ export interface FormatPlan {
    * would land in the folder under the very name it started from.
    */
   fileSuffix?: string;
+  /**
+   * Something true about the result that is worth saying once it exists, but
+   * is not a reason to refuse the job: "browsers cannot play this codec".
+   */
+  warning?: string;
+  /**
+   * Probe the finished file and report the range it really covers.
+   *
+   * A stream copy can only start on a keyframe, so a "fast cut" from 0:03
+   * routinely begins seconds earlier. The plan cannot know by how much; the
+   * output can, and one probe of a file already in memory is cheap.
+   */
+  verifyDuration?: boolean;
+  /** True when the plan already drops metadata, so the engine does not repeat it. */
+  stripsMetadata?: boolean;
 }
+
+/**
+ * How a blocked format should read on the card.
+ *
+ * "error" is something that went wrong; "info" is a job that has nothing to
+ * do, such as a file already smaller than the size it was asked to fit. The
+ * second is not a failure and must not be dressed as one - there is nothing
+ * to retry, only a different choice to make.
+ */
+export type FailureSeverity = "error" | "info";
 
 export interface FormatBlocker {
   message: string;
   hint: string;
+  /** Defaults to "error". */
+  severity?: FailureSeverity;
+  /**
+   * Whether running the same job again could produce a different result.
+   * Defaults to false for a blocker: a guard that said no will say no again.
+   */
+  retryable?: boolean;
 }
 
 /**
@@ -166,6 +216,13 @@ export interface OutputFormat {
   /** Whether the result preserves the source bit-for-bit or losslessly. */
   lossless: boolean;
   /**
+   * True for a format whose whole purpose is dropping the source's metadata.
+   *
+   * The tools offer a "remove metadata" switch; the metadata remover does not,
+   * because a switch that cannot be turned off is worse than no switch.
+   */
+  alwaysStripsMetadata?: boolean;
+  /**
    * Encoder that must exist in the loaded core for this format to work.
    * Null means the format is (or can be) a pure stream copy.
    */
@@ -178,6 +235,16 @@ export interface OutputFormat {
    * the heap or a target size too small for the length is reported at once.
    */
   blocker?(probe: ProbeResult, context: PlanContext): FormatBlocker | null;
+  /**
+   * Whether this format is worth offering for this file at all.
+   *
+   * Distinct from `blocker`, which explains a refusal after someone asked.
+   * This decides whether the chip appears: the compressor puts every preset
+   * in its catalogue so a file can be re-compressed smaller from its own
+   * card, and the sizes larger than the file itself have no business there.
+   * Defaults to true.
+   */
+  offer?(probe: ProbeResult, context: PlanContext): boolean;
 }
 
 /**
@@ -235,11 +302,24 @@ export interface ExtractOutput {
   kind: OutputKind;
   /** The portion of the source this output covers; null when it is all of it. */
   trim: TrimRange | null;
+  /**
+   * The range the file really covers, when that differs from the range asked
+   * for. Only a keyframe-aligned stream copy produces one, and only when the
+   * nearest keyframe was genuinely earlier than the marker.
+   */
+  actualTrim?: TrimRange | null;
+  /** Carried over from the plan: something true about the file, once it exists. */
+  warning?: string;
 }
 
 export interface ExtractOptions {
   /** Portion of the source to extract. Null or omitted means the whole file. */
   trim?: TrimRange | null;
+  /**
+   * Drop titles, dates, location, chapters and the muxer's own encoder tag
+   * from the output. Plans that already strip are left alone.
+   */
+  stripMetadata?: boolean;
   onProgress?: (progress: ExtractProgress) => void;
 }
 
@@ -309,13 +389,34 @@ export interface AudioExtractor {
   terminate(): void;
 }
 
+export interface ExtractionErrorOptions extends ErrorOptions {
+  severity?: FailureSeverity;
+  /** Whether running the same job again could end differently. Defaults to true. */
+  retryable?: boolean;
+  /**
+   * True when the ffmpeg instance cannot be trusted afterwards.
+   *
+   * A wasm trap leaves the core's heap in an undefined state: every later
+   * command in that worker fails, including a probe of a completely different
+   * file. The engine has to be thrown away and rebuilt, so the failure is
+   * flagged here rather than inferred from the message by every caller.
+   */
+  fatal?: boolean;
+}
+
 /** Thrown for conditions the UI explains rather than dumps a stack trace for. */
 export class ExtractionError extends Error {
   readonly hint?: string;
+  readonly severity: FailureSeverity;
+  readonly retryable: boolean;
+  readonly fatal: boolean;
 
-  constructor(message: string, hint?: string, options?: ErrorOptions) {
+  constructor(message: string, hint?: string, options?: ExtractionErrorOptions) {
     super(message, options);
     this.name = "ExtractionError";
     this.hint = hint;
+    this.severity = options?.severity ?? "error";
+    this.retryable = options?.retryable ?? true;
+    this.fatal = options?.fatal ?? false;
   }
 }

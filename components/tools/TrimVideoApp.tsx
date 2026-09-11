@@ -10,6 +10,7 @@ import { ToolApp } from "../ToolApp";
 const tool = requireTool("trim-video");
 
 const QUEUE: QueueOptions = {
+  key: "trim-video",
   formats: TRIM_FORMATS,
   defaultFormatIds: [],
   expects: "video",
@@ -24,9 +25,9 @@ const FEATURES: ToolFeatures = {
   trim: true,
   silence: false,
   requireTrim: true,
-  wholeLabel: "",
   clipLabel: "Cut this range:",
   alsoLabel: "",
+  busyLabel: "Cutting",
 };
 
 /**
@@ -45,7 +46,7 @@ export function TrimVideoApp() {
       queue={QUEUE}
       features={FEATURES}
       dropZone={{ subhead: "The file is read first; then set the range to keep" }}
-      note="A fast cut can start up to a few seconds before the start marker, because a copied stream can only begin on a keyframe. If the exact frame matters, use the precise cut."
+      note="A fast cut can start up to a few seconds before the start marker, because a copied stream can only begin on a keyframe. The finished clip is measured and its row says where the cut really landed; if the exact frame matters, use the precise cut."
     />
   );
 }
