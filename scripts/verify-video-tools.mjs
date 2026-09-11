@@ -232,7 +232,7 @@ async function main() {
     await page.goto(`http://127.0.0.1:${PORT}/${slug}`, { waitUntil: "networkidle" });
   };
   const drop = async (path) => {
-    await page.locator('input[type="file"]').setInputFiles(path);
+    await page.locator('input[type="file"][multiple]').setInputFiles(path);
   };
   const cardFor = (name) => page.locator("li", { hasText: name }).first();
   const download = async (locator) => {
@@ -545,7 +545,7 @@ async function main() {
     // ---- Merge ----------------------------------------------------------
     log("\nMerge - two matching clips copied, then a third mismatched one re-encoded:");
     await open("merge-videos");
-    await page.locator('input[type="file"]').setInputFiles([fixtures.tagged, fixtures.tagged]);
+    await drop([fixtures.tagged, fixtures.tagged]);
     const mergeSection = page.locator('section[aria-label="Clips to join"]');
     await mergeSection.getByText(/They match, so they will be joined without re-encoding/).waitFor({ timeout: 240_000 });
     check("reads the clips and promises a copy for matching ones", true);

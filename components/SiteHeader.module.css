@@ -99,6 +99,15 @@
   padding: 1rem 1.25rem;
 }
 
+/*
+ * Kept mounted for crawlers, the content sits in the page with the `hidden`
+ * attribute until the menu first opens. A class that sets `display` wins
+ * over the attribute's own rule, so hidden has to be said again here.
+ */
+.content[hidden] {
+  display: none;
+}
+
 @media (min-width: 640px) {
   .content {
     grid-template-columns: repeat(3, minmax(0, 1fr));
