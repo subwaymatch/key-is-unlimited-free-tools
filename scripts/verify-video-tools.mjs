@@ -711,8 +711,12 @@ async function main() {
 
     await drop(fixtures.subbed);
     const trackCard = cardFor("subbed.mkv");
+    // The chosen file burns first; the file's own track is a chip on the card.
     await trackCard.getByText("Done", { exact: true }).waitFor({ timeout: 600_000 });
-    const trackBurn = await download(trackCard.locator("li").filter({ hasText: /^Burn track 1/ }).getByText("Download"));
+    await trackCard.getByRole("button", { name: /Burn track 1/ }).first().click();
+    const trackRow = trackCard.locator("li").filter({ hasText: /^Burn track 1/ });
+    await trackRow.getByText("Download").waitFor({ timeout: 600_000 });
+    const trackBurn = await download(trackRow.getByText("Download"));
     check("a file's own track is burned from the mounted input", trackBurn.name === "subbed-subtitled-track1.mkv" && stream(trackBurn.info, "video")?.codec_name === "h264", trackBurn.name);
     check("the burned file carries no subtitle track of its own", stream(trackBurn.info, "subtitle") === undefined);
     await page.screenshot({ path: join(FIXTURES, "verify-burn.png"), fullPage: true });
