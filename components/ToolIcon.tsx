@@ -1,9 +1,11 @@
 import {
+  Activity,
   AudioLines,
   AudioWaveform,
   Captions,
   FileText,
   Gauge,
+  Headphones,
   ImagePlay,
   LayoutGrid,
   Merge,
@@ -15,6 +17,7 @@ import {
   Scissors,
   ShieldCheck,
   Shrink,
+  Type,
   VolumeX,
 } from "lucide-react";
 
@@ -45,6 +48,9 @@ export const TOOL_ICONS = {
   rotate: RotateCw,
   thumbnails: LayoutGrid,
   captions: FileText,
+  burn: Type,
+  channels: Headphones,
+  waveform: Activity,
 } as const satisfies Record<ToolIconName, unknown>;
 
 interface ToolIconProps {

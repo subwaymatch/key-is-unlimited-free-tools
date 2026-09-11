@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assHeader,
   balanceTags,
   cleanMarkup,
   decodeSubtitleBytes,
@@ -311,5 +312,16 @@ describe("decodeSubtitleBytes", () => {
   it("honours a UTF-16 byte-order mark", () => {
     const bytes = new Uint8Array([0xff, 0xfe, 0x48, 0x00, 0x69, 0x00]).buffer;
     expect(decodeSubtitleBytes(bytes)).toEqual({ text: "Hi", encoding: "UTF-16" });
+  });
+});
+
+describe("assHeader", () => {
+  it("writes the style it is given, and the plain default otherwise", () => {
+    expect(assHeader()).toContain("Style: Default,Arial,48,");
+    const styled = assHeader({ fontName: "DejaVu Sans", fontSize: 64, alignment: 8, borderStyle: 3 });
+    expect(styled).toContain("Style: Default,DejaVu Sans,64,");
+    // Border style 3 is an opaque box, drawn without a shadow, at the top.
+    expect(styled).toMatch(/,3,2,0,8,40,40,40,1$/m);
+    expect(toAss([{ start: 1, end: 2, text: "Hi" }], { fontSize: 36 })).toContain(",36,");
   });
 });

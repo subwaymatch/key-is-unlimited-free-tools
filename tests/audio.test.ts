@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  audioBudget,
   audioTargetFor,
+  CHANNEL_FORMATS,
+  channelFormat,
+  compressAudioFormat,
   formatLufs,
   isLoudnormLine,
   LOUDNESS_PRESETS,
@@ -10,6 +14,8 @@ import {
   normalizeFormat,
   parseLoudnormOutput,
   parseLufs,
+  spectrogramFormat,
+  waveformFormat,
 } from "@/lib/engine/audio";
 import type { AudioStreamInfo, PlanContext, ProbeResult, VideoStreamInfo } from "@/lib/engine/types";
 
@@ -210,5 +216,116 @@ describe("LUFS targets", () => {
     expect(parseLufs(0)).toBeNull();
     expect(parseLufs(-41)).toBeNull();
     expect(parseLufs(Number.NaN)).toBeNull();
+  });
+});
+
+describe("the audio compressor", () => {
+  it("encodes a preset's codec at its rate, folding speech to mono", () => {
+    const voice = compressAudioFormat({ presetId: "voice-tiny", targetBytes: null });
+    expect(voice.id).toBe("compress-audio-voice-tiny");
+    const plan = voice.plan(probe(), context());
+    expect(joined(plan.args)).toContain("-c:a opus -strict -2 -b:a 24k -ac 1");
+    expect(plan.extension).toBe("opus");
+    expect(plan.fileSuffix).toBe("-voice-tiny");
+    expect(voice.requiredEncoder).toBe("opus");
+
+    const music = compressAudioFormat({ presetId: "music", targetBytes: null }).plan(probe(), context());
+    expect(joined(music.args)).toContain("-c:a libmp3lame -b:a 128k");
+    expect(music.extension).toBe("mp3");
+
+    const aac = compressAudioFormat({ presetId: "music-small", targetBytes: null }).plan(probe(null, { channels: 6 }), context());
+    expect(joined(aac.args)).toContain("-c:a aac -b:a 96k -ac 2");
+    expect(aac.extension).toBe("m4a");
+  });
+
+  it("works a bitrate out from a size and the length", () => {
+    // 5 MB over ten minutes is about 63 kbps: Opus, stereo.
+    expect(audioBudget(5_000_000, 600)).toEqual({ kbps: 63, codec: "opus", mono: false });
+    // 1 MB over ten minutes is 12 kbps: Opus, mono, just allowed.
+    expect(audioBudget(1_000_000, 600)).toEqual({ kbps: 12, codec: "opus", mono: true });
+    // 20 MB over ten minutes is 253 kbps: AAC.
+    expect(audioBudget(20_000_000, 600)?.codec).toBe("aac");
+    expect(audioBudget(500_000, 600)).toBeNull();
+    expect(audioBudget(5_000_000, 0)).toBeNull();
+  });
+
+  it("bakes a size target into the format and refuses what cannot be done", () => {
+    const format = compressAudioFormat({ presetId: null, targetBytes: 5_000_000 });
+    expect(format.id).toBe("compress-audio-5mb");
+    expect(format.label).toBe("5 MB");
+    const plan = format.plan(probe(), context(50_000_000));
+    expect(joined(plan.args)).toContain("-b:a 63k");
+    expect(plan.extension).toBe("opus");
+    expect(plan.fileSuffix).toBe("-5mb");
+
+    expect(format.blocker!(probe(), context(4_000_000))?.severity).toBe("info");
+    expect(format.offer!(probe(), context(4_000_000))).toBe(false);
+    expect(format.offer!(probe(), context(50_000_000))).toBe(true);
+    expect(format.blocker!(probe(null, {}, null), context(50_000_000))?.message).toMatch(/length is unknown/);
+    expect(compressAudioFormat({ presetId: null, targetBytes: 200_000 }).blocker!(probe(), context(50_000_000))?.message).toMatch(/too small/);
+    expect(format.blocker!(probe(null, null), context(50_000_000))?.message).toMatch(/no audio/);
+  });
+});
+
+describe("channel operations", () => {
+  it("offers what applies to the file's channels", () => {
+    const stereo = probe(null, { channels: 2, channelLayout: "stereo" });
+    const mono = probe(null, { channels: 1, channelLayout: "mono" });
+    const surround = probe(null, { channels: 6, channelLayout: "5.1" });
+    const offered = (info: ProbeResult) =>
+      CHANNEL_FORMATS.filter((format) => format.offer!(info, context())).map((format) => format.id);
+    expect(offered(stereo)).toEqual([
+      "channels-mono",
+      "channels-left",
+      "channels-right",
+      "channels-swap",
+      "channels-karaoke",
+    ]);
+    expect(offered(mono)).toEqual(["channels-stereo"]);
+    expect(offered(surround)).toEqual(["channels-mono", "channels-left", "channels-right"]);
+  });
+
+  it("writes each operation back in the source's own format", () => {
+    const left = channelFormat("left").plan(probe(), context());
+    expect(joined(left.args)).toContain("-af pan=mono|c0=c0 -c:a libmp3lame");
+    expect(left.extension).toBe("mp3");
+    expect(left.fileSuffix).toBe("-left");
+    expect(joined(channelFormat("mono").plan(probe(null, { codec: "flac" }), context()).args)).toContain("-ac 1 -c:a flac");
+    expect(joined(channelFormat("swap").plan(probe(), context()).args)).toContain("pan=stereo|c0=c1|c1=c0");
+    expect(joined(channelFormat("karaoke").plan(probe(), context()).args)).toContain(
+      "pan=stereo|c0=0.5*c0-0.5*c1|c1=0.5*c0-0.5*c1",
+    );
+  });
+
+  it("refuses an operation that does not apply, with a reason", () => {
+    const mono = probe(null, { channels: 1, channelLayout: "mono" });
+    expect(channelFormat("left").blocker!(mono, context())?.message).toMatch(/does not apply to a mono file/);
+    expect(channelFormat("stereo").blocker!(probe(), context())?.hint).toMatch(/more than one channel/);
+    expect(channelFormat("mono").blocker!(probe(null, null), context())?.message).toMatch(/no audio/);
+  });
+});
+
+describe("pictures of audio", () => {
+  it("draws a mono waveform in the chosen ink as one transparent PNG", () => {
+    const format = waveformFormat({ width: 1200, height: 300, tone: "dark" });
+    expect(format.id).toBe("waveform-1200x300-dark");
+    const plan = format.plan(probe(), context());
+    const graph = plan.args[plan.args.indexOf("-filter_complex") + 1];
+    expect(graph).toBe("[0:a:0]aformat=channel_layouts=mono,showwavespic=s=1200x300:colors=0x171717[v]");
+    expect(joined(plan.args)).toContain("-map [v] -frames:v 1 -c:v png -f image2 -update 1");
+    expect(plan.extension).toBe("png");
+    expect(plan.kind).toBe("image");
+    expect(waveformFormat({ width: 800, height: 200, tone: "light" }).plan(probe(), context()).args[1]).toContain("0xfafafa");
+  });
+
+  it("draws a spectrogram with its legend", () => {
+    const plan = spectrogramFormat({ width: 1920, height: 480, tone: "dark" }).plan(probe(), context());
+    expect(plan.args[1]).toBe("[0:a:0]showspectrumpic=s=1920x480:legend=1[v]");
+    expect(plan.fileSuffix).toBe("-spectrogram");
+  });
+
+  it("needs audio to draw", () => {
+    expect(waveformFormat({ width: 1200, height: 300, tone: "dark" }).blocker!(probe(null, null), context())?.message).toMatch(/no audio/);
+    expect(spectrogramFormat({ width: 1200, height: 300, tone: "dark" }).blocker!(probe(), context())).toBeNull();
   });
 });

@@ -40,7 +40,10 @@ export type ToolIconName =
   | "resize"
   | "rotate"
   | "thumbnails"
-  | "captions";
+  | "captions"
+  | "burn"
+  | "channels"
+  | "waveform";
 
 export interface ToolMeta {
   /** URL segment. Verb-object, lowercase, hyphenated, and permanent once shipped. */
@@ -257,6 +260,50 @@ export const TOOLS: readonly ToolMeta[] = [
     category: "subtitles",
     icon: "captions",
     accepts: "Video files",
+    status: "live",
+  },
+  {
+    slug: "burn-subtitles",
+    name: "Burn subtitles into video",
+    tagline: "Draw an SRT, VTT or ASS file, or the video's own track, into the picture.",
+    description:
+      "Burn subtitles into a video entirely in your browser: an SRT, WebVTT or ASS file, or a subtitle track the video already carries, drawn into every frame so they show in any player. Nothing is uploaded.",
+    category: "subtitles",
+    icon: "burn",
+    accepts: "Video files",
+    status: "live",
+  },
+  {
+    slug: "compress-audio",
+    name: "Compress audio",
+    tagline: "Shrink a recording: Opus for speech, AAC or MP3 for music, or under a size.",
+    description:
+      "Compress an audio file or a video's soundtrack entirely in your browser: Opus for speech at a tenth of the size, AAC or MP3 for music, or a bitrate worked out to land under a size you choose. Nothing is uploaded.",
+    category: "audio",
+    icon: "compress",
+    accepts: "Audio and video files",
+    status: "live",
+  },
+  {
+    slug: "audio-channels",
+    name: "Split audio channels",
+    tagline: "Mono, left or right only, sides swapped, or the vocals cut from a song.",
+    description:
+      "Take a recording apart by channel entirely in your browser: mix to mono, keep the left or the right side, swap them, make mono play on both sides, or cancel the centre of a stereo mix to remove vocals. Nothing is uploaded.",
+    category: "audio",
+    icon: "channels",
+    accepts: "Audio and video files",
+    status: "live",
+  },
+  {
+    slug: "audio-waveform",
+    name: "Audio waveform image",
+    tagline: "A waveform PNG on a transparent background, or a spectrogram.",
+    description:
+      "Draw the waveform of an audio file or a video's soundtrack as a PNG on a transparent background, or a spectrogram of frequency against time, entirely in your browser. Nothing is uploaded.",
+    category: "audio",
+    icon: "waveform",
+    accepts: "Audio and video files",
     status: "live",
   },
   {

@@ -127,6 +127,12 @@ export interface PlanContext {
   trim: TrimRange | null;
   fileBytes: number;
   /**
+   * Where the engine mounted the source, for the rare plan that has to name
+   * it inside a filter rather than through `-i`: burning one of the file's
+   * own subtitle tracks reads the same file a second time.
+   */
+  inputPath?: string;
+  /**
    * Lower-case extension of the source file, without the dot, when it has one.
    *
    * ffmpeg's format name cannot tell a MOV from an MP4 - both probe as
@@ -134,6 +140,17 @@ export interface PlanContext {
    * name the file arrived under.
    */
   sourceExtension?: string | null;
+}
+
+/**
+ * A file a run needs in the core's filesystem: a subtitle file to burn, a
+ * font for it, the concat demuxer's list. Written before the command and
+ * removed after it, whichever way it ended.
+ */
+export interface ScratchFile {
+  /** Absolute path inside the core; a directory in it is created as needed. */
+  path: string;
+  contents: string | Uint8Array;
 }
 
 /**
@@ -151,6 +168,8 @@ export interface FormatPlan {
   args: string[];
   /** Options that belong before `-i`, such as a forced input format. */
   inputArgs?: string[];
+  /** Files the run needs alongside the input. See ScratchFile. */
+  scratchFiles?: ScratchFile[];
   /**
    * Passes to run before the final one, each written to the null muxer.
    *
@@ -445,11 +464,8 @@ export interface MergePlan {
   inputArgs: string[];
   /** Output options: everything between the inputs and the output path. */
   args: string[];
-  /**
-   * Text files the run needs in the core's filesystem, such as the concat
-   * demuxer's list. Written before the command and removed after it.
-   */
-  scratchFiles?: { path: string; contents: string }[];
+  /** Files the run needs alongside the inputs, such as the concat demuxer's list. */
+  scratchFiles?: ScratchFile[];
   extension: string;
   mimeType: string;
   mode: ExtractMode;

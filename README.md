@@ -25,6 +25,10 @@ The live tools, each on its own route:
 | `/convert-audio` | WAV, FLAC, M4A, OGG, Opus or a video's soundtrack to MP3, and every other way | The extractor's catalogue pointed at audio files: copied when the source is already the target |
 | `/normalize-audio` | Bring a file or a video's soundtrack to -14 LUFS for streaming, -16 for podcasts, -23 for broadcast, or a custom target | `loudnorm` in two passes: measure, then one linear gain from the measurement; the picture of a video is copied |
 | `/extract-subtitles` | Pull the subtitle tracks out of an MKV or MP4 as SRT or WebVTT | A stream copy through the `srt` or `webvtt` encoder, one file per track; image-based tracks refused with a reason |
+| `/burn-subtitles` | Draw an SRT, WebVTT or ASS file, or the video's own track, into every frame | The `subtitles` filter on libass, with a font the site ships written into the core for the run and forced by name |
+| `/compress-audio` | Opus for speech, AAC or MP3 for music, or a bitrate worked out to land under a size | Presets baked into the format; a target size becomes a rate from the length, Opus below 64 kbps and AAC above |
+| `/audio-channels` | Mono, left or right only, sides swapped, mono on both sides, or the centre cut to remove vocals | `-ac` and `pan`, written back in the source's own format; the card offers only what applies to the file's channels |
+| `/audio-waveform` | A waveform PNG on a transparent background, or a spectrogram with its legend | `showwavespic` on a mono mix and `showspectrumpic`, one PNG each |
 
 Every tool is one configuration of the same machinery: a catalogue of formats in `lib/engine/`,
 a page shell in `components/ToolApp.tsx`, and an entry in the registry in `lib/tools.ts` that
@@ -114,12 +118,14 @@ lib/toolFeatures.ts  what a tool's cards offer: clip panel, silence detection, w
 lib/mediaTypes.ts    the cheap first pass: is this even a media file, and what an input accepts
 lib/persist.ts       remembering a tool's settings between visits, without a hydration mismatch
 lib/subtitles/       SRT, WebVTT and ASS parsers and writers, and retiming; no WebAssembly
+public/fonts/        DejaVu Sans, the one font the burn-in tool has, with its licence
 lib/engine/
   types.ts           the engine contract, and the OutputFormat shape every tool's catalogue uses
   ffmpegEngine.ts    ffmpeg.wasm implementation - mount, probe, run a plan (one pass or two), scan, merge
   coreLoader.ts      fetches the ~31 MB core with byte-level progress; verifies its checksum
   formats.ts         the audio catalogue; decides stream-copy vs re-encode
-  audio.ts           loudness normalisation: the two passes and the printout between them
+  audio.ts           loudness, compression to a rate or a size, channel operations, pictures of audio
+  burn.ts            subtitles drawn into the picture: the filter, the font, a file or the file's own track
   video.ts           the video catalogues: convert, compress, trim, GIF, mute, strip metadata, speed
   picture.ts         resize and crop, rotate and flip, single frames and contact sheets
   captions.ts        subtitle tracks out as SRT or WebVTT; bitmap tracks refused
@@ -309,6 +315,18 @@ its own format (MP3 as MP3, FLAC as FLAC, WAV as WAV) while a video keeps its pi
 gets an AAC soundtrack. The integration test measures the result with `ebur128` and expects it on
 the number.
 
+### More audio
+
+The audio compressor's presets are codec and rate: Opus for speech, which is unmatched at low
+rates and plays in every browser and messaging app, AAC and MP3 for music, which have to open in a
+car stereo as well. A target size becomes a rate the way the video compressor's does, from the
+length, with Opus below 64 kbps and mono below 32. The channel tool is `-ac` and `pan`: the card
+offers only what applies to the file's channels, so a mono file is offered stereo and a stereo file
+its sides, and vocal removal is the old centre cut, offered honestly as something that works on
+some mixes and not on others. The waveform is `showwavespic` on a mono mix, on a transparent
+background; the spectrogram is `showspectrumpic` with its legend. All of them write an audio file
+back in its own format.
+
 ### Pictures and frames
 
 Resize crops first and scales second, so "720p, 9:16" is a vertical crop of the source scaled to
@@ -337,6 +355,19 @@ the `srt` or `webvtt` encoder, one file per track, offered for as many tracks as
 image-based track (the PGS of a Blu-ray, the bitmaps of a DVD) is refused with a reason rather than
 written out empty, since reading pictures of words is OCR. Text outputs are a fourth output kind,
 which the card never tries to preview.
+
+Burning subtitles in is the one Tier A tool the catalogue asked to verify before promising. The
+pinned core is built with libass, freetype and fribidi but without fontconfig, so the `subtitles`
+filter is there and cannot find a font on its own: without one it draws nothing and says so only
+in the log. So the site ships DejaVu Sans, a plan may now carry *scratch files* that the engine
+writes into the core's filesystem before the run and removes after it (a font, a subtitle file,
+the merger's concat list), and the filter is pointed at the font's directory with every style's
+family forced to it by name. A subtitle file the visitor adds is read in the browser and turned
+into ASS in the chosen size, position and style, so what the filter renders is always something
+the shipped font can draw; an ASS file is passed through in its own styling. A video's own text
+track can be burned instead, read by the filter straight out of the mounted input, which is why
+a plan now also knows where its input is mounted. The integration test burns onto a black frame
+and measures the bottom third lighting up where the cue is and staying black where it is not.
 
 The subtitle converter is the first tool with no WebAssembly in it: SRT, WebVTT and ASS are
 plain text, and `lib/subtitles/` reads all three into one shape - a start, an end and some text
@@ -395,6 +426,14 @@ Cancelling a whole file while the core is still downloading has nothing to kill:
 left to finish, since the next file needs it anyway, and the card says "Cancelling..." until it does.
 Cancelling a file that has not started costs nothing at all, and a queued file whose every format
 has been cancelled is settled without ever being opened.
+
+### Navigation
+
+The header is a wordmark, an "All tools" menu on Base UI's Navigation Menu grouped by category,
+and the name of the tool in use. The plain row of links it replaced wrapped to three lines once
+the catalogue passed a dozen tools. The menu's content is kept mounted, so every link is in the
+server-rendered HTML for a crawler, and the footer carries the same list as plain anchors either
+way; the current tool's link is marked `aria-current="page"` in the menu and named beside it.
 
 ### Styling
 
@@ -570,9 +609,10 @@ loop, and every format's argument strings. `tests/plans.integration.test.ts` and
 through whatever ffmpeg is on `PATH` and check the result with ffprobe, so a filter that does not
 parse fails in seconds rather than in a browser; they are skipped where ffmpeg is absent.
 `tests/picture-audio-captions.integration.test.ts` does the same for the resize, rotate, frame,
-sheet, loudness and subtitle plans, running the loudness plan's two passes the way the engine does
-and measuring the result with `ebur128`. The subtitle library is pure and its tests round-trip
-every format.
+sheet, loudness, subtitle, burn-in, audio compression, channel and waveform plans, running the
+loudness plan's two passes the way the engine does and measuring the result with `ebur128`, and
+writing a plan's scratch files where that ffmpeg can read them. The subtitle library is pure and
+its tests round-trip every format.
 The browser scripts need ffmpeg and ffprobe on `PATH`, plus a Chromium: one Playwright can find
 on its own (`npx playwright install chromium`), or any Chrome/Chromium binary named in
 `CHROMIUM_PATH`.
@@ -588,8 +628,11 @@ back, which has to find the queue where it was left; a two-second GIF at 15 fps 
 stream copy and a third, mismatched one joined by re-encoding; an SRT converted to WebVTT and
 shifted by a second and a half; a 640x360 clip resized to 240p and turned a quarter clockwise; a
 3x3 contact sheet and a PNG of the frame at 0:02; an MP3 copied as MP3 and converted to FLAC; a
--24 dB tone normalised to -14 LUFS and measured there; and the SRT track of an MKV extracted as
-SRT and as WebVTT. Every media download is checked with `ffprobe`.
+-24 dB tone normalised to -14 LUFS and measured there; the SRT track of an MKV extracted as
+SRT and as WebVTT; an SRT burned onto a black video and the bottom third measured lighting up
+where the cue is, then an MKV's own track burned in; an MP3 compressed to Opus and to MP3; stereo
+made from a mono MP3 and the vocals cut from a stereo MP4; and a waveform and a spectrogram
+drawn as PNGs. Every media download is checked with `ffprobe`.
 
 `verify-e2e.mjs` drives a real Chromium through the audio extractor's seven cases - an MP4 with AAC, a video with no
 audio track, an MKV with 5.1 FLAC, a hand-set 1s-3s clip, an 8s file padded with two seconds of
@@ -637,12 +680,12 @@ calling large-file support universal.
   colours, positions, karaoke timing. SRT cannot express them and a file that depended on them
   would not look the same anywhere else.
 - Subtitle extraction reads text tracks only. Blu-ray and DVD subtitles are bitmaps, and turning
-  them into text is OCR, which is a different tool; they are refused with a reason. Burning
-  subtitles into the picture is not offered yet: the pinned core links libass, but a font has to
-  be shipped and mounted for it to draw anything, which is its own piece of work.
-- The header lists every live tool as a plain link, which at sixteen tools wraps to two rows on a
-  laptop. The plan's grouped navigation menu (section 7.4 of the catalogue) is the fix and is not
-  built yet; the footer already carries the whole catalogue grouped by category.
+  them into text is OCR, which is a different tool; they are refused with a reason.
+- Burned-in subtitles are set in DejaVu Sans, the one font the site ships, which covers Latin,
+  Greek and Cyrillic and not Chinese, Japanese, Korean or Arabic; a font for those is tens of
+  megabytes and would need its own download step. An ASS file's own fonts are replaced by it.
+- Vocal removal is a centre cut, not a separation model: it takes out whatever is identical in
+  both channels, which on many mixes includes the bass and the drums, and does nothing to mono.
 - Cancelling terminates the ffmpeg worker, since ffmpeg blocks its worker while running and cannot
   be interrupted cooperatively. See [Cancelling one format](#cancelling-one-format) for why that is
   survivable. The engine restarts on the next job; the core is already cached, so this costs a

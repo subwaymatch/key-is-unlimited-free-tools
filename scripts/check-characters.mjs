@@ -89,7 +89,7 @@ const ALLOWED = new Map([
   ],
 ]);
 
-const BINARY = new Set([".ico", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".woff", ".woff2", ".wasm"]);
+const BINARY = new Set([".ico", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".woff", ".woff2", ".ttf", ".wasm"]);
 
 const fix = process.argv.includes("--fix");
 

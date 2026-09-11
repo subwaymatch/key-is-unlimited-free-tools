@@ -52,6 +52,7 @@ import {
   type MergePlan,
   type MountedInput,
   type MultiSession,
+  type ScratchFile,
   type OpenSessionOptions,
   type OutputFormat,
   type PosterFrame,
@@ -696,6 +697,7 @@ export class FFmpegEngine implements AudioExtractor {
       trim,
       fileBytes: file.size,
       sourceExtension: extensionOf(file.name),
+      inputPath,
     };
     const blocker = format.blocker?.(probe, context) ?? null;
     if (blocker) {
@@ -765,6 +767,7 @@ export class FFmpegEngine implements AudioExtractor {
     ];
 
     const startedAt = performance.now();
+    const scratch = plan.scratchFiles ?? [];
 
     const runPass = async (index: number, passArgs: string[], isFinal: boolean) => {
       // ffmpeg's own `progress` ratio is unreliable when it cannot infer the
@@ -810,6 +813,7 @@ export class FFmpegEngine implements AudioExtractor {
     };
 
     try {
+      await this.#writeScratch(ffmpeg, scratch);
       for (const [index, passArgs] of analysisPasses.entries()) {
         await runPass(index, passArgs, false);
       }
@@ -819,6 +823,7 @@ export class FFmpegEngine implements AudioExtractor {
       ];
       await runPass(analysisPasses.length, finalArgs, true);
     } finally {
+      await this.#removeScratch(ffmpeg, scratch);
       if (analysisPasses.length > 0) {
         for (const name of PASS_LOG_FILES) {
           await ffmpeg.deleteFile(name).catch(() => {});
@@ -882,7 +887,7 @@ export class FFmpegEngine implements AudioExtractor {
     const scratch = plan.scratchFiles ?? [];
     const startedAt = performance.now();
 
-    for (const file of scratch) await ffmpeg.writeFile(file.path, file.contents);
+    await this.#writeScratch(ffmpeg, scratch);
 
     this.#progressSink = ({ time }) => {
       const processedSeconds = Math.max(0, time / 1_000_000);
@@ -905,7 +910,7 @@ export class FFmpegEngine implements AudioExtractor {
     } finally {
       log.release();
       this.#progressSink = null;
-      for (const file of scratch) await ffmpeg.deleteFile(file.path).catch(() => {});
+      await this.#removeScratch(ffmpeg, scratch);
     }
 
     if (exitCode !== 0) {
@@ -936,6 +941,25 @@ export class FFmpegEngine implements AudioExtractor {
       trim: null,
       warning: plan.warning,
     };
+  }
+
+  /**
+   * Puts a plan's scratch files into the core's filesystem.
+   *
+   * They share the heap with the output, so they are written just before the
+   * run and removed just after it, whichever way it ended.
+   */
+  async #writeScratch(ffmpeg: FFmpeg, files: readonly ScratchFile[]): Promise<void> {
+    for (const file of files) {
+      const slash = file.path.lastIndexOf("/");
+      const directory = slash > 0 ? file.path.slice(0, slash) : "";
+      if (directory) await ffmpeg.createDir(directory).catch(() => {});
+      await ffmpeg.writeFile(file.path, file.contents);
+    }
+  }
+
+  async #removeScratch(ffmpeg: FFmpeg, files: readonly ScratchFile[]): Promise<void> {
+    for (const file of files) await ffmpeg.deleteFile(file.path).catch(() => {});
   }
 
   /**

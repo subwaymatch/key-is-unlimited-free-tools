@@ -1,5 +1,6 @@
 /**
- * The audio tools beyond extraction: loudness normalisation.
+ * The audio tools beyond extraction: loudness normalisation, compression to
+ * a rate or a size, the sides of a recording, and pictures of it.
  *
  * "Normalize volume" is the vague version of this; the sharp one is a target
  * in LUFS that a platform publishes and enforces. Spotify and YouTube turn
@@ -14,6 +15,7 @@
  * the passes and hands the first one's printout to `refine`.
  */
 import { copyTargetForCodec, estimateOutputBytes, SELECT_AUDIO } from "./formats";
+import { trimDuration } from "./trim";
 import type { FormatBlocker, FormatPlan, OutputFormat, PlanContext, ProbeResult } from "./types";
 import { containerArgs, containerFor, estimateCopyBytes, playbackWarning, sizeBlocker } from "./video";
 
@@ -276,4 +278,382 @@ export function normalizeFormat(settings: NormalizeSettings): OutputFormat {
       return null;
     },
   };
+}
+
+/* ---- Compress ----------------------------------------------------------- */
+
+export type AudioCodec = "opus" | "aac" | "mp3";
+
+export interface AudioCompressPreset {
+  id: string;
+  label: string;
+  blurb: string;
+  codec: AudioCodec;
+  kbps: number;
+  /** Fold to one channel: speech loses nothing and the file halves. */
+  mono: boolean;
+}
+
+/**
+ * What people actually want when they say "make this audio smaller", in
+ * order of size. Opus for speech, where it is unmatched at low rates and
+ * plays in every browser and messaging app; AAC and MP3 for music, where
+ * the format has to open in a car stereo as well as a phone.
+ */
+export const AUDIO_COMPRESS_PRESETS: readonly AudioCompressPreset[] = [
+  { id: "voice-tiny", label: "Voice, smallest", blurb: "Opus at 24 kbps, mono: an hour of speech in about 11 MB", codec: "opus", kbps: 24, mono: true },
+  { id: "voice", label: "Voice, clear", blurb: "Opus at 48 kbps: podcasts, lectures, interviews", codec: "opus", kbps: 48, mono: false },
+  { id: "music-small", label: "Music, small", blurb: "AAC at 96 kbps in an M4A: fine on a phone", codec: "aac", kbps: 96, mono: false },
+  { id: "music", label: "Music, good", blurb: "MP3 at 128 kbps: plays absolutely everywhere", codec: "mp3", kbps: 128, mono: false },
+  { id: "music-high", label: "Music, transparent", blurb: "AAC at 192 kbps: hard to tell from the original", codec: "aac", kbps: 192, mono: false },
+];
+
+export interface CompressAudioSettings {
+  /** A preset's id, or null when a target size is set instead. */
+  presetId: string | null;
+  /** The size to land under, in bytes, when no preset is chosen. */
+  targetBytes: number | null;
+}
+
+export const DEFAULT_COMPRESS_AUDIO_SETTINGS: CompressAudioSettings = {
+  presetId: "voice",
+  targetBytes: null,
+};
+
+/** Below this even speech falls apart. */
+export const MIN_AUDIO_KBPS = 12;
+
+/** Margin under a target size for container overhead and encoder drift. */
+const AUDIO_SIZE_MARGIN = 0.95;
+
+interface AudioCodecTarget {
+  args: string[];
+  extension: string;
+  mimeType: string;
+  requiredEncoder: string;
+}
+
+/** Encoder arguments and container for a codec at a rate. */
+export function audioCodecTarget(codec: AudioCodec, kbps: number, mono: boolean, channels: number | null): AudioCodecTarget {
+  const layout = mono ? ["-ac", "1"] : (channels ?? 2) > 2 ? ["-ac", "2"] : [];
+  if (codec === "opus") {
+    return {
+      args: ["-c:a", "opus", "-strict", "-2", "-b:a", `${kbps}k`, ...layout],
+      extension: "opus",
+      mimeType: "audio/ogg",
+      requiredEncoder: "opus",
+    };
+  }
+  if (codec === "mp3") {
+    return {
+      args: ["-c:a", "libmp3lame", "-b:a", `${kbps}k`, ...layout],
+      extension: "mp3",
+      mimeType: "audio/mpeg",
+      requiredEncoder: "libmp3lame",
+    };
+  }
+  return {
+    args: ["-c:a", "aac", "-b:a", `${kbps}k`, ...layout, "-movflags", "+faststart"],
+    extension: "m4a",
+    mimeType: "audio/mp4",
+    requiredEncoder: "aac",
+  };
+}
+
+/**
+ * The bitrate a byte budget affords over a length, and the codec to spend
+ * it on: Opus below 64 kbps, where nothing else is listenable, AAC above.
+ */
+export function audioBudget(
+  targetBytes: number,
+  seconds: number,
+): { kbps: number; codec: AudioCodec; mono: boolean } | null {
+  if (!(seconds > 0) || !(targetBytes > 0)) return null;
+  const kbps = Math.floor((targetBytes * 8 * AUDIO_SIZE_MARGIN) / seconds / 1000);
+  if (kbps < MIN_AUDIO_KBPS) return null;
+  return { kbps, codec: kbps < 64 ? "opus" : "aac", mono: kbps < 32 };
+}
+
+/** A preset by id, for the app and the format. */
+export function audioPreset(id: string): AudioCompressPreset | undefined {
+  return AUDIO_COMPRESS_PRESETS.find((preset) => preset.id === id);
+}
+
+function megabytesLabel(bytes: number): string {
+  return String(Math.round(bytes / 100_000) / 10);
+}
+
+/**
+ * The audio compressor for one setting: a preset's codec and rate, or a
+ * rate worked out from a target size and the file's length.
+ */
+export function compressAudioFormat(settings: CompressAudioSettings): OutputFormat {
+  const preset = settings.presetId ? audioPreset(settings.presetId) : undefined;
+  const targetBytes = preset ? null : settings.targetBytes;
+  const megabytes = targetBytes === null ? null : megabytesLabel(targetBytes);
+
+  const id = preset ? `compress-audio-${preset.id}` : `compress-audio-${megabytes}mb`;
+  const label = preset ? preset.label : `${megabytes} MB`;
+
+  return {
+    id,
+    label,
+    blurb: preset ? preset.blurb : `Under ${megabytes} MB: the bitrate is worked out from the length`,
+    lossless: false,
+    requiredEncoder: preset ? audioCodecTarget(preset.codec, preset.kbps, preset.mono, null).requiredEncoder : "aac",
+    plan(probe, context) {
+      const channels = probe.audio?.channels ?? null;
+      const choice = preset
+        ? { codec: preset.codec, kbps: preset.kbps, mono: preset.mono }
+        : (audioBudget(targetBytes ?? 0, trimDuration(context?.trim ?? null, probe.durationSeconds) ?? 0) ?? {
+            codec: "opus" as const,
+            kbps: MIN_AUDIO_KBPS,
+            mono: true,
+          });
+      const target = audioCodecTarget(choice.codec, choice.kbps, choice.mono, channels);
+      return {
+        args: [...SELECT_AUDIO, ...target.args],
+        extension: target.extension,
+        mimeType: target.mimeType,
+        mode: "encode",
+        kind: "audio",
+        fileSuffix: preset ? `-${preset.id}` : `-${megabytes}mb`,
+      };
+    },
+    offer(probe, context) {
+      if (preset) return true;
+      return estimateCopyBytes(probe, context) > (targetBytes ?? 0);
+    },
+    blocker(probe, context): FormatBlocker | null {
+      if (!probe.audio) {
+        return { message: "This file has no audio to compress.", hint: "There is no audio stream in it.", retryable: false };
+      }
+      if (preset) return null;
+      const seconds = trimDuration(context.trim, probe.durationSeconds);
+      if (!seconds) {
+        return {
+          message: "This file's length is unknown, so it cannot be sized.",
+          hint: "The container does not report a duration. Choose a preset instead.",
+          retryable: false,
+        };
+      }
+      const already = estimateCopyBytes(probe, context);
+      if (already <= (targetBytes ?? 0)) {
+        return {
+          message: `This ${context.trim ? "range" : "file"} is already under ${megabytes} MB.`,
+          hint: `It is about ${megabytesLabel(already)} MB, so there is nothing to do. Pick a smaller size, or a preset, to shrink it anyway.`,
+          severity: "info",
+          retryable: false,
+        };
+      }
+      if (audioBudget(targetBytes ?? 0, seconds) === null) {
+        return {
+          message: `${megabytes} MB is too small for audio this long.`,
+          hint: `At that size the audio would get under ${MIN_AUDIO_KBPS} kbps. Choose a larger target, or trim it to a shorter range.`,
+          retryable: false,
+        };
+      }
+      return null;
+    },
+  };
+}
+
+/* ---- Channels ----------------------------------------------------------- */
+
+export type ChannelOperation = "mono" | "stereo" | "left" | "right" | "swap" | "karaoke";
+
+interface ChannelSpec {
+  id: ChannelOperation;
+  label: string;
+  blurb: string;
+  args: string[];
+  /** Whether the operation means anything for a file with this many channels. */
+  applies(channels: number | null): boolean;
+}
+
+/**
+ * The things people do with the sides of a recording.
+ *
+ * `pan` names its outputs in terms of its inputs, so "left only" is a mono
+ * stream fed from c0 and "swap" is a stereo stream with the sides crossed.
+ * Vocal removal is the old centre-cut trick: whatever is identical in both
+ * channels - usually the voice - cancels when one is subtracted from the
+ * other, and whatever is panned survives. It works on some mixes and not on
+ * others, and the label says so.
+ */
+const CHANNEL_SPECS: readonly ChannelSpec[] = [
+  {
+    id: "mono",
+    label: "Mono",
+    blurb: "Both sides mixed down to one channel",
+    args: ["-ac", "1"],
+    applies: (channels) => channels !== 1,
+  },
+  {
+    id: "stereo",
+    label: "Stereo from mono",
+    blurb: "The one channel on both sides, for players that expect two",
+    args: ["-ac", "2"],
+    applies: (channels) => channels === 1,
+  },
+  {
+    id: "left",
+    label: "Left channel only",
+    blurb: "The left side as a mono file",
+    args: ["-af", "pan=mono|c0=c0"],
+    applies: (channels) => channels !== null && channels >= 2,
+  },
+  {
+    id: "right",
+    label: "Right channel only",
+    blurb: "The right side as a mono file",
+    args: ["-af", "pan=mono|c0=c1"],
+    applies: (channels) => channels !== null && channels >= 2,
+  },
+  {
+    id: "swap",
+    label: "Swap left and right",
+    blurb: "The sides crossed over",
+    args: ["-af", "pan=stereo|c0=c1|c1=c0"],
+    applies: (channels) => channels === 2,
+  },
+  {
+    id: "karaoke",
+    label: "Remove vocals",
+    blurb: "The centre of a stereo mix cancelled, which takes out the voice on some songs and not others",
+    args: ["-af", "pan=stereo|c0=0.5*c0-0.5*c1|c1=0.5*c0-0.5*c1"],
+    applies: (channels) => channels === 2,
+  },
+];
+
+/** One channel operation, written back in the source's own format. */
+export function channelFormat(operation: ChannelOperation): OutputFormat {
+  const spec = CHANNEL_SPECS.find((entry) => entry.id === operation);
+  if (!spec) throw new Error(`Unknown channel operation "${operation}".`);
+  return {
+    id: `channels-${spec.id}`,
+    label: spec.label,
+    blurb: spec.blurb,
+    lossless: false,
+    requiredEncoder: "aac",
+    plan(probe) {
+      const target = audioTargetFor(probe.audio?.codec);
+      return {
+        args: [...SELECT_AUDIO, ...spec.args, ...target.args],
+        extension: target.extension,
+        mimeType: target.mimeType,
+        mode: "encode",
+        kind: "audio",
+        fileSuffix: `-${spec.id}`,
+      };
+    },
+    offer(probe) {
+      return spec.applies(probe.audio?.channels ?? null);
+    },
+    blocker(probe, context): FormatBlocker | null {
+      if (!probe.audio) {
+        return { message: "This file has no audio.", hint: "There is no audio stream in it.", retryable: false };
+      }
+      if (!spec.applies(probe.audio.channels ?? null)) {
+        return {
+          message: `${spec.label} does not apply to a ${probe.audio.channelLayout ?? "this"} file.`,
+          hint:
+            spec.id === "stereo"
+              ? "The file already has more than one channel."
+              : "It needs a stereo recording to work on.",
+          retryable: false,
+        };
+      }
+      if (audioTargetFor(probe.audio.codec).extension === "wav") {
+        return sizeBlocker(estimateOutputBytes("wav", probe, context.trim), "The WAV");
+      }
+      return null;
+    },
+  };
+}
+
+export const CHANNEL_FORMATS: readonly OutputFormat[] = CHANNEL_SPECS.map((spec) => channelFormat(spec.id));
+
+/* ---- Pictures of audio -------------------------------------------------- */
+
+export interface AudioPictureSettings {
+  width: number;
+  height: number;
+  /** Ink colour of a waveform; the background is transparent. */
+  tone: "dark" | "light";
+}
+
+export const AUDIO_PICTURE_SIZES: readonly { width: number; height: number; blurb: string }[] = [
+  { width: 800, height: 200, blurb: "Small, for a thumbnail or a message" },
+  { width: 1200, height: 300, blurb: "The usual choice for a page" },
+  { width: 1920, height: 480, blurb: "Full width on a large screen" },
+  { width: 2400, height: 600, blurb: "For print or a banner" },
+];
+
+export const DEFAULT_AUDIO_PICTURE_SETTINGS: AudioPictureSettings = { width: 1200, height: 300, tone: "dark" };
+
+const INK: Record<AudioPictureSettings["tone"], string> = { dark: "0x171717", light: "0xfafafa" };
+
+const IMAGE_ARGS = ["-frames:v", "1", "-c:v", "png", "-f", "image2", "-update", "1"];
+
+/**
+ * A waveform: the whole file's shape as one transparent PNG.
+ *
+ * Mixed to mono first so the picture is one shape rather than two stacked;
+ * `showwavespic` scales it to the size asked for.
+ */
+export function waveformFormat(settings: AudioPictureSettings): OutputFormat {
+  const size = `${settings.width}x${settings.height}`;
+  return {
+    id: `waveform-${size}-${settings.tone}`,
+    label: "Waveform",
+    blurb: `${size}, ${settings.tone} on a transparent background, as a PNG`,
+    lossless: false,
+    requiredEncoder: "png",
+    plan() {
+      return {
+        args: [
+          "-filter_complex",
+          `[0:a:0]aformat=channel_layouts=mono,showwavespic=s=${size}:colors=${INK[settings.tone]}[v]`,
+          "-map",
+          "[v]",
+          ...IMAGE_ARGS,
+        ],
+        extension: "png",
+        mimeType: "image/png",
+        mode: "encode",
+        kind: "image",
+        fileSuffix: "-waveform",
+      };
+    },
+    blocker: noAudioBlocker,
+  };
+}
+
+/** A spectrogram: frequency over time, with its scale drawn along the edges. */
+export function spectrogramFormat(settings: AudioPictureSettings): OutputFormat {
+  const size = `${settings.width}x${settings.height}`;
+  return {
+    id: `spectrogram-${size}`,
+    label: "Spectrogram",
+    blurb: `${size} plus a legend, frequency against time, as a PNG`,
+    lossless: false,
+    requiredEncoder: "png",
+    plan() {
+      return {
+        args: ["-filter_complex", `[0:a:0]showspectrumpic=s=${size}:legend=1[v]`, "-map", "[v]", ...IMAGE_ARGS],
+        extension: "png",
+        mimeType: "image/png",
+        mode: "encode",
+        kind: "image",
+        fileSuffix: "-spectrogram",
+      };
+    },
+    blocker: noAudioBlocker,
+  };
+}
+
+function noAudioBlocker(probe: ProbeResult): FormatBlocker | null {
+  if (probe.audio) return null;
+  return { message: "This file has no audio to draw.", hint: "There is no audio stream in it.", retryable: false };
 }

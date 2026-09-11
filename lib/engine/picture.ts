@@ -28,7 +28,7 @@ import {
  * Audio for a re-encoded picture: copied when the container keeps it,
  * otherwise AAC. The picture is H.264 either way, so only the audio decides.
  */
-function audioArgs(probe: ProbeResult, container: Container): string[] {
+export function pictureAudioArgs(probe: ProbeResult, container: Container): string[] {
   const codec = probe.audio?.codec.toLowerCase() ?? null;
   if (codec === null) return [];
   return containerHolds(container, "h264", codec)
@@ -42,7 +42,7 @@ function audioArgs(probe: ProbeResult, container: Container): string[] {
  * Matroska would keep the audio untouched, but a resized WebM that comes back
  * as an MKV is a surprise where an MP4 is not.
  */
-function pictureContainer(probe: ProbeResult, context: PlanContext | undefined): Container {
+export function pictureContainer(probe: ProbeResult, context: PlanContext | undefined): Container {
   const audio = probe.audio?.codec.toLowerCase() ?? null;
   const preferred = preferredContainer(context?.sourceExtension);
   return preferred && containerHolds(preferred, "h264", audio) ? preferred : MP4;
@@ -143,7 +143,7 @@ export function resizeFormat(settings: ResizeSettings): OutputFormat {
           ...H264_ENCODE,
           "-crf",
           "20",
-          ...audioArgs(probe, container),
+          ...pictureAudioArgs(probe, container),
           ...containerArgs(container),
         ],
         ...container,
@@ -224,7 +224,7 @@ export function rotateFormat(id: Rotation): OutputFormat {
           ...H264_ENCODE,
           "-crf",
           "20",
-          ...audioArgs(probe, container),
+          ...pictureAudioArgs(probe, container),
           ...containerArgs(container),
         ],
         ...container,

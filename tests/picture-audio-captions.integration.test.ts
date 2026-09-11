@@ -11,16 +11,24 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { normalizeFormat } from "@/lib/engine/audio";
+import {
+  channelFormat,
+  compressAudioFormat,
+  normalizeFormat,
+  spectrogramFormat,
+  waveformFormat,
+} from "@/lib/engine/audio";
+import { BURN_FONT_DIR, BURN_FONT_NAME, burnFileFormat, burnTrackFormat } from "@/lib/engine/burn";
 import { captionFormat } from "@/lib/engine/captions";
 import { frameFormat, resizeFormat, rotateFormat, sheetFormat } from "@/lib/engine/picture";
 import { parseProbeOutput } from "@/lib/engine/probe";
 import { trimArgs } from "@/lib/engine/trim";
-import type { OutputFormat, PlanContext, ProbeResult, TrimRange } from "@/lib/engine/types";
+import type { FormatPlan, OutputFormat, PlanContext, ProbeResult, TrimRange } from "@/lib/engine/types";
+import { parseSrt, toAss } from "@/lib/subtitles";
 
 const hasFfmpeg =
   spawnSync("ffmpeg", ["-version"]).status === 0 && spawnSync("ffprobe", ["-version"]).status === 0;
@@ -46,6 +54,8 @@ interface Probed {
     width?: number;
     height?: number;
     sample_rate?: string;
+    channels?: number;
+    pix_fmt?: string;
   }>;
 }
 
@@ -67,7 +77,53 @@ function integratedLoudness(path: string): number {
   return Number(match[1]);
 }
 
+/**
+ * Brightest pixel in the bottom third of the frame at a moment, from
+ * signalstats.
+ *
+ * Limited-range black is 16 and white text is 235, so a glyph anywhere in the
+ * band is unmistakable however small it is. It is how a burn is checked
+ * without reading the text back.
+ */
+function bottomLuma(path: string, atSeconds: number): number {
+  const result = spawnSync(
+    "ffmpeg",
+    [
+      "-hide_banner", "-ss", String(atSeconds), "-i", path, "-frames:v", "1",
+      "-vf", "crop=iw:ih/3:0:2*ih/3,signalstats,metadata=print", "-f", "null", "-",
+    ],
+    { encoding: "utf8" },
+  );
+  const match = result.stderr.match(/lavfi\.signalstats\.YMAX=(\d+(?:\.\d+)?)/);
+  if (!match) throw new Error(`signalstats printed no YAVG:\n${result.stderr.slice(-800)}`);
+  return Number(match[1]);
+}
+
 let counter = 0;
+
+/**
+ * Writes a plan's scratch files where this ffmpeg can read them, and points
+ * the arguments at them: the engine writes "/fonts/..." into MEMFS, which is
+ * not a place on this disk.
+ */
+function materialize(plan: FormatPlan): string[] {
+  const scratchDir = join(dir, "scratch");
+  const replacements: [string, string][] = [];
+  for (const file of plan.scratchFiles ?? []) {
+    const target = join(scratchDir, file.path.replace(/^\//, ""));
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, file.contents);
+    replacements.push([file.path, target]);
+  }
+  replacements.push([BURN_FONT_DIR, join(scratchDir, BURN_FONT_DIR.replace(/^\//, ""))]);
+  // Longest paths first, so "/fonts/x.ttf" is not half-rewritten by "/fonts".
+  replacements.sort((a, b) => b[0].length - a[0].length);
+  return plan.args.map((arg) => {
+    let out = arg;
+    for (const [from, to] of replacements) out = out.split(from).join(to);
+    return out;
+  });
+}
 
 /**
  * Assembles and runs the command lines the way FFmpegEngine.runExtract does,
@@ -82,12 +138,14 @@ function run(
     trim,
     fileBytes: statSync(input).size,
     sourceExtension: input.split(".").pop()?.toLowerCase() ?? null,
+    inputPath: input,
   };
   const info = probe(input);
   const blocker = format.blocker?.(info, context) ?? null;
   expect(blocker, `${format.id} was blocked: ${blocker?.message}`).toBeNull();
 
   const plan = format.plan(info, context);
+  const args = materialize(plan);
   const output = join(dir, `out-${(counter += 1)}-${format.id}.${plan.extension}`);
   const { input: seek, output: length } = trimArgs(trim);
   const kept: string[] = [];
@@ -117,7 +175,7 @@ function run(
     const lines = exec(passArgs, ["-f", "null", "-"]);
     if (plan.refine) kept.push(...lines.filter(plan.refine.keep));
   }
-  const finalArgs = plan.refine ? plan.refine.args(kept) : plan.args;
+  const finalArgs = plan.refine ? plan.refine.args(kept) : args;
   exec(finalArgs, [output]);
 
   return { output, probed: ffprobe(output) };
@@ -130,6 +188,9 @@ describe.skipIf(!hasFfmpeg)("picture, loudness and subtitle plans against a real
   let video: string;
   let quiet: string;
   let subbed: string;
+  let black: string;
+  let srt: string;
+  const font = new Uint8Array(readFileSync(join(process.cwd(), "public", "fonts", "DejaVuSans.ttf")));
 
   beforeAll(() => {
     mkdirSync(dir, { recursive: true });
@@ -144,7 +205,7 @@ describe.skipIf(!hasFfmpeg)("picture, loudness and subtitle plans against a real
       "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
       "-t", "6", "-af", "volume=-24dB", "-c:a", "libmp3lame", "-b:a", "128k",
     ]);
-    const srt = join(dir, "sample.srt");
+    srt = join(dir, "sample.srt");
     writeFileSync(
       srt,
       "1\n00:00:00,500 --> 00:00:02,000\nHello there.\n\n2\n00:00:02,200 --> 00:00:03,500\n<i>Second</i> cue\n",
@@ -155,6 +216,11 @@ describe.skipIf(!hasFfmpeg)("picture, loudness and subtitle plans against a real
       "-t", "4", "-map", "0:v", "-map", "1:s",
       "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
       "-c:s", "srt", "-metadata:s:s:0", "language=eng",
+    ]);
+    // Pure black, so anything drawn on it shows up in the numbers.
+    black = fixture("black.mp4", [
+      "-f", "lavfi", "-i", "color=c=black:s=320x180:r=25",
+      "-t", "4", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
     ]);
   });
 
@@ -229,5 +295,59 @@ describe.skipIf(!hasFfmpeg)("picture, loudness and subtitle plans against a real
     const vttText = readFileSync(vtt.output, "utf8");
     expect(vttText.startsWith("WEBVTT")).toBe(true);
     expect(vttText).toContain("<i>Second</i> cue");
+  });
+
+  it("burns a subtitle file into the picture with the shipped font", () => {
+    const cues = parseSrt(readFileSync(srt, "utf8")).cues;
+    const source = { name: "sample.srt", ass: toAss(cues, { fontName: BURN_FONT_NAME, fontSize: 64 }) };
+    const { output, probed } = run(burnFileFormat(source, font), black);
+    expect(stream(probed, "video")?.codec_name).toBe("h264");
+    expect(Number(probed.format.duration)).toBeCloseTo(4, 0);
+    // White text on screen at 1 s; at 3.8 s nothing is showing.
+    expect(bottomLuma(black, 1)).toBeLessThan(20);
+    expect(bottomLuma(output, 1)).toBeGreaterThan(200);
+    expect(bottomLuma(output, 3.8)).toBeLessThan(20);
+  });
+
+  it("burns one of the file's own tracks straight from the input", () => {
+    const { probed } = run(burnTrackFormat(0, font), subbed);
+    expect(stream(probed, "video")?.codec_name).toBe("h264");
+    expect(stream(probed, "subtitle")).toBeUndefined();
+    expect(Number(probed.format.duration)).toBeCloseTo(4, 0);
+  });
+
+  it("compresses audio to a preset and to a size", () => {
+    const voice = run(compressAudioFormat({ presetId: "voice-tiny", targetBytes: null }), video);
+    expect(voice.output.endsWith(".opus")).toBe(true);
+    expect(stream(voice.probed, "audio")?.codec_name).toBe("opus");
+    expect(stream(voice.probed, "audio")?.channels).toBe(1);
+
+    // 60 KB over six seconds is 76 kbps: AAC, and under the size.
+    const sized = run(compressAudioFormat({ presetId: null, targetBytes: 60_000 }), quiet);
+    expect(sized.output.endsWith(".m4a")).toBe(true);
+    expect(stream(sized.probed, "audio")?.codec_name).toBe("aac");
+    expect(statSync(sized.output).size).toBeLessThan(60_000);
+  });
+
+  it("takes a recording apart by channel, in its own format", () => {
+    const left = run(channelFormat("left"), video);
+    expect(left.output.endsWith(".m4a")).toBe(true);
+    expect(stream(left.probed, "audio")?.channels).toBe(1);
+    const karaoke = run(channelFormat("karaoke"), video);
+    expect(stream(karaoke.probed, "audio")?.channels).toBe(2);
+    const stereo = run(channelFormat("stereo"), quiet);
+    expect(stereo.output.endsWith(".mp3")).toBe(true);
+    expect(stream(stereo.probed, "audio")?.channels).toBe(2);
+  });
+
+  it("draws a waveform and a spectrogram as PNGs", () => {
+    const wave = run(waveformFormat({ width: 800, height: 200, tone: "dark" }), quiet);
+    expect(stream(wave.probed, "video")?.codec_name).toBe("png");
+    expect(stream(wave.probed, "video")?.width).toBe(800);
+    expect(stream(wave.probed, "video")?.height).toBe(200);
+    expect(stream(wave.probed, "video")?.pix_fmt).toBe("rgba");
+    const spectrum = run(spectrogramFormat({ width: 800, height: 200, tone: "dark" }), quiet);
+    expect(stream(spectrum.probed, "video")?.codec_name).toBe("png");
+    expect(stream(spectrum.probed, "video")?.width).toBeGreaterThanOrEqual(800);
   });
 });

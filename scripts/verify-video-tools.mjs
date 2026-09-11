@@ -119,7 +119,26 @@ function ensureFixtures() {
       "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
       "-c:s", "srt", "-metadata:s:s:0", "language=eng",
     ]),
+    // Pure black, so a burned subtitle shows up in the numbers.
+    black: build("black.mp4", [
+      "-f", "lavfi", "-i", "color=c=black:s=320x180:r=25",
+      "-t", "6", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+    ]),
   };
+}
+
+/** Brightest pixel in the bottom third of the frame at a moment; black is 16, white text 235. */
+function bottomLuma(path, atSeconds) {
+  const result = spawnSync(
+    "ffmpeg",
+    [
+      "-hide_banner", "-ss", String(atSeconds), "-i", path, "-frames:v", "1",
+      "-vf", "crop=iw:ih/3:0:2*ih/3,signalstats,metadata=print", "-f", "null", "-",
+    ],
+    { encoding: "utf8" },
+  );
+  const match = result.stderr.match(/lavfi\.signalstats\.YMAX=(\d+(?:\.\d+)?)/);
+  return match ? Number(match[1]) : Number.NaN;
 }
 
 /** Integrated loudness of a file, in LUFS, as ebur128 measures it. */
@@ -247,6 +266,10 @@ async function main() {
       "convert-audio",
       "normalize-audio",
       "extract-subtitles",
+      "burn-subtitles",
+      "compress-audio",
+      "audio-channels",
+      "audio-waveform",
     ]) {
       check(`index links to /${slug}`, links.includes(`/${slug}`));
     }
@@ -439,10 +462,12 @@ async function main() {
     // survives a middle ellipsis, and innerText would put a break between them.
     const beforeSwitch = await trimCard.textContent();
     check("the trimmer has work on it", /tagged\.mp4/.test(beforeSwitch ?? ""));
-    await page
-      .getByRole("navigation", { name: "Tools", exact: true })
-      .getByRole("link", { name: "Compress video" })
-      .click();
+    const toolsMenu = page.getByRole("navigation", { name: "Tools", exact: true });
+    const allTools = toolsMenu.getByRole("button", { name: "All tools" });
+    await allTools.click();
+    const menuId = await allTools.getAttribute("aria-controls");
+    check("the tools menu opens onto a grouped list", menuId !== null);
+    await page.locator(`[id="${menuId}"]`).getByRole("link", { name: "Compress video" }).click();
     await page.waitForURL(/compress-video/);
     check("the other tool has its own queue", (await cardFor("tagged.mp4").count()) === 0);
     await page.goBack();
@@ -455,9 +480,10 @@ async function main() {
       (await afterSwitch.getByText("Download").count()) === 2,
     );
     check(
-      "the current tool is marked in the nav",
-      (await page.locator('nav a[aria-current="page"]').innerText()) === "Trim video",
-      await page.locator('nav a[aria-current="page"]').innerText(),
+      "the current tool is marked in the menu and named in the header",
+      (await page.locator('a[aria-current="page"]').textContent())?.trim() === "Trim video" &&
+        (await page.locator("header").getByText("Trim video", { exact: true }).count()) >= 1,
+      (await page.locator('a[aria-current="page"]').textContent())?.trim(),
     );
 
     // ---- GIF ------------------------------------------------------------
@@ -665,6 +691,83 @@ async function main() {
     await vttEvent.saveAs(vttPath);
     check("WebVTT comes out with its header", readFileSync(vttPath, "utf8").startsWith("WEBVTT"), vttEvent.suggestedFilename());
     await page.screenshot({ path: join(FIXTURES, "verify-more-tools.png"), fullPage: true });
+
+    // ---- Burn subtitles -------------------------------------------------
+    log("\nBurn subtitles - an SRT onto a black video, then a file's own track:");
+    await open("burn-subtitles");
+    await page.locator("#burn-subtitle-file").setInputFiles(fixtures.subtitles);
+    await page.getByText("sample.srt (SRT, 2 cues)").waitFor({ timeout: 30_000 });
+    check("reads the subtitle file without an engine", true);
+    await drop(fixtures.black);
+    const burnCard = cardFor("black.mp4");
+    await burnCard.getByText("Done", { exact: true }).waitFor({ timeout: 600_000 });
+    const burned = await download(burnCard.getByText("Download"));
+    check("burned file says so in its name", burned.name === "black-subtitled.mp4", burned.name);
+    check("burned file keeps its length", Math.abs(seconds(burned.info) - 6) < 0.3, `${seconds(burned.info).toFixed(2)}s`);
+    const litBefore = bottomLuma(fixtures.black, 2);
+    const litAfter = bottomLuma(burned.path, 2);
+    check("the text is drawn into the frames", litBefore < 20 && litAfter > 200, `bottom third peak ${litBefore.toFixed(0)} before, ${litAfter.toFixed(0)} after`);
+    check("nothing is drawn where there is no cue", bottomLuma(burned.path, 4.8) < 20, `${bottomLuma(burned.path, 4.8).toFixed(0)}`);
+
+    await drop(fixtures.subbed);
+    const trackCard = cardFor("subbed.mkv");
+    await trackCard.getByText("Done", { exact: true }).waitFor({ timeout: 600_000 });
+    const trackBurn = await download(trackCard.locator("li").filter({ hasText: /^Burn track 1/ }).getByText("Download"));
+    check("a file's own track is burned from the mounted input", trackBurn.name === "subbed-subtitled-track1.mkv" && stream(trackBurn.info, "video")?.codec_name === "h264", trackBurn.name);
+    check("the burned file carries no subtitle track of its own", stream(trackBurn.info, "subtitle") === undefined);
+    await page.screenshot({ path: join(FIXTURES, "verify-burn.png"), fullPage: true });
+
+    // ---- Compress audio -------------------------------------------------
+    log("\nCompress audio - an MP3 as Opus for speech, then as MP3 for music:");
+    await open("compress-audio");
+    await drop(fixtures.music);
+    const compressAudioCard = cardFor("music.mp3");
+    await compressAudioCard.getByText("Done", { exact: true }).waitFor({ timeout: 240_000 });
+    const opus = await download(compressAudioCard.getByText("Download"));
+    check("speech preset comes out as Opus", opus.name === "music-voice.opus" && stream(opus.info, "audio")?.codec_name === "opus", opus.name);
+    await compressAudioCard.getByRole("button", { name: /^\+?\s*Music, good$/ }).first().click();
+    const mp3Row = compressAudioCard.locator("li").filter({ hasText: /^Music, good/ });
+    await mp3Row.getByText("Download").waitFor({ timeout: 120_000 });
+    const mp3 = await download(mp3Row.getByText("Download"));
+    check("music preset comes out as MP3", mp3.name === "music-music.mp3" && stream(mp3.info, "audio")?.codec_name === "mp3", mp3.name);
+
+    // ---- Audio channels -------------------------------------------------
+    log("\nAudio channels - stereo from a mono MP3, vocals cut from a stereo MP4:");
+    await open("audio-channels");
+    await drop(fixtures.music);
+    const monoCard = cardFor("music.mp3");
+    await monoCard.getByText("Ready", { exact: true }).waitFor({ timeout: 240_000 });
+    check("a mono file is offered stereo and nothing that needs two sides", (await monoCard.getByRole("button", { name: /Stereo from mono/ }).count()) >= 1 && (await monoCard.getByRole("button", { name: /Remove vocals/ }).count()) === 0);
+    await monoCard.getByRole("button", { name: /Stereo from mono/ }).first().click();
+    const stereoRow = monoCard.locator("li").filter({ hasText: /^Stereo from mono/ });
+    await stereoRow.getByText("Download").waitFor({ timeout: 120_000 });
+    const stereo = await download(stereoRow.getByText("Download"));
+    check("stereo from mono has two channels, still an MP3", stereo.name === "music-stereo.mp3" && stream(stereo.info, "audio")?.channels === 2, stereo.name);
+
+    await drop(fixtures.tagged);
+    const stereoCard = cardFor("tagged.mp4");
+    await stereoCard.getByText("Ready", { exact: true }).waitFor({ timeout: 240_000 });
+    await stereoCard.getByRole("button", { name: /Remove vocals/ }).first().click();
+    const karaokeRow = stereoCard.locator("li").filter({ hasText: /^Remove vocals/ });
+    await karaokeRow.getByText("Download").waitFor({ timeout: 120_000 });
+    const karaoke = await download(karaokeRow.getByText("Download"));
+    check("vocal removal writes a stereo M4A from the video's AAC", karaoke.name === "tagged-karaoke.m4a" && stream(karaoke.info, "audio")?.codec_name === "aac" && stream(karaoke.info, "audio")?.channels === 2, karaoke.name);
+
+    // ---- Audio waveform -------------------------------------------------
+    log("\nAudio waveform - a waveform PNG on arrival, a spectrogram from the card:");
+    await open("audio-waveform");
+    await drop(fixtures.music);
+    const waveCard = cardFor("music.mp3");
+    await waveCard.getByText("Done", { exact: true }).waitFor({ timeout: 240_000 });
+    const wave = await download(waveCard.getByText("Download"));
+    check("waveform is a PNG at the chosen size", wave.name === "music-waveform.png" && stream(wave.info, "video")?.codec_name === "png" && stream(wave.info, "video")?.width === 1200 && stream(wave.info, "video")?.height === 300, `${wave.name} ${stream(wave.info, "video")?.width}x${stream(wave.info, "video")?.height}`);
+    check("waveform has a transparent background", stream(wave.info, "video")?.pix_fmt === "rgba", stream(wave.info, "video")?.pix_fmt);
+    await waveCard.getByRole("button", { name: /Spectrogram/ }).first().click();
+    const spectrumRow = waveCard.locator("li").filter({ hasText: /^Spectrogram/ });
+    await spectrumRow.getByText("Download").waitFor({ timeout: 240_000 });
+    const spectrum = await download(spectrumRow.getByText("Download"));
+    check("spectrogram is a PNG with its legend", spectrum.name === "music-spectrogram.png" && stream(spectrum.info, "video")?.codec_name === "png" && stream(spectrum.info, "video")?.width > 1200, `${stream(spectrum.info, "video")?.width}x${stream(spectrum.info, "video")?.height}`);
+    await page.screenshot({ path: join(FIXTURES, "verify-audio-tools.png"), fullPage: true });
 
     // ---- Engine-level assertions ----------------------------------------
     log("\nEngine:");
