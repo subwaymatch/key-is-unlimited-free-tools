@@ -954,7 +954,12 @@ export class FFmpegEngine implements AudioExtractor {
       const slash = file.path.lastIndexOf("/");
       const directory = slash > 0 ? file.path.slice(0, slash) : "";
       if (directory) await ffmpeg.createDir(directory).catch(() => {});
-      await ffmpeg.writeFile(file.path, file.contents);
+      // writeFile transfers the bytes to the worker, which detaches the
+      // buffer they came in. A plan reuses its font on every run, so the
+      // worker gets a copy and the plan keeps the original.
+      const contents =
+        typeof file.contents === "string" ? file.contents : new Uint8Array(file.contents);
+      await ffmpeg.writeFile(file.path, contents);
     }
   }
 
