@@ -22,6 +22,13 @@ export interface Cue {
    * and everything else - fonts, colours, positions - is dropped.
    */
   text: string;
+  /**
+   * Shown at the top of the picture rather than the bottom.
+   *
+   * The one position worth carrying: a second language stacked above the
+   * first. SRT and ASS take it as an `{\an8}` tag, WebVTT as a `line` setting.
+   */
+  position?: "top";
 }
 
 export interface ParsedSubtitles {

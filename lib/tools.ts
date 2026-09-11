@@ -43,7 +43,9 @@ export type ToolIconName =
   | "captions"
   | "burn"
   | "channels"
-  | "waveform";
+  | "waveform"
+  | "chapters"
+  | "bilingual";
 
 export interface ToolMeta {
   /** URL segment. Verb-object, lowercase, hyphenated, and permanent once shipped. */
@@ -304,6 +306,28 @@ export const TOOLS: readonly ToolMeta[] = [
     category: "audio",
     icon: "waveform",
     accepts: "Audio and video files",
+    status: "live",
+  },
+  {
+    slug: "add-chapters",
+    name: "Add chapter markers",
+    tagline: "Type a list of times and titles and write them into a podcast or video.",
+    description:
+      "Add chapter markers to an audio or video file entirely in your browser: type the times and titles, and they are written into the MP4, M4A, MKV or MP3 with every stream copied untouched. Nothing is uploaded.",
+    category: "audio",
+    icon: "chapters",
+    accepts: "Audio and video files",
+    status: "live",
+  },
+  {
+    slug: "merge-subtitles",
+    name: "Merge subtitles (dual language)",
+    tagline: "Two languages in one subtitle file, stacked or folded into one cue.",
+    description:
+      "Merge two subtitle files into one bilingual file entirely in your browser: the second language at the top of the picture, or both languages in one cue for players that show a single line. Nothing is uploaded.",
+    category: "subtitles",
+    icon: "bilingual",
+    accepts: "Subtitle files",
     status: "live",
   },
   {

@@ -18,6 +18,7 @@ import type {
 import { fileExtension } from "@/lib/mediaTypes";
 import {
   describeAudio,
+  describeChapters,
   describeSubtitles,
   describeVideo,
   formatBytes,
@@ -425,6 +426,7 @@ export function FileCard({
     if (job.probe.audio) meta.push(describeAudio(job.probe.audio));
     else if (!job.probe.video) meta.push("No audio");
     if (job.probe.subtitleStreams.length > 0) meta.push(describeSubtitles(job.probe.subtitleStreams));
+    if (job.probe.chapters.length > 0) meta.push(describeChapters(job.probe.chapters));
   }
 
   const isInfo = job.status === "error" && job.error?.severity === "info";

@@ -184,9 +184,12 @@ export function playbackWarning(video: string | null | undefined): string | unde
   return `Browsers cannot play ${codec.toUpperCase()} video, so this file will not preview here. It is intact and opens in VLC or QuickTime; convert it to MP4 (H.264) if it has to play on the web.`;
 }
 
+/** Containers of the MP4 family, which want their index moved to the front. */
+const FASTSTART_EXTENSIONS = new Set(["mp4", "m4v", "mov", "m4a"]);
+
 /** Muxer options a container wants on every output. */
 export function containerArgs(container: Container): string[] {
-  return container === MP4 || container === MOV ? MP4_FASTSTART : [];
+  return FASTSTART_EXTENSIONS.has(container.extension) ? MP4_FASTSTART : [];
 }
 
 /**

@@ -3,6 +3,7 @@
 import { ChevronDown, Download, DownloadCloud, X } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
+import { downloadText } from "@/lib/download";
 import { formatBytes } from "@/lib/format-utils";
 import { fileExtension, fileStem } from "@/lib/mediaTypes";
 import { storageKey, useStoredSettings } from "@/lib/persist";
@@ -110,19 +111,6 @@ interface Entry {
 }
 
 let entryCounter = 0;
-
-/** Saves text as a file, through the browser's own download path. */
-function downloadText(fileName: string, text: string, mimeType: string): void {
-  const url = URL.createObjectURL(new Blob([text], { type: `${mimeType};charset=utf-8` }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  // The click has taken its reference by the time the timer fires.
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
 interface Output {
   target: SubtitleTarget;

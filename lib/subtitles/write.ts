@@ -42,11 +42,16 @@ export function stripMarkup(text: string): string {
   return text.replace(/<\/?[ibu]>/g, "");
 }
 
+/** The tag most players honour for a cue at the top of the picture. */
+const TOP_TAG = "{\\an8}";
+
 export function toSrt(cues: readonly Cue[]): string {
   return cues
     .map(
       (cue, index) =>
-        `${index + 1}\n${formatSrtTime(cue.start)} --> ${formatSrtTime(cue.end)}\n${cue.text}`,
+        `${index + 1}\n${formatSrtTime(cue.start)} --> ${formatSrtTime(cue.end)}\n${
+          cue.position === "top" ? TOP_TAG : ""
+        }${cue.text}`,
     )
     .join("\n\n")
     .concat("\n");
@@ -59,7 +64,12 @@ function escapeVtt(text: string): string {
 
 export function toVtt(cues: readonly Cue[]): string {
   const body = cues
-    .map((cue) => `${formatVttTime(cue.start)} --> ${formatVttTime(cue.end)}\n${escapeVtt(cue.text)}`)
+    .map(
+      (cue) =>
+        `${formatVttTime(cue.start)} --> ${formatVttTime(cue.end)}${
+          cue.position === "top" ? " line:0" : ""
+        }\n${escapeVtt(cue.text)}`,
+    )
     .join("\n\n");
   return `WEBVTT\n\n${body}\n`;
 }
@@ -123,7 +133,9 @@ function assText(text: string): string {
 export function toAss(cues: readonly Cue[], style: AssStyle = {}): string {
   const events = cues.map(
     (cue) =>
-      `Dialogue: 0,${formatAssTime(cue.start)},${formatAssTime(cue.end)},Default,,0,0,0,,${assText(cue.text)}`,
+      `Dialogue: 0,${formatAssTime(cue.start)},${formatAssTime(cue.end)},Default,,0,0,0,,${
+        cue.position === "top" ? TOP_TAG : ""
+      }${assText(cue.text)}`,
   );
   return `${assHeader(style)}\n${events.join("\n")}\n`;
 }

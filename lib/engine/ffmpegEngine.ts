@@ -698,6 +698,7 @@ export class FFmpegEngine implements AudioExtractor {
       fileBytes: file.size,
       sourceExtension: extensionOf(file.name),
       inputPath,
+      stripMetadata: options?.stripMetadata ?? false,
     };
     const blocker = format.blocker?.(probe, context) ?? null;
     if (blocker) {

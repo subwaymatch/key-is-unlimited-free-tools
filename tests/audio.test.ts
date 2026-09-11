@@ -57,6 +57,7 @@ function probe(
     video: videoStream,
     hasVideo: videoStream !== null,
     subtitleStreams: [],
+    chapters: [],
     formatName: "mp3",
     log: [],
   };

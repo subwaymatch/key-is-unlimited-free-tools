@@ -103,6 +103,11 @@ export function describeSubtitles(
   return names.length > 0 ? `${count} (${names.join(", ")})` : count;
 }
 
+/** "3 chapters", for the card's metadata line. */
+export function describeChapters(chapters: readonly unknown[]): string {
+  return `${chapters.length} ${chapters.length === 1 ? "chapter" : "chapters"}`;
+}
+
 /** Media types the <audio> element can be expected to play. */
 const PLAYABLE_EXTENSIONS = new Set(["m4a", "mp3", "wav", "opus", "ogg", "flac", "mp2", "aac"]);
 

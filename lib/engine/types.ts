@@ -55,6 +55,13 @@ export interface SubtitleStreamInfo {
   title: string | null;
 }
 
+/** A chapter marker the container carries. */
+export interface ChapterInfo {
+  startSeconds: number;
+  endSeconds: number;
+  title: string | null;
+}
+
 export interface ProbeResult {
   /** Media duration in seconds, or null when ffmpeg reports "N/A". */
   durationSeconds: number | null;
@@ -71,6 +78,8 @@ export interface ProbeResult {
   hasVideo: boolean;
   /** Every subtitle track ffmpeg found, in file order. */
   subtitleStreams: SubtitleStreamInfo[];
+  /** The container's chapter list, in order. */
+  chapters: ChapterInfo[];
   /** Container/format name(s) ffmpeg detected, e.g. "mov,mp4,m4a,3gp,3g2,mj2". */
   formatName: string | null;
   /** ffmpeg's stderr for this probe, kept for the per-file log panel. */
@@ -132,6 +141,15 @@ export interface PlanContext {
    * own subtitle tracks reads the same file a second time.
    */
   inputPath?: string;
+  /**
+   * Whether the visitor asked for the source's tags to be dropped.
+   *
+   * The engine appends the stripping arguments itself, after a plan's own,
+   * so a plan that writes metadata of its own - chapter markers - has to see
+   * the switch and do the stripping itself, or the engine's arguments would
+   * undo its work. Set together with `stripsMetadata` on the plan.
+   */
+  stripMetadata?: boolean;
   /**
    * Lower-case extension of the source file, without the dot, when it has one.
    *

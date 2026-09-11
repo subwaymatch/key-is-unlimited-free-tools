@@ -7,7 +7,9 @@ import {
   Gauge,
   Headphones,
   ImagePlay,
+  Languages,
   LayoutGrid,
+  ListOrdered,
   Merge,
   MessageSquareText,
   Music,
@@ -51,6 +53,8 @@ export const TOOL_ICONS = {
   burn: Type,
   channels: Headphones,
   waveform: Activity,
+  chapters: ListOrdered,
+  bilingual: Languages,
 } as const satisfies Record<ToolIconName, unknown>;
 
 interface ToolIconProps {

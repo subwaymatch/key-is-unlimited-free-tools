@@ -19,6 +19,7 @@ function probe(subtitleStreams: SubtitleStreamInfo[]): ProbeResult {
     video: null,
     hasVideo: true,
     subtitleStreams,
+    chapters: [],
     formatName: "matroska,webm",
     log: [],
   };

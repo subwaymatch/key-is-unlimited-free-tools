@@ -232,3 +232,18 @@
   color: var(--secondary-foreground);
   cursor: pointer;
 }
+
+/* A list typed by hand: chapters, one per line. */
+.textarea {
+  margin-top: 0.75rem;
+  width: 100%;
+  max-width: 32rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--background);
+  padding: 0.5rem 0.625rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  resize: vertical;
+}

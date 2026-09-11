@@ -51,7 +51,8 @@ function blocks(text: string): string[] {
  */
 export function cleanMarkup(raw: string): string {
   let text = raw
-    // ASS override blocks pasted into SRT, such as {\an8}: nothing to keep.
+    // ASS override blocks pasted into SRT, such as {\an8}: nothing to keep
+    // here; the position is read off separately by `readTopPosition`.
     .replace(/\{\\[^}]*\}/g, "")
     // Timestamps inside WebVTT cue text, for karaoke-style reveals.
     .replace(/<\d{1,2}:\d{2}(?::\d{2})?\.\d{3}>/g, "")
@@ -67,6 +68,21 @@ export function cleanMarkup(raw: string): string {
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .join("\n");
+}
+
+/**
+ * Whether the raw text asks for the top of the picture, by tag or by setting.
+ *
+ * An `{\an7}`, `{\an8}` or `{\an9}` tag is the top row of ASS's numpad. A
+ * WebVTT `line` setting counts from the top as a percentage or a line number
+ * and from the bottom when negative, so the top is a small non-negative one.
+ */
+export function readTopPosition(raw: string, settings = ""): boolean {
+  if (/\{\\an[789]\}/.test(raw)) return true;
+  const line = settings.match(/\bline:(-?\d+(?:\.\d+)?)(%?)/);
+  if (!line) return false;
+  const value = Number(line[1]);
+  return line[2] === "%" ? value <= 30 : value >= 0 && value <= 2;
 }
 
 /** Closes what was opened and drops closes that were never opened. */
@@ -113,14 +129,15 @@ function decodeEntities(text: string): string {
 }
 
 /** Reads a `00:00:01,000 --> 00:00:04,000 [settings]` line. */
-function parseTimingLine(line: string): { start: number; end: number } | null {
+function parseTimingLine(line: string): { start: number; end: number; settings: string } | null {
   if (!ARROW.test(line)) return null;
   const [left, right] = line.split(ARROW);
   const start = parseClock(left.trim());
   // WebVTT puts cue settings after the end time, separated by whitespace.
-  const end = parseClock(right.trim().split(/\s+/)[0] ?? "");
+  const [endText, ...rest] = right.trim().split(/\s+/);
+  const end = parseClock(endText ?? "");
   if (start === null || end === null) return null;
-  return { start, end };
+  return { start, end, settings: rest.join(" ") };
 }
 
 /**
@@ -148,7 +165,13 @@ function parseBlocks(text: string, format: SubtitleFormat): ParsedSubtitles {
 
     const body = lines.slice(timingIndex + 1).join("\n");
     const cleaned = cleanMarkup(format === "vtt" ? decodeEntities(body) : body);
-    cues.push({ start: timing.start, end: Math.max(timing.start, timing.end), text: cleaned });
+    const top = readTopPosition(body, timing.settings);
+    cues.push({
+      start: timing.start,
+      end: Math.max(timing.start, timing.end),
+      text: cleaned,
+      ...(top ? { position: "top" as const } : {}),
+    });
   }
 
   const warnings: string[] = [];
@@ -253,7 +276,12 @@ export function parseAss(text: string): ParsedSubtitles {
       skipped += 1;
       continue;
     }
-    cues.push({ start, end: Math.max(start, end), text: assMarkup(body) });
+    cues.push({
+      start,
+      end: Math.max(start, end),
+      text: assMarkup(body),
+      ...(readTopPosition(body) ? { position: "top" as const } : {}),
+    });
   }
 
   // Events need not be in order in an ASS file; every other format wants them so.

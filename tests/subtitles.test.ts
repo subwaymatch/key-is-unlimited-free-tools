@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   assHeader,
   balanceTags,
+  combineCues,
+  mergeCues,
   cleanMarkup,
   decodeSubtitleBytes,
   detectFormat,
@@ -323,5 +325,56 @@ describe("assHeader", () => {
     // Border style 3 is an opaque box, drawn without a shadow, at the top.
     expect(styled).toMatch(/,3,2,0,8,40,40,40,1$/m);
     expect(toAss([{ start: 1, end: 2, text: "Hi" }], { fontSize: 36 })).toContain(",36,");
+  });
+});
+
+describe("a cue at the top", () => {
+  it("is read from a tag or a line setting, and written back for every format", () => {
+    const srt = parseSrt("1\n00:00:01,000 --> 00:00:02,000\n{\\an8}Up here\n\n2\n00:00:03,000 --> 00:00:04,000\nDown here\n");
+    expect(srt.cues[0].position).toBe("top");
+    expect(srt.cues[1].position).toBeUndefined();
+    const vtt = parseVtt("WEBVTT\n\n00:01.000 --> 00:02.000 line:0\nUp\n\n00:03.000 --> 00:04.000 line:90%\nDown\n\n00:05.000 --> 00:06.000 line:-1\nAlso down\n");
+    expect(vtt.cues.map((cue) => cue.position)).toEqual(["top", undefined, undefined]);
+
+    const cues: Cue[] = [{ start: 1, end: 2, text: "Up", position: "top" }];
+    expect(toSrt(cues)).toContain("\n{\\an8}Up\n");
+    expect(toVtt(cues)).toContain("00:00:01.000 --> 00:00:02.000 line:0\nUp");
+    expect(toAss(cues)).toContain(",,{\\an8}Up");
+    for (const target of ["srt", "vtt", "ass"] as const) {
+      expect(parseSubtitles(serialize(cues, target), `x.${target}`).cues[0].position, target).toBe("top");
+    }
+  });
+});
+
+describe("merging two languages", () => {
+  const english: Cue[] = [
+    { start: 1, end: 3, text: "Hello" },
+    { start: 4, end: 6, text: "Goodbye" },
+    { start: 10, end: 12, text: "Alone" },
+  ];
+  const french: Cue[] = [
+    { start: 1.2, end: 3.1, text: "Bonjour" },
+    { start: 4.5, end: 5, text: "Au revoir" },
+    { start: 20, end: 21, text: "Sans pareil" },
+  ];
+
+  it("stacks every cue from both, the second language at the top", () => {
+    const { cues, unmatched } = mergeCues(english, french, "stacked");
+    expect(cues).toHaveLength(6);
+    expect(unmatched).toBe(0);
+    expect(cues.map((cue) => cue.text)).toEqual(["Hello", "Bonjour", "Goodbye", "Au revoir", "Alone", "Sans pareil"]);
+    expect(cues.filter((cue) => cue.position === "top").map((cue) => cue.text)).toEqual(["Bonjour", "Au revoir", "Sans pareil"]);
+  });
+
+  it("combines overlapping cues into one, keeping the first language's timing", () => {
+    const { cues, unmatched } = combineCues(english, french);
+    expect(cues.map((cue) => cue.text)).toEqual(["Hello\nBonjour", "Goodbye\nAu revoir", "Alone", "Sans pareil"]);
+    expect(cues[0]).toMatchObject({ start: 1, end: 3 });
+    expect(unmatched).toBe(1);
+  });
+
+  it("does not pair cues that merely touch", () => {
+    const { cues } = combineCues([{ start: 0, end: 4, text: "A" }], [{ start: 3.5, end: 8, text: "B" }]);
+    expect(cues.map((cue) => cue.text)).toEqual(["A", "B"]);
   });
 });

@@ -8,7 +8,13 @@
  *
  * These functions are pure so they can be unit-tested without a browser.
  */
-import type { AudioStreamInfo, ProbeResult, SubtitleStreamInfo, VideoStreamInfo } from "./types";
+import type {
+  AudioStreamInfo,
+  ChapterInfo,
+  ProbeResult,
+  SubtitleStreamInfo,
+  VideoStreamInfo,
+} from "./types";
 
 /** Named channel layouts ffmpeg prints, mapped to a channel count. */
 const CHANNEL_LAYOUTS: Record<string, number> = {
@@ -196,11 +202,14 @@ export function parseProbeOutput(log: string[]): ProbeResult {
   const audioStreams: AudioStreamInfo[] = [];
   const videoStreams: VideoStreamInfo[] = [];
   const subtitleStreams: SubtitleStreamInfo[] = [];
+  const chapters: ChapterInfo[] = [];
   // The side-data block belongs to the stream printed above it, so the last
   // video stream stays in hand until another Stream line replaces it.
   let openVideo: VideoStreamInfo | null = null;
   // Likewise a subtitle track's title is on the Metadata lines under it.
   let openSubtitle: SubtitleStreamInfo | null = null;
+  // And a chapter's, on the lines under its "Chapter #0:n" line.
+  let openChapter: ChapterInfo | null = null;
 
   for (const line of log) {
     if (formatName === null) {
@@ -217,19 +226,38 @@ export function parseProbeOutput(log: string[]): ProbeResult {
       }
     }
 
+    /*
+     * Chapters are printed before the streams:
+     *   Chapter #0:0: start 0.000000, end 90.500000
+     *     Metadata:
+     *       title           : Intro
+     */
+    const chapter = line.match(/Chapter #\d+:\d+:\s*start\s+(-?\d+(?:\.\d+)?),\s*end\s+(-?\d+(?:\.\d+)?)/);
+    if (chapter) {
+      openChapter = {
+        startSeconds: Math.max(0, Number(chapter[1])),
+        endSeconds: Math.max(0, Number(chapter[2])),
+        title: null,
+      };
+      chapters.push(openChapter);
+      continue;
+    }
+
     const stream = line.match(
       /Stream #\d+:\d+(?:\[[^\]]*\])?(?:\([^)]*\))?:\s*(Audio|Video|Subtitle):\s*(.+)$/,
     );
     if (!stream) {
       const rotation = openVideo === null ? null : parseDisplayRotation(line);
       if (rotation !== null && openVideo !== null) openVideo.rotationDegrees = rotation;
-      const title = openSubtitle === null ? null : line.match(/^\s+title\s*:\s*(.+?)\s*$/)?.[1];
+      const title = line.match(/^\s+title\s*:\s*(.+?)\s*$/)?.[1];
       if (title && openSubtitle !== null) openSubtitle.title = title;
+      else if (title && openChapter !== null) openChapter.title = title;
       continue;
     }
 
     openVideo = null;
     openSubtitle = null;
+    openChapter = null;
 
     if (stream[1] === "Audio") {
       audioStreams.push(parseAudioDetail(stream[2]));
@@ -263,6 +291,7 @@ export function parseProbeOutput(log: string[]): ProbeResult {
     video: videoStreams[0] ?? null,
     hasVideo: videoStreams.length > 0,
     subtitleStreams,
+    chapters,
     formatName,
     log,
   };
