@@ -24,6 +24,7 @@ import {
 } from "@/lib/engine/audio";
 import { BURN_FONT_DIR, BURN_FONT_NAME, burnFileFormat, burnTrackFormat } from "@/lib/engine/burn";
 import { captionFormat } from "@/lib/engine/captions";
+import { chaptersFormat } from "@/lib/engine/chapters";
 import { frameFormat, resizeFormat, rotateFormat, sheetFormat } from "@/lib/engine/picture";
 import { parseProbeOutput } from "@/lib/engine/probe";
 import { trimArgs } from "@/lib/engine/trim";
@@ -47,7 +48,8 @@ function probe(path: string): ProbeResult {
 }
 
 interface Probed {
-  format: { duration: string; format_name?: string };
+  format: { duration: string; format_name?: string; tags?: Record<string, string> };
+  chapters?: Array<{ start_time: string; end_time: string; tags?: { title?: string } }>;
   streams: Array<{
     codec_type: string;
     codec_name: string;
@@ -61,7 +63,7 @@ interface Probed {
 
 function ffprobe(path: string): Probed {
   return JSON.parse(
-    execFileSync("ffprobe", ["-v", "error", "-show_format", "-show_streams", "-of", "json", path], {
+    execFileSync("ffprobe", ["-v", "error", "-show_format", "-show_streams", "-show_chapters", "-of", "json", path], {
       encoding: "utf8",
     }),
   );
@@ -133,12 +135,14 @@ function run(
   format: OutputFormat,
   input: string,
   trim: TrimRange | null = null,
+  extra: Partial<PlanContext> = {},
 ): { output: string; probed: Probed } {
   const context: PlanContext = {
     trim,
     fileBytes: statSync(input).size,
     sourceExtension: input.split(".").pop()?.toLowerCase() ?? null,
     inputPath: input,
+    ...extra,
   };
   const info = probe(input);
   const blocker = format.blocker?.(info, context) ?? null;
@@ -187,6 +191,7 @@ const stream = (probed: Probed, type: string) =>
 describe.skipIf(!hasFfmpeg)("picture, loudness and subtitle plans against a real ffmpeg", () => {
   let video: string;
   let quiet: string;
+  let tagged: string;
   let subbed: string;
   let black: string;
   let srt: string;
@@ -204,6 +209,11 @@ describe.skipIf(!hasFfmpeg)("picture, loudness and subtitle plans against a real
     quiet = fixture("quiet.mp3", [
       "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
       "-t", "6", "-af", "volume=-24dB", "-c:a", "libmp3lame", "-b:a", "128k",
+    ]);
+    // Tagged, so the chapter tool's own handling of the strip switch shows.
+    tagged = fixture("tagged.mp3", [
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
+      "-t", "6", "-c:a", "libmp3lame", "-b:a", "128k", "-metadata", "title=Song",
     ]);
     srt = join(dir, "sample.srt");
     writeFileSync(
@@ -349,5 +359,27 @@ describe.skipIf(!hasFfmpeg)("picture, loudness and subtitle plans against a real
     const spectrum = run(spectrogramFormat({ width: 800, height: 200, tone: "dark" }), quiet);
     expect(stream(spectrum.probed, "video")?.codec_name).toBe("png");
     expect(stream(spectrum.probed, "video")?.width).toBeGreaterThanOrEqual(800);
+  });
+
+  it("writes a chapter list into an MP4 and an MP3, keeping or stripping the tags as asked", () => {
+    const titles = (probed: Probed) => probed.chapters?.map((chapter) => chapter.tags?.title);
+    const mp4 = run(chaptersFormat("0:00 Intro\n1.5 Middle\n0:03 End\n0:10 Past the end"), video);
+    expect(mp4.output.endsWith(".mp4")).toBe(true);
+    expect(stream(mp4.probed, "video")?.codec_name).toBe("h264");
+    expect(stream(mp4.probed, "audio")?.codec_name).toBe("aac");
+    expect(titles(mp4.probed)).toEqual(["Intro", "Middle", "End"]);
+    expect(mp4.probed.chapters?.map((chapter) => Number(chapter.start_time))).toEqual([0, 1.5, 3]);
+    expect(Number(mp4.probed.chapters?.[2].end_time)).toBeCloseTo(4, 1);
+
+    const kept = run(chaptersFormat("0 One\n2 Two"), tagged);
+    expect(kept.output.endsWith(".mp3")).toBe(true);
+    expect(stream(kept.probed, "audio")?.codec_name).toBe("mp3");
+    expect(titles(kept.probed)).toEqual(["One", "Two"]);
+    expect(kept.probed.format.tags?.title).toBe("Song");
+
+    // The plan strips the tags itself: the engine's own stripping would take the chapters too.
+    const stripped = run(chaptersFormat("0 One\n2 Two"), tagged, null, { stripMetadata: true });
+    expect(titles(stripped.probed)).toEqual(["One", "Two"]);
+    expect(stripped.probed.format.tags?.title).toBeUndefined();
   });
 });

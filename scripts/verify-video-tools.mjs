@@ -107,6 +107,17 @@ function ensureFixtures() {
       }
       return path;
     })(),
+    // The same two cues in another language, for the merger.
+    secondSubtitles: (() => {
+      const path = join(FIXTURES, "second.srt");
+      if (!existsSync(path)) {
+        writeFileSync(
+          path,
+          "1\n00:00:01,000 --> 00:00:04,000\nBonjour.\n\n2\n00:00:05,500 --> 00:00:07,250\nDeuxieme\n",
+        );
+      }
+      return path;
+    })(),
     // A quiet tone for the normaliser, and an MKV carrying a subtitle track.
     quiet: build("quiet.mp3", [
       "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
@@ -185,7 +196,7 @@ function startServer() {
 
 function ffprobeJson(path) {
   const raw = execFileSync("ffprobe", [
-    "-v", "error", "-show_format", "-show_streams", "-of", "json", path,
+    "-v", "error", "-show_format", "-show_streams", "-show_chapters", "-of", "json", path,
   ]);
   return JSON.parse(raw.toString());
 }
@@ -270,6 +281,8 @@ async function main() {
       "compress-audio",
       "audio-channels",
       "audio-waveform",
+      "add-chapters",
+      "merge-subtitles",
     ]) {
       check(`index links to /${slug}`, links.includes(`/${slug}`));
     }
@@ -772,6 +785,45 @@ async function main() {
     const spectrum = await download(spectrumRow.getByText("Download"));
     check("spectrogram is a PNG with its legend", spectrum.name === "music-spectrogram.png" && stream(spectrum.info, "video")?.codec_name === "png" && stream(spectrum.info, "video")?.width > 1200, `${stream(spectrum.info, "video")?.width}x${stream(spectrum.info, "video")?.height}`);
     await page.screenshot({ path: join(FIXTURES, "verify-audio-tools.png"), fullPage: true });
+
+    // ---- Add chapters ---------------------------------------------------
+    log("\nAdd chapters - a typed list into a tagged MP4, then into an MP3 shorter than the list:");
+    await open("add-chapters");
+    await page.getByLabel("Chapter list").fill("0:00 Intro\n0:02 Middle\n0:04 End");
+    await drop(fixtures.tagged);
+    const chapterCard = cardFor("tagged.mp4");
+    await chapterCard.getByText("Done", { exact: true }).waitFor({ timeout: 240_000 });
+    const chaptered = await download(chapterCard.getByText("Download"));
+    check("chaptered MP4 says so in its name and is still a copy", chaptered.name === "tagged-chapters.mp4" && stream(chaptered.info, "video")?.codec_name === "h264" && stream(chaptered.info, "audio")?.codec_name === "aac", chaptered.name);
+    const chapterTitles = (chaptered.info.chapters ?? []).map((chapter) => chapter.tags?.title);
+    check("three chapters with their titles, the last running to the end", chapterTitles.join(",") === "Intro,Middle,End" && Math.abs(Number(chaptered.info.chapters?.[2]?.end_time) - 6) < 0.3, `${chapterTitles.join(",")} ending at ${chaptered.info.chapters?.[2]?.end_time}s`);
+    check("the source's tags are stripped by default, the chapters kept", chaptered.info.format.tags?.title === undefined, JSON.stringify(chaptered.info.format.tags));
+    await drop(fixtures.music);
+    const chapterMp3Card = cardFor("music.mp3");
+    await chapterMp3Card.getByText("Done", { exact: true }).waitFor({ timeout: 240_000 });
+    check("a chapter past the end is left out and the row says so", /left out/.test(await chapterMp3Card.innerText()));
+    const chapteredMp3 = await download(chapterMp3Card.getByText("Download"));
+    check("an MP3 carries the chapters that fit", chapteredMp3.name === "music-chapters.mp3" && (chapteredMp3.info.chapters ?? []).length === 2 && stream(chapteredMp3.info, "audio")?.codec_name === "mp3", `${chapteredMp3.name}, ${chapteredMp3.info.chapters?.length} chapters`);
+    await page.screenshot({ path: join(FIXTURES, "verify-chapters.png"), fullPage: true });
+
+    // ---- Merge subtitles ------------------------------------------------
+    log("\nMerge subtitles - a French SRT under an English one, stacked, then combined:");
+    await open("merge-subtitles");
+    await page.locator("#merge-secondary-file").setInputFiles(fixtures.secondSubtitles);
+    await page.getByText("second.srt (SRT, 2 cues)").waitFor({ timeout: 30_000 });
+    await drop(fixtures.subtitles);
+    const mergeCard = cardFor("sample.srt");
+    const stackedButton = mergeCard.getByRole("button", { name: "Download sample-bilingual.srt" });
+    await stackedButton.waitFor({ timeout: 30_000 });
+    const stacked = await download(stackedButton);
+    const stackedText = readFileSync(stacked.path, "utf8");
+    check("stacked SRT keeps every cue of both files, the second language at the top", (stackedText.match(/-->/g) ?? []).length === 4 && stackedText.includes("{\\an8}Bonjour.") && stackedText.includes("Hello there."), stackedText.split("\n").slice(0, 3).join(" | "));
+    await page.getByRole("button", { name: /Second language & layout/ }).click();
+    await page.getByRole("radio", { name: /Both in one cue/ }).click();
+    const combined = await download(mergeCard.getByRole("button", { name: "Download sample-bilingual.srt" }));
+    const combinedText = readFileSync(combined.path, "utf8");
+    check("combined SRT folds each overlapping pair into one two-line cue", (combinedText.match(/-->/g) ?? []).length === 2 && combinedText.includes("Hello there.\nBonjour.") && !combinedText.includes("{\\an8}"), combinedText.split("\n").slice(0, 4).join(" | "));
+    await page.screenshot({ path: join(FIXTURES, "verify-merge-subtitles.png"), fullPage: true });
 
     // ---- Engine-level assertions ----------------------------------------
     log("\nEngine:");

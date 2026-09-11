@@ -83,7 +83,7 @@ describe("the chapters format", () => {
   it("copies every stream and takes its chapters from the metadata file", () => {
     const plan = format.plan(probe(), context());
     expect(joined(plan.args)).toBe(
-      `-i ${CHAPTERS_PATH} -map 0:a:0 -vn -sn -dn -map_metadata 0 -map_chapters 1 -c copy -movflags +faststart`,
+      `-i ${CHAPTERS_PATH} -map 0:a:0 -vn -sn -dn -map_metadata:g 0 -map_chapters 1 -c copy -movflags +faststart`,
     );
     expect(plan.scratchFiles?.[0].path).toBe(CHAPTERS_PATH);
     expect(plan.scratchFiles?.[0].contents).toContain("title=Intro");
@@ -105,7 +105,7 @@ describe("the chapters format", () => {
 
   it("strips the source's tags itself when asked, since the engine must not", () => {
     const plan = format.plan(probe(), context("m4a", true));
-    expect(joined(plan.args)).toContain("-map_metadata -1 -map_chapters 1");
+    expect(joined(plan.args)).toContain("-map_metadata:g -1 -map_chapters 1");
     expect(joined(plan.args)).toContain("-fflags +bitexact");
   });
 

@@ -29,13 +29,15 @@ The live tools, each on its own route:
 | `/compress-audio` | Opus for speech, AAC or MP3 for music, or a bitrate worked out to land under a size | Presets baked into the format; a target size becomes a rate from the length, Opus below 64 kbps and AAC above |
 | `/audio-channels` | Mono, left or right only, sides swapped, mono on both sides, or the centre cut to remove vocals | `-ac` and `pan`, written back in the source's own format; the card offers only what applies to the file's channels |
 | `/audio-waveform` | A waveform PNG on a transparent background, or a spectrogram with its legend | `showwavespic` on a mono mix and `showspectrumpic`, one PNG each |
+| `/add-chapters` | Write a typed chapter list into a video or audio file, so players show its parts by name | The list as an ffmetadata file written into the core and mapped in with `-map_chapters`, every stream copied |
+| `/merge-subtitles` | Two languages in one subtitle file: the second at the top of the picture, or both folded into one cue | Plain TypeScript again: the cues of both files stacked with a position tag, or the overlapping pairs joined |
 
 Every tool is one configuration of the same machinery: a catalogue of formats in `lib/engine/`,
 a page shell in `components/ToolApp.tsx`, and an entry in the registry in `lib/tools.ts` that
 puts it on the index, in the header and footer, in the related-tools block and in the sitemap.
-Adding a tool is a registry entry, a catalogue and a page. Two tools have a shape of their own
+Adding a tool is a registry entry, a catalogue and a page. Three tools have a shape of their own
 and share only the frame: the merger, which is one job over several files rather than one job
-per file, and the subtitle converter, which never loads ffmpeg at all.
+per file, and the subtitle converter and the subtitle merger, which never load ffmpeg at all.
 
 The research behind the site is in [`agent-outputs/`](agent-outputs/): the
 [audio extraction plan](agent-outputs/audio-extraction-research-and-implementation-plan.md) for the
@@ -109,6 +111,7 @@ components/
   tools/*.tsx        one small file per tool: its catalogue, features and settings panel
   tools/MergeVideosApp.tsx      the merger: a list of clips to order, one join, one output
   tools/ConvertSubtitlesApp.tsx the subtitle converter: files parsed on arrival, outputs derived live
+  tools/MergeSubtitlesApp.tsx   the subtitle merger: one second-language file, every first-language file merged with it
   FileCard.tsx       a file in the queue: outputs, progress, preview, clip panel
   *.module.css       plain CSS modules; no utility-class framework
 lib/useConversionQueue.ts   sequential job runner, progress + cancellation, per-tool options
@@ -117,7 +120,8 @@ lib/engineState.ts   the one engine's load state, shared by the queue and the me
 lib/toolFeatures.ts  what a tool's cards offer: clip panel, silence detection, whole-file chips
 lib/mediaTypes.ts    the cheap first pass: is this even a media file, and what an input accepts
 lib/persist.ts       remembering a tool's settings between visits, without a hydration mismatch
-lib/subtitles/       SRT, WebVTT and ASS parsers and writers, and retiming; no WebAssembly
+lib/subtitles/       SRT, WebVTT and ASS parsers and writers, retiming and merging; no WebAssembly
+lib/download.ts      hands a text output to the browser as a file, for the tools with no engine
 public/fonts/        DejaVu Sans, the one font the burn-in tool has, with its licence
 lib/engine/
   types.ts           the engine contract, and the OutputFormat shape every tool's catalogue uses
@@ -129,6 +133,7 @@ lib/engine/
   video.ts           the video catalogues: convert, compress, trim, GIF, mute, strip metadata, speed
   picture.ts         resize and crop, rotate and flip, single frames and contact sheets
   captions.ts        subtitle tracks out as SRT or WebVTT; bitmap tracks refused
+  chapters.ts        chapter markers from a typed list: parsed, written as ffmetadata, mapped in with every stream copied
   merge.ts           the merger's decision - copy or re-encode, and why - and both command lines
   trim.ts            pure trim logic - ranges, timecodes, silence parsing
   probe.ts           pure parsers for ffmpeg's stderr, audio and video streams alike
@@ -385,6 +390,16 @@ transfer, say; the factor is the ratio of the two rates and the presets name the
 Outputs are a function of the parsed cues and the panel, so changing a setting changes every file
 already on the page with nothing to re-run.
 
+Merging two languages is the same library again. The second language's file is chosen once and
+every first-language file dropped is merged with it, in one of two layouts. Stacked keeps every
+cue of both files with its own timing and puts the second language at the top of the picture, as
+`{\an8}` in SRT and ASS and `line:0` in WebVTT, which the common players honour. Combined folds a
+first-language cue and a second-language cue that overlap by at least half into one two-line cue,
+for players that show a single region; cues that merely touch stay apart, and a second-language
+cue with nothing to sit under is kept on its own, so no line of either file is lost. The parsers
+read a position from either format on the way in, so a stacked file converts back without losing
+which line was on top.
+
 ### Surviving a crash
 
 ffmpeg's own refusals come back as a non-zero exit code with a readable line in the log, and cost
@@ -408,6 +423,22 @@ stay on your device has no business writing one into the file you are about to s
 It is the engine's job rather than each plan's - the same four arguments for every format, appended
 last so they win over anything a plan mapped - and the "Output options" panel on every tool turns
 it off for the case where the tags are the point, such as the title and artist of a music file.
+
+### Chapters
+
+The chapter tool is the one plan that reads the "Output options" switch itself. Its chapters are
+metadata, so the engine's stripping arguments, appended last, would take them straight back out;
+the plan says it has handled the switch, maps the source's global tags in or leaves them out as
+the switch asks (global only: a bare `-map_metadata -1` takes the chapter titles with it), and
+takes its chapters from a second input, an ffmetadata file written into the core for the run the
+way the burn-in tool's font is. The list is typed, one chapter a line, in the forms people paste
+from a video description - `1:23 Title`, `[01:23] Title`, `1:23 - Title`, `83 Title` - and each
+chapter runs to the next, the last to the end of the file, which is why the plan needs the probed
+length; a chapter at or past the end is left out and the row says so. Every stream is copied, so
+writing chapters into a two-hour film takes as long as reading it. MP4, MOV, M4A, MKV, WebM, MP3
+and Ogg carry chapters; WAV and FLAC have nowhere to put them, and the format says so rather than
+writing a file whose chapters nothing will read. The probe reads the chapters a file already has,
+the card lists them, and a new list replaces them.
 
 ### Cancelling one format
 
@@ -609,7 +640,7 @@ loop, and every format's argument strings. `tests/plans.integration.test.ts` and
 through whatever ffmpeg is on `PATH` and check the result with ffprobe, so a filter that does not
 parse fails in seconds rather than in a browser; they are skipped where ffmpeg is absent.
 `tests/picture-audio-captions.integration.test.ts` does the same for the resize, rotate, frame,
-sheet, loudness, subtitle, burn-in, audio compression, channel and waveform plans, running the
+sheet, loudness, subtitle, burn-in, audio compression, channel, waveform and chapter plans, running the
 loudness plan's two passes the way the engine does and measuring the result with `ebur128`, and
 writing a plan's scratch files where that ffmpeg can read them. The subtitle library is pure and
 its tests round-trip every format.
@@ -631,8 +662,10 @@ shifted by a second and a half; a 640x360 clip resized to 240p and turned a quar
 -24 dB tone normalised to -14 LUFS and measured there; the SRT track of an MKV extracted as
 SRT and as WebVTT; an SRT burned onto a black video and the bottom third measured lighting up
 where the cue is, then an MKV's own track burned in; an MP3 compressed to Opus and to MP3; stereo
-made from a mono MP3 and the vocals cut from a stereo MP4; and a waveform and a spectrogram
-drawn as PNGs. Every media download is checked with `ffprobe`.
+made from a mono MP3 and the vocals cut from a stereo MP4; a waveform and a spectrogram drawn as
+PNGs; a chapter list written into a tagged MP4 and into an MP3 shorter than the list; and a French
+SRT merged under an English one, stacked and then combined. Every media download is checked with
+`ffprobe`.
 
 `verify-e2e.mjs` drives a real Chromium through the audio extractor's seven cases - an MP4 with AAC, a video with no
 audio track, an MKV with 5.1 FLAC, a hand-set 1s-3s clip, an 8s file padded with two seconds of
@@ -684,6 +717,12 @@ calling large-file support universal.
 - Burned-in subtitles are set in DejaVu Sans, the one font the site ships, which covers Latin,
   Greek and Cyrillic and not Chinese, Japanese, Korean or Arabic; a font for those is tens of
   megabytes and would need its own download step. An ASS file's own fonts are replaced by it.
+- The subtitle merger's combined layout pairs cues by overlap, so it is right when both files were
+  timed to the same cut of the video and wrong when one runs early or late; shift that one with
+  the converter first. The stacked layout's position tag is honoured by VLC, mpv, the browsers and
+  most players, and a player that ignores it shows both languages at the bottom.
+- Chapter markers go only where the container has a place for them: MP4, MOV, M4A, MKV, WebM, MP3
+  and Ogg. WAV and FLAC have none and are refused with a reason rather than converted.
 - Vocal removal is a centre cut, not a separation model: it takes out whatever is identical in
   both channels, which on many mixes includes the bass and the drums, and does nothing to mono.
 - Cancelling terminates the ffmpeg worker, since ffmpeg blocks its worker while running and cannot

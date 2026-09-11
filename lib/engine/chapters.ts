@@ -142,7 +142,8 @@ export function chaptersFormat(text: string): OutputFormat {
           "-i",
           CHAPTERS_PATH,
           ...copyMaps(probe),
-          "-map_metadata",
+          // Global only: without the ":g", -1 takes the chapter titles with it.
+          "-map_metadata:g",
           strip ? "-1" : "0",
           "-map_chapters",
           "1",
