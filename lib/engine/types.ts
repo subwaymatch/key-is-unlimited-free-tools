@@ -20,6 +20,10 @@ export interface AudioStreamInfo {
   /** Raw channel layout as printed by ffmpeg, e.g. "stereo", "5.1(side)". */
   channelLayout: string | null;
   bitrateKbps: number | null;
+  /** ISO 639 code from the stream line, e.g. "eng"; null when absent or "und". */
+  language: string | null;
+  /** The track's title from the metadata under it, e.g. "Commentary", when it has one. */
+  title: string | null;
 }
 
 export interface VideoStreamInfo {
@@ -335,6 +339,12 @@ export interface OutputFormat {
    * Defaults to true.
    */
   offer?(probe: ProbeResult, context: PlanContext): boolean;
+  /**
+   * The label once the file is known, for a format whose meaning depends on
+   * the file: "Chapter 3: The first part" rather than "Chapter 3", "Track 2:
+   * fre, AAC stereo" rather than "Track 2". Defaults to `label`.
+   */
+  describe?(probe: ProbeResult): string;
 }
 
 /**
@@ -342,9 +352,10 @@ export interface OutputFormat {
  *
  * The audio extractor cannot do anything with a silent video, and a video
  * converter has nothing to convert in an MP3; "media" is for tools that work
- * on whatever is there, such as stripping metadata.
+ * on whatever is there, such as stripping metadata; "chapters" is for the
+ * splitter, which needs a chapter list to cut on.
  */
-export type MediaExpectation = "audio" | "video" | "media" | "subtitles";
+export type MediaExpectation = "audio" | "video" | "media" | "subtitles" | "chapters";
 
 export interface OpenSessionOptions {
   /** Defaults to "audio". */

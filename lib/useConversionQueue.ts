@@ -194,6 +194,14 @@ export interface QueueOptions {
   /** Which stream the file must have. Defaults to "audio". */
   expects?: MediaExpectation;
   /**
+   * For a tool whose outputs depend on what the file has - one per chapter,
+   * one per audio track: the ids to produce once the file has been read.
+   * Files arrive with no outputs and are opened regardless (set
+   * `openWithoutOutputs` too); the outputs are added from the probe, labelled
+   * by what each format says of it.
+   */
+  formatsForFile?: (probe: ProbeResult) => string[];
+  /**
    * Open and probe a file even when nothing is queued for it, so a tool that
    * needs a range first still shows the length and a preview. Defaults to
    * false: the audio extractor never mounts a file it will produce nothing from.
@@ -268,12 +276,16 @@ const LOG_FLUSH_MS = 300;
 let outputCounter = 0;
 const nextOutputId = () => `output-${(outputCounter += 1)}`;
 
-function makeOutputs(formats: readonly OutputFormat[], trim: TrimRange | null): JobOutput[] {
+function makeOutputs(
+  formats: readonly OutputFormat[],
+  trim: TrimRange | null,
+  probe?: ProbeResult,
+): JobOutput[] {
   return formats.map((format) => ({
     id: nextOutputId(),
     formatId: format.id,
     format,
-    label: format.label,
+    label: probe && format.describe ? format.describe(probe) : format.label,
     trim,
     status: "pending" as const,
     ratio: null,
@@ -540,6 +552,8 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
     async (jobId: string) => {
       const job = store.jobs.find((entry) => entry.id === jobId);
       if (!job) return;
+      // Whether this run is the one that reads the file; see formatsForFile below.
+      const firstOpen = job.probe === undefined;
 
       // The tool's options as they stand when the job starts.
       const {
@@ -597,6 +611,21 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
         if (isCancelled()) throw new ExtractionError("Cancelled.");
 
         patchJob(jobId, { status: "converting", probe: session.probe });
+
+        /*
+         * A tool whose outputs come from the file itself - one per chapter,
+         * one per track - can only say what it will produce now. Once: a job
+         * comes back through here for every format added from its card, and
+         * by then it has its probe.
+         */
+        const { formatsForFile } = store.options;
+        if (formatsForFile && firstOpen) {
+          const probe = session.probe;
+          const wanted = availableFormats(formatsForFile(probe), getEngineState().capabilities, store.options);
+          patchJob(jobId, (latest) => ({
+            outputs: [...latest.outputs, ...makeOutputs(wanted, null, probe)],
+          }));
+        }
 
         /*
          * The thumbnail is taken here, while the file is already mounted, so it
@@ -880,13 +909,17 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
     (files: File[]) => {
       if (files.length === 0) return;
       const current = store.options;
-      const formats = availableFormats(
-        // A tool whose formats come from a settings panel has no selection to
-        // honour: the panel is the selection, and it is already in the ids.
-        current.formatPicker ? store.selectedFormats : current.defaultFormatIds,
-        getEngineState().capabilities,
-        current,
-      );
+      // A tool whose outputs come from the file itself has nothing to add
+      // until the file has been read; see QueueOptions.formatsForFile.
+      const formats = current.formatsForFile
+        ? []
+        : availableFormats(
+            // A tool whose formats come from a settings panel has no selection to
+            // honour: the panel is the selection, and it is already in the ids.
+            current.formatPicker ? store.selectedFormats : current.defaultFormatIds,
+            getEngineState().capabilities,
+            current,
+          );
       const settings = store.trimSettings;
       /*
        * Newly added files are never pre-clipped. A range is chosen per file on
@@ -972,7 +1005,7 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
       patchJob(jobId, (current) => ({
         trim,
         error: undefined,
-        outputs: [...current.outputs, ...makeOutputs([format], trim)],
+        outputs: [...current.outputs, ...makeOutputs([format], trim, current.probe)],
         ...(isActive ? {} : { status: "queued" as const, phase: "Waiting..." }),
       }));
       if (!isActive) void pump();

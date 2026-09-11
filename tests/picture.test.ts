@@ -39,6 +39,8 @@ function probe(
         sampleRate: 48_000,
         channels: 2,
         channelLayout: "stereo",
+        language: null,
+        title: null,
         bitrateKbps: 192,
         ...audio,
       }

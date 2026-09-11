@@ -73,7 +73,7 @@ const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 
 /** Seconds as a plain decimal - ffmpeg accepts this anywhere a time is taken. */
-function formatSeconds(seconds: number): string {
+export function formatSeconds(seconds: number): string {
   return (Math.round(seconds * 1000) / 1000).toFixed(3);
 }
 

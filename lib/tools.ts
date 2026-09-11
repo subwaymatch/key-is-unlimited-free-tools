@@ -45,7 +45,9 @@ export type ToolIconName =
   | "channels"
   | "waveform"
   | "chapters"
-  | "bilingual";
+  | "bilingual"
+  | "split"
+  | "tracks";
 
 export interface ToolMeta {
   /** URL segment. Verb-object, lowercase, hyphenated, and permanent once shipped. */
@@ -328,6 +330,28 @@ export const TOOLS: readonly ToolMeta[] = [
     category: "subtitles",
     icon: "bilingual",
     accepts: "Subtitle files",
+    status: "live",
+  },
+  {
+    slug: "split-chapters",
+    name: "Split by chapters",
+    tagline: "Cut a podcast, audiobook or video into one file per chapter, without re-encoding.",
+    description:
+      "Split an audio or video file at its chapter markers entirely in your browser: one file per chapter, named after it, with every stream copied untouched. Nothing is uploaded.",
+    category: "audio",
+    icon: "split",
+    accepts: "Audio and video files with chapters",
+    status: "live",
+  },
+  {
+    slug: "extract-audio-tracks",
+    name: "Extract every audio track",
+    tagline: "Pull each language, commentary or music track out of a video as its own file.",
+    description:
+      "Extract every audio track from an MKV, MP4 or MOV entirely in your browser: each language or commentary track comes out as its own file, copied without re-encoding and named by its language. Nothing is uploaded.",
+    category: "audio",
+    icon: "tracks",
+    accepts: "Video and audio files",
     status: "live",
   },
   {

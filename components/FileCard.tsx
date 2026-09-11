@@ -463,7 +463,7 @@ export function FileCard({
             <p className={styles.meta}>
               {meta.join(", ")}
               {job.probe && job.probe.audioStreams.length > 1 && (
-                <>{`, ${job.probe.audioStreams.length} audio tracks (using the first)`}</>
+                <>{`, ${job.probe.audioStreams.length} audio tracks${features.everyAudioTrack ? "" : " (using the first)"}`}</>
               )}
             </p>
           </div>
@@ -591,7 +591,7 @@ export function FileCard({
                   className={styles.chip}
                 >
                   <Plus aria-hidden="true" size={13} strokeWidth={2} />
-                  {format.label}
+                  {job.probe && format.describe ? format.describe(job.probe) : format.label}
                 </Button>
               ))}
             </div>

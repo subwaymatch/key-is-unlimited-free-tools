@@ -637,7 +637,9 @@ export class FFmpegEngine implements AudioExtractor {
           ? probe.hasVideo
           : expects === "subtitles"
             ? probe.subtitleStreams.length > 0
-            : probe.audio !== null || probe.hasVideo;
+            : expects === "chapters"
+              ? probe.chapters.length > 0
+              : probe.audio !== null || probe.hasVideo;
 
     if (!satisfied) {
       const reason = summarizeFailure(log.lines);
@@ -664,6 +666,13 @@ export class FFmpegEngine implements AudioExtractor {
         throw new ExtractionError(
           "No subtitle track found.",
           "This file carries no subtitles of its own. Subtitles that are drawn into the picture cannot be extracted, only ones stored as a track, which is usual in MKV and some MP4 files.",
+          { retryable: false },
+        );
+      }
+      if (expects === "chapters") {
+        throw new ExtractionError(
+          "No chapters found.",
+          "This file carries no chapter list to split on. Podcast and audiobook files usually have one; a recording from a phone or a screen does not. The chapter tool writes one from a typed list, and the file can be split after that.",
           { retryable: false },
         );
       }

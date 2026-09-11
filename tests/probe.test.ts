@@ -79,6 +79,8 @@ describe("parseProbeOutput", () => {
       sampleRate: 48000,
       channels: 2,
       channelLayout: "stereo",
+      language: "eng",
+      title: null,
       bitrateKbps: 192,
     });
   });
@@ -400,5 +402,24 @@ describe("chapters", () => {
 
   it("finds none in a file without any", () => {
     expect(parseProbeOutput(MP4_PROBE).chapters).toEqual([]);
+  });
+});
+
+describe("audio track names", () => {
+  it("reads each track's language from its stream line and its title from the metadata under it", () => {
+    const result = parseProbeOutput([
+      "  Stream #0:1(jpn): Audio: flac, 48000 Hz, 5.1(side), s32 (24 bit) (default)",
+      "    Metadata:",
+      "      title           : Original",
+      "  Stream #0:2(und): Audio: opus, 48000 Hz, stereo, fltp",
+      "  Stream #0:3: Audio: aac (LC), 48000 Hz, stereo, fltp",
+      "    Metadata:",
+      "      handler_name    : SoundHandler",
+    ]);
+    expect(result.audioStreams.map((stream) => [stream.language, stream.title])).toEqual([
+      ["jpn", "Original"],
+      [null, null],
+      [null, null],
+    ]);
   });
 });

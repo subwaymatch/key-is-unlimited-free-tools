@@ -26,6 +26,8 @@ export interface ToolFeatures {
    * tool entirely on the one that compresses. Defaults to "Converting".
    */
   busyLabel?: string;
+  /** The tool works on every audio track, so the card must not say it uses the first. */
+  everyAudioTrack?: boolean;
   /**
    * Longest source, in seconds, that a clip-only tool will offer whole.
    *

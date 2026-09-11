@@ -16,7 +16,7 @@ function probe(subtitleStreams: SubtitleStreamInfo[] = [], audio = true): ProbeR
     bitrateKbps: 3000,
     audioStreams: [],
     audio: audio
-      ? { codec: "aac", profile: "LC", sampleRate: 48_000, channels: 2, channelLayout: "stereo", bitrateKbps: 128 }
+      ? { codec: "aac", profile: "LC", sampleRate: 48_000, channels: 2, channelLayout: "stereo", bitrateKbps: 128, language: null, title: null }
       : null,
     videoStreams: [],
     video: {

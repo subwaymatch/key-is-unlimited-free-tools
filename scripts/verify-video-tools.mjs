@@ -118,6 +118,27 @@ function ensureFixtures() {
       }
       return path;
     })(),
+    // The tagged MP4 with three two-second chapters, for the splitter.
+    chaptered: (() => {
+      const meta = join(FIXTURES, "chapters.ffmeta");
+      if (!existsSync(meta)) {
+        writeFileSync(
+          meta,
+          ";FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=2000\ntitle=Intro\n\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=2000\nEND=4000\ntitle=Middle\n\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=4000\nEND=6000\ntitle=End\n",
+        );
+      }
+      return build("chaptered.mp4", [
+        "-i", join(FIXTURES, "tagged.mp4"), "-i", meta,
+        "-map", "0", "-map_chapters", "1", "-c", "copy",
+      ]);
+    })(),
+    // Two audio tracks in two languages, the second titled, for the track extractor.
+    dual: build("dual.mkv", [
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+      "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000",
+      "-t", "3", "-map", "0:a", "-map", "1:a", "-c:a", "aac", "-b:a", "96k",
+      "-metadata:s:a:0", "language=eng", "-metadata:s:a:1", "language=fre", "-metadata:s:a:1", "title=Commentary",
+    ]),
     // A quiet tone for the normaliser, and an MKV carrying a subtitle track.
     quiet: build("quiet.mp3", [
       "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
@@ -283,6 +304,8 @@ async function main() {
       "audio-waveform",
       "add-chapters",
       "merge-subtitles",
+      "split-chapters",
+      "extract-audio-tracks",
     ]) {
       check(`index links to /${slug}`, links.includes(`/${slug}`));
     }
@@ -824,6 +847,38 @@ async function main() {
     const combinedText = readFileSync(combined.path, "utf8");
     check("combined SRT folds each overlapping pair into one two-line cue", (combinedText.match(/-->/g) ?? []).length === 2 && combinedText.includes("Hello there.\nBonjour.") && !combinedText.includes("{\\an8}"), combinedText.split("\n").slice(0, 4).join(" | "));
     await page.screenshot({ path: join(FIXTURES, "verify-merge-subtitles.png"), fullPage: true });
+
+    // ---- Split by chapters ----------------------------------------------
+    log("\nSplit by chapters - a three-chapter MP4 into three pieces, then a file with none:");
+    await open("split-chapters");
+    await drop(fixtures.chaptered);
+    const splitCard = cardFor("chaptered.mp4");
+    await splitCard.getByText("Done", { exact: true }).waitFor({ timeout: 240_000 });
+    check("one row per chapter, named by its title", (await splitCard.locator("li").filter({ hasText: /^Chapter [123]: (Intro|Middle|End)/ }).count()) === 3, (await splitCard.innerText()).slice(0, 200));
+    const middleRow = splitCard.locator("li").filter({ hasText: /^Chapter 2: Middle/ });
+    const middle = await download(middleRow.getByText("Download"));
+    check("the piece is a copy named after its chapter", middle.name === "chaptered-02-middle.mp4" && stream(middle.info, "video")?.codec_name === "h264" && stream(middle.info, "audio")?.codec_name === "aac", middle.name);
+    check("the piece covers its chapter", Math.abs(seconds(middle.info) - 2) < 0.3, `${seconds(middle.info).toFixed(2)}s`);
+    check("the piece carries no chapter list of its own", (middle.info.chapters ?? []).length === 0);
+    await drop(fixtures.music);
+    const noChaptersCard = cardFor("music.mp3");
+    await noChaptersCard.getByText(/No chapters found/).waitFor({ timeout: 120_000 });
+    check("a file without chapters is refused with a pointer to the chapter tool", /chapter tool/.test(await noChaptersCard.innerText()));
+    await page.screenshot({ path: join(FIXTURES, "verify-split-chapters.png"), fullPage: true });
+
+    // ---- Extract every audio track --------------------------------------
+    log("\nExtract every audio track - an MKV with an English and a French track:");
+    await open("extract-audio-tracks");
+    await drop(fixtures.dual);
+    const tracksCard = cardFor("dual.mkv");
+    await tracksCard.getByText("Done", { exact: true }).waitFor({ timeout: 240_000 });
+    check("one row per track, described by language and codec", (await tracksCard.locator("li").filter({ hasText: /^Track 1: eng, AAC mono/ }).count()) === 1 && (await tracksCard.locator("li").filter({ hasText: /^Track 2: Commentary, fre, AAC mono/ }).count()) === 1, (await tracksCard.innerText()).slice(0, 200));
+    const frenchRow = tracksCard.locator("li").filter({ hasText: /^Track 2: / });
+    const french = await download(frenchRow.getByText("Download"));
+    check("the track comes out as an M4A named by its language, still AAC and alone", french.name === "dual-track2-fre.m4a" && stream(french.info, "audio")?.codec_name === "aac" && french.info.streams.length === 1, french.name);
+    check("the track keeps its language tag", stream(french.info, "audio")?.tags?.language === "fre", JSON.stringify(stream(french.info, "audio")?.tags));
+    check("the card does not claim to use only the first track", !/using the first/.test(await tracksCard.innerText()));
+    await page.screenshot({ path: join(FIXTURES, "verify-audio-tracks.png"), fullPage: true });
 
     // ---- Engine-level assertions ----------------------------------------
     log("\nEngine:");

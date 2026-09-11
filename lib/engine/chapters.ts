@@ -108,12 +108,12 @@ export function chaptersMetadata(chapters: readonly ChapterEntry[], durationSeco
 }
 
 /** The container the output lands in: the source's, or the codec's own for audio. */
-function chapterContainer(probe: ProbeResult, context: PlanContext | undefined) {
+export function chapterContainer(probe: ProbeResult, context: PlanContext | undefined) {
   return containerFor(probe.video?.codec ?? null, probe.audio?.codec ?? null, context?.sourceExtension);
 }
 
 /** The streams copied through: the picture, the sound and the subtitles, never the data tracks. */
-function copyMaps(probe: ProbeResult): string[] {
+export function copyMaps(probe: ProbeResult): string[] {
   return probe.hasVideo && probe.video
     ? ["-map", "0:v:0", "-map", "0:a?", "-map", "0:s?", "-dn"]
     : ["-map", "0:a:0", "-vn", "-sn", "-dn"];

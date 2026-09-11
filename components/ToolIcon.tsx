@@ -8,6 +8,7 @@ import {
   Headphones,
   ImagePlay,
   Languages,
+  Layers,
   LayoutGrid,
   ListOrdered,
   Merge,
@@ -19,6 +20,7 @@ import {
   Scissors,
   ShieldCheck,
   Shrink,
+  Split,
   Type,
   VolumeX,
 } from "lucide-react";
@@ -55,6 +57,8 @@ export const TOOL_ICONS = {
   waveform: Activity,
   chapters: ListOrdered,
   bilingual: Languages,
+  split: Split,
+  tracks: Layers,
 } as const satisfies Record<ToolIconName, unknown>;
 
 interface ToolIconProps {

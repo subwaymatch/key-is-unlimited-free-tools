@@ -31,6 +31,8 @@ The live tools, each on its own route:
 | `/audio-waveform` | A waveform PNG on a transparent background, or a spectrogram with its legend | `showwavespic` on a mono mix and `showspectrumpic`, one PNG each |
 | `/add-chapters` | Write a typed chapter list into a video or audio file, so players show its parts by name | The list as an ffmetadata file written into the core and mapped in with `-map_chapters`, every stream copied |
 | `/merge-subtitles` | Two languages in one subtitle file: the second at the top of the picture, or both folded into one cue | Plain TypeScript again: the cues of both files stacked with a position tag, or the overlapping pairs joined |
+| `/split-chapters` | A podcast, audiobook or video cut into one file per chapter, named after it | One stream-copy format per chapter, from the probe's chapter list: `-ss` before the input, `-t` after, the piece titled after its chapter |
+| `/extract-audio-tracks` | Every audio track of a film or recording as its own file, named by its language | One stream-copy format per track, `-map 0:a:N` into the container the codec belongs in |
 
 Every tool is one configuration of the same machinery: a catalogue of formats in `lib/engine/`,
 a page shell in `components/ToolApp.tsx`, and an entry in the registry in `lib/tools.ts` that
@@ -134,6 +136,8 @@ lib/engine/
   picture.ts         resize and crop, rotate and flip, single frames and contact sheets
   captions.ts        subtitle tracks out as SRT or WebVTT; bitmap tracks refused
   chapters.ts        chapter markers from a typed list: parsed, written as ffmetadata, mapped in with every stream copied
+  split.ts           one stream-copy format per chapter, for cutting a file at its markers
+  tracks.ts          one stream-copy format per audio track, into the container its codec belongs in
   merge.ts           the merger's decision - copy or re-encode, and why - and both command lines
   trim.ts            pure trim logic - ranges, timecodes, silence parsing
   probe.ts           pure parsers for ffmpeg's stderr, audio and video streams alike
@@ -440,6 +444,17 @@ and Ogg carry chapters; WAV and FLAC have nowhere to put them, and the format sa
 writing a file whose chapters nothing will read. The probe reads the chapters a file already has,
 the card lists them, and a new list replaces them.
 
+Splitting at chapters is the reverse, and the first tool whose outputs come from the file rather
+than from a catalogue or a panel: a file has as many pieces as it has chapters, which is not known
+until it has been read. The queue has an option for that, `formatsForFile`: such a file arrives
+with no outputs, is opened regardless, and gets its outputs from the probe, each labelled by what
+the format says of it - "Chapter 3: The first part" rather than "Chapter 3". Every piece is a
+stream copy of its range, seeking before the input the way the fast cut does, with the file's
+chapter list left out of it and the piece titled after its chapter unless tags are being stripped.
+The extractor of every audio track is the same shape: one copy per track, named by the track's
+language, into the container its codec belongs in; the probe now reads a track's language and
+title along with its codec.
+
 ### Cancelling one format
 
 Each output is a format *and* a range, and each can be cancelled on its own. Cancelling one that is
@@ -640,7 +655,8 @@ loop, and every format's argument strings. `tests/plans.integration.test.ts` and
 through whatever ffmpeg is on `PATH` and check the result with ffprobe, so a filter that does not
 parse fails in seconds rather than in a browser; they are skipped where ffmpeg is absent.
 `tests/picture-audio-captions.integration.test.ts` does the same for the resize, rotate, frame,
-sheet, loudness, subtitle, burn-in, audio compression, channel, waveform and chapter plans, running the
+sheet, loudness, subtitle, burn-in, audio compression, channel, waveform, chapter, chapter-split and
+audio-track plans, running the
 loudness plan's two passes the way the engine does and measuring the result with `ebur128`, and
 writing a plan's scratch files where that ffmpeg can read them. The subtitle library is pure and
 its tests round-trip every format.
@@ -663,9 +679,10 @@ shifted by a second and a half; a 640x360 clip resized to 240p and turned a quar
 SRT and as WebVTT; an SRT burned onto a black video and the bottom third measured lighting up
 where the cue is, then an MKV's own track burned in; an MP3 compressed to Opus and to MP3; stereo
 made from a mono MP3 and the vocals cut from a stereo MP4; a waveform and a spectrogram drawn as
-PNGs; a chapter list written into a tagged MP4 and into an MP3 shorter than the list; and a French
-SRT merged under an English one, stacked and then combined. Every media download is checked with
-`ffprobe`.
+PNGs; a chapter list written into a tagged MP4 and into an MP3 shorter than the list; a French
+SRT merged under an English one, stacked and then combined; a three-chapter MP4 split into three
+pieces and a file without chapters refused; and the French track of a two-language MKV extracted
+as an M4A with its language tag. Every media download is checked with `ffprobe`.
 
 `verify-e2e.mjs` drives a real Chromium through the audio extractor's seven cases - an MP4 with AAC, a video with no
 audio track, an MKV with 5.1 FLAC, a hand-set 1s-3s clip, an 8s file padded with two seconds of
@@ -723,6 +740,13 @@ calling large-file support universal.
   most players, and a player that ignores it shows both languages at the bottom.
 - Chapter markers go only where the container has a place for them: MP4, MOV, M4A, MKV, WebM, MP3
   and Ogg. WAV and FLAC have none and are refused with a reason rather than converted.
+- A video split at its chapters is cut by stream copy, so each piece starts on the keyframe before
+  its chapter and can begin a few seconds early; the sound is cut to the frame. A cut to the frame
+  would be a re-encode of every piece, which is the precise cut on the trimmer, one chapter at a
+  time.
+- The track extractor copies; a track in a codec no container of its own will hold (TrueHD, DTS)
+  comes out in a Matroska audio file, which fewer players open. Extract it and drop it on the
+  audio converter for an M4A or MP3.
 - Vocal removal is a centre cut, not a separation model: it takes out whatever is identical in
   both channels, which on many mixes includes the bass and the drums, and does nothing to mono.
 - Cancelling terminates the ffmpeg worker, since ffmpeg blocks its worker while running and cannot

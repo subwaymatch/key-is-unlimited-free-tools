@@ -12,7 +12,7 @@ function probe(
     ? { codec: "h264", profile: "High", pixelFormat: "yuv420p", width: 1280, height: 720, fps: 30, bitrateKbps: 2500, rotationDegrees: null, ...video }
     : null;
   const audioStream: AudioStreamInfo | null = audio
-    ? { codec: "aac", profile: "LC", sampleRate: 48_000, channels: 2, channelLayout: "stereo", bitrateKbps: 128, ...audio }
+    ? { codec: "aac", profile: "LC", sampleRate: 48_000, channels: 2, channelLayout: "stereo", bitrateKbps: 128, language: null, title: null, ...audio }
     : null;
   return {
     durationSeconds,

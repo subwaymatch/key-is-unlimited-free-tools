@@ -25,7 +25,10 @@ import {
 import { BURN_FONT_DIR, BURN_FONT_NAME, burnFileFormat, burnTrackFormat } from "@/lib/engine/burn";
 import { captionFormat } from "@/lib/engine/captions";
 import { chaptersFormat } from "@/lib/engine/chapters";
+import { STRIP_METADATA_ARGS } from "@/lib/engine/ffmpegEngine";
 import { frameFormat, resizeFormat, rotateFormat, sheetFormat } from "@/lib/engine/picture";
+import { chapterFormat } from "@/lib/engine/split";
+import { audioTrackFormat } from "@/lib/engine/tracks";
 import { parseProbeOutput } from "@/lib/engine/probe";
 import { trimArgs } from "@/lib/engine/trim";
 import type { FormatPlan, OutputFormat, PlanContext, ProbeResult, TrimRange } from "@/lib/engine/types";
@@ -58,6 +61,7 @@ interface Probed {
     sample_rate?: string;
     channels?: number;
     pix_fmt?: string;
+    tags?: Record<string, string>;
   }>;
 }
 
@@ -180,7 +184,9 @@ function run(
     if (plan.refine) kept.push(...lines.filter(plan.refine.keep));
   }
   const finalArgs = plan.refine ? plan.refine.args(kept) : args;
-  exec(finalArgs, [output]);
+  // What the engine appends when the strip switch is on and the plan has not handled it.
+  const strip = extra.stripMetadata && !plan.stripsMetadata ? STRIP_METADATA_ARGS : [];
+  exec([...finalArgs, ...strip], [output]);
 
   return { output, probed: ffprobe(output) };
 }
@@ -192,6 +198,9 @@ describe.skipIf(!hasFfmpeg)("picture, loudness and subtitle plans against a real
   let video: string;
   let quiet: string;
   let tagged: string;
+  let chapteredMp3: string;
+  let chapteredMp4: string;
+  let dual: string;
   let subbed: string;
   let black: string;
   let srt: string;
@@ -214,6 +223,21 @@ describe.skipIf(!hasFfmpeg)("picture, loudness and subtitle plans against a real
     tagged = fixture("tagged.mp3", [
       "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
       "-t", "6", "-c:a", "libmp3lame", "-b:a", "128k", "-metadata", "title=Song",
+    ]);
+    // Two chapters, for the splitter: the second runs from 1.5 s to 4 s.
+    const pieces = join(dir, "pieces.ffmeta");
+    writeFileSync(
+      pieces,
+      ";FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=1500\ntitle=Intro\n\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=1500\nEND=4000\ntitle=The rest\n",
+    );
+    chapteredMp3 = fixture("chaptered.mp3", ["-i", quiet, "-i", pieces, "-map", "0:a", "-map_chapters", "1", "-c", "copy"]);
+    chapteredMp4 = fixture("chaptered.mp4", ["-i", video, "-i", pieces, "-map", "0", "-map_chapters", "1", "-c", "copy"]);
+    // Two audio tracks in two languages, one titled, for the track extractor.
+    dual = fixture("dual.mkv", [
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+      "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000",
+      "-t", "3", "-map", "0:a", "-map", "1:a", "-c:a", "aac", "-b:a", "96k",
+      "-metadata:s:a:0", "language=eng", "-metadata:s:a:1", "language=fre", "-metadata:s:a:1", "title=Commentary",
     ]);
     srt = join(dir, "sample.srt");
     writeFileSync(
@@ -381,5 +405,45 @@ describe.skipIf(!hasFfmpeg)("picture, loudness and subtitle plans against a real
     const stripped = run(chaptersFormat("0 One\n2 Two"), tagged, null, { stripMetadata: true });
     expect(titles(stripped.probed)).toEqual(["One", "Two"]);
     expect(stripped.probed.format.tags?.title).toBeUndefined();
+  });
+
+  it("splits a file at its chapters by stream copy, one titled piece per chapter", () => {
+    const rest = run(chapterFormat(1), chapteredMp3);
+    expect(rest.output.endsWith(".mp3")).toBe(true);
+    expect(stream(rest.probed, "audio")?.codec_name).toBe("mp3");
+    expect(Number(rest.probed.format.duration)).toBeCloseTo(2.5, 1);
+    expect(rest.probed.chapters ?? []).toHaveLength(0);
+    expect(rest.probed.format.tags?.title).toBe("The rest");
+
+    // The first chapter starts at zero, so a video piece needs no seek and lands to the frame.
+    const intro = run(chapterFormat(0), chapteredMp4);
+    expect(intro.output.endsWith(".mp4")).toBe(true);
+    expect(stream(intro.probed, "video")?.codec_name).toBe("h264");
+    expect(stream(intro.probed, "audio")?.codec_name).toBe("aac");
+    expect(Number(intro.probed.format.duration)).toBeCloseTo(1.5, 1);
+    expect(intro.probed.chapters ?? []).toHaveLength(0);
+    expect(intro.probed.format.tags?.title).toBe("Intro");
+
+    const third = chapterFormat(2).blocker?.(probe(chapteredMp3), { trim: null, fileBytes: 1000 });
+    expect(third?.message).toBe("This file has no chapter 3.");
+  });
+
+  it("extracts one audio track of several into its own container, tagged as it was", () => {
+    const info = probe(dual);
+    expect(info.audioStreams.map((track) => [track.language, track.title])).toEqual([
+      ["eng", null],
+      ["fre", "Commentary"],
+    ]);
+    const french = run(audioTrackFormat(1), dual);
+    expect(french.output.endsWith(".m4a")).toBe(true);
+    expect(french.probed.streams).toHaveLength(1);
+    expect(stream(french.probed, "audio")?.codec_name).toBe("aac");
+    expect(stream(french.probed, "audio")?.tags?.language).toBe("fre");
+    expect(audioTrackFormat(1).plan(info, { trim: null, fileBytes: 1000 }).fileSuffix).toBe("-track2-fre");
+
+    // With the tags being stripped, the track's own language still comes along. (An M4A
+    // has no place for a stream title, so that one is only checked in the plan.)
+    const stripped = run(audioTrackFormat(1), dual, null, { stripMetadata: true });
+    expect(stream(stripped.probed, "audio")?.tags?.language).toBe("fre");
   });
 });
