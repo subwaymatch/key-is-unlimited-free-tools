@@ -94,7 +94,7 @@ describe("chapter pieces", () => {
     expect(first.extension).toBe("mp4");
     expect(first.kind).toBe("video");
     expect(first.fileSuffix).toBe("-01-intro");
-    expect(first.warning).toMatch(/keyframe/);
+    expect(first.warning).toBeUndefined();
 
     const third = chapterFormat(2).plan(probe(true), context("mp4"));
     expect(joined(third.args)).toContain("-metadata title=Chapter 3 -metadata track=3/3");

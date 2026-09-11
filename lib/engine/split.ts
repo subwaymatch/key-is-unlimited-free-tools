@@ -62,9 +62,6 @@ function chapterEnd(chapter: ChapterInfo, probe: ProbeResult): number | null {
   return null;
 }
 
-const KEYFRAME_NOTE =
-  "A copied video starts on the keyframe before the chapter, so a piece can begin up to a few seconds early; the sound is cut to the frame.";
-
 /** One chapter as one format. */
 export function chapterFormat(index: number): OutputFormat {
   return {
@@ -118,9 +115,9 @@ export function chapterFormat(index: number): OutputFormat {
         fileSuffix: chapterSuffix(chapter, index),
         // Progress is measured against the whole file, and this is a piece of it.
         durationFactor: total ? length / total : 1,
-        warning: probe.hasVideo
-          ? [KEYFRAME_NOTE, playbackWarning(probe.video?.codec)].filter(Boolean).join(" ")
-          : undefined,
+        // The keyframe snap is said once, in the page's note, rather than under
+        // every one of an audiobook's forty pieces.
+        warning: probe.hasVideo ? playbackWarning(probe.video?.codec) : undefined,
       };
     },
     blocker(probe, context): FormatBlocker | null {
