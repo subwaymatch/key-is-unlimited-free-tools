@@ -43,6 +43,12 @@ describe("looksLikeMedia", () => {
     expect(looksLikeMedia(file("recording.opus", ""))).toBe(true);
   });
 
+  it("takes an animated GIF, which ffmpeg reads as video", () => {
+    expect(looksLikeMedia(file("reaction.gif", "image/gif"))).toBe(true);
+    expect(looksLikeMedia(file("reaction.gif", ""))).toBe(true);
+    expect(looksLikeMedia(file("photo.png", "image/png"))).toBe(false);
+  });
+
   it("says no to things with no reading at all", () => {
     expect(looksLikeMedia(file("notes.txt", "text/plain"))).toBe(false);
     expect(looksLikeMedia(file("report.pdf", "application/pdf"))).toBe(false);

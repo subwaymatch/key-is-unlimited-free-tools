@@ -895,3 +895,31 @@ describe("outputs from the file itself", () => {
     expect(job(hook).outputs[2].label).toBe("Piece 3 of 120s");
   });
 });
+
+describe("the strip switch", () => {
+  const options = { key: "plain", formats: [], defaultFormatIds: [], waveform: false };
+  const own = { key: "tagger", formats: [], defaultFormatIds: [], waveform: false, stripMetadataDefault: false };
+
+  it("starts on for every tool, and off for a tool that says so", () => {
+    expect(renderHook(() => useConversionQueue(options)).result.current.stripMetadata).toBe(true);
+    expect(renderHook(() => useConversionQueue(own)).result.current.stripMetadata).toBe(false);
+  });
+
+  it("remembers a tool with its own default under its own key, apart from the shared one", async () => {
+    const shared = renderHook(() => useConversionQueue(options));
+    await act(async () => {
+      shared.result.current.setStripMetadata(false);
+    });
+    await waitFor(() => expect(window.localStorage.getItem("key.is:strip-metadata")).toBe("false"));
+
+    const tagger = renderHook(() => useConversionQueue(own));
+    await act(async () => {
+      tagger.result.current.setStripMetadata(true);
+    });
+    await waitFor(() => expect(window.localStorage.getItem("key.is:strip-metadata:tagger")).toBe("true"));
+    // Neither choice reached the other.
+    expect(window.localStorage.getItem("key.is:strip-metadata")).toBe("false");
+    expect(shared.result.current.stripMetadata).toBe(false);
+    expect(tagger.result.current.stripMetadata).toBe(true);
+  });
+});

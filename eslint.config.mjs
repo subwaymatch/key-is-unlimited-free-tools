@@ -20,6 +20,8 @@ const eslintConfig = [
       "next-env.d.ts",
       // Vendored verbatim from @ffmpeg/ffmpeg by scripts/copy-ffmpeg-worker.mjs.
       "public/ffmpeg/**",
+      // Vendored verbatim from pdfjs-dist by scripts/copy-pdfjs-assets.mjs.
+      "public/pdfjs/**",
     ],
   },
 ];

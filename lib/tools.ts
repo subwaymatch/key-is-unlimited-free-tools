@@ -15,7 +15,7 @@ import type { Metadata } from "next";
 
 import { SITE_NAME, SITE_URL } from "./site";
 
-export type ToolCategory = "video" | "audio" | "subtitles" | "images" | "documents" | "data";
+export type ToolCategory = "video" | "audio" | "subtitles" | "images" | "documents" | "files" | "data";
 
 /*
  * Icon keys, resolved to lucide components by components/ToolIcon.tsx.
@@ -47,7 +47,36 @@ export type ToolIconName =
   | "chapters"
   | "bilingual"
   | "split"
-  | "tracks";
+  | "tracks"
+  | "addaudio"
+  | "volume"
+  | "sync"
+  | "softsubs"
+  | "loop"
+  | "film"
+  | "tags"
+  | "cut"
+  | "parts"
+  | "clapper"
+  | "fade"
+  | "tempo"
+  | "picture"
+  | "shrinkpicture"
+  | "hidden"
+  | "imagepdf"
+  | "deletepages"
+  | "numbers"
+  | "checksum"
+  | "archive"
+  | "unarchive"
+  | "stamp"
+  | "frames"
+  | "crop"
+  | "favicon"
+  | "code"
+  | "text"
+  | "erase"
+  | "copies";
 
 export interface ToolMeta {
   /** URL segment. Verb-object, lowercase, hyphenated, and permanent once shipped. */
@@ -68,6 +97,12 @@ export interface ToolMeta {
    * worse than an absent one, for visitors and crawlers alike.
    */
   status: "live" | "planned";
+  /**
+   * What runs the tool: ffmpeg compiled to WebAssembly, or the browser's own
+   * JavaScript with no runtime to download. Says which requirement the page's
+   * structured data states. Defaults to "ffmpeg", which most tools are.
+   */
+  engine?: "ffmpeg" | "browser";
 }
 
 export const CATEGORY_LABELS: Record<ToolCategory, string> = {
@@ -76,6 +111,7 @@ export const CATEGORY_LABELS: Record<ToolCategory, string> = {
   subtitles: "Subtitles",
   images: "Images",
   documents: "Documents",
+  files: "Files",
   data: "Data",
 };
 
@@ -86,6 +122,7 @@ export const CATEGORY_ORDER: readonly ToolCategory[] = [
   "subtitles",
   "images",
   "documents",
+  "files",
   "data",
 ];
 
@@ -199,6 +236,7 @@ export const TOOLS: readonly ToolMeta[] = [
     icon: "subtitles",
     accepts: "Subtitle files",
     status: "live",
+    engine: "browser",
   },
   {
     slug: "resize-video",
@@ -331,6 +369,7 @@ export const TOOLS: readonly ToolMeta[] = [
     icon: "bilingual",
     accepts: "Subtitle files",
     status: "live",
+    engine: "browser",
   },
   {
     slug: "split-chapters",
@@ -353,6 +392,458 @@ export const TOOLS: readonly ToolMeta[] = [
     icon: "tracks",
     accepts: "Video and audio files",
     status: "live",
+  },
+  {
+    slug: "add-audio",
+    name: "Add audio to video",
+    tagline: "Put music or a voiceover under a video, in place of its sound or mixed with it.",
+    description:
+      "Add an audio file to a video entirely in your browser: music, a voiceover or a new soundtrack, in place of the original sound or mixed under it, padded, cut or looped to the picture. The picture is copied untouched. Nothing is uploaded.",
+    category: "video",
+    icon: "addaudio",
+    accepts: "Video files, plus an audio file",
+    status: "live",
+  },
+  {
+    slug: "sync-audio",
+    name: "Fix audio sync",
+    tagline: "Move a video's sound earlier or later to line it up with the picture.",
+    description:
+      "Fix a video whose sound runs ahead of or behind the picture entirely in your browser: shift the audio by any number of milliseconds with every stream copied, so it takes seconds however long the film. Nothing is uploaded.",
+    category: "video",
+    icon: "sync",
+    accepts: "Video files",
+    status: "live",
+  },
+  {
+    slug: "loop-video",
+    name: "Loop video",
+    tagline: "Repeat a clip a number of times, or run it out to an hour, without re-encoding.",
+    description:
+      "Loop a video or an audio file entirely in your browser: play it two, three or ten times over, or repeat a short clip until it is a minute, ten minutes or an hour long, with every stream copied. Nothing is uploaded.",
+    category: "video",
+    icon: "loop",
+    accepts: "Video and audio files",
+    status: "live",
+  },
+  {
+    slug: "gif-to-video",
+    name: "GIF to MP4",
+    tagline: "Turn an animated GIF into an MP4 or WebM that plays anywhere and weighs a fraction.",
+    description:
+      "Convert an animated GIF to an MP4 or a WebM entirely in your browser, at a fraction of the size, with the animation played once or several times over. Nothing is uploaded.",
+    category: "video",
+    icon: "film",
+    accepts: "GIF files",
+    status: "live",
+  },
+  {
+    slug: "split-video",
+    name: "Split video into parts",
+    tagline: "Cut a long video every ten minutes, or into four equal parts, without re-encoding.",
+    description:
+      "Split a video into equal parts entirely in your browser: every minute, five, ten or thirty, or into two, three or ten pieces of the same length, each cut by stream copy so a long recording comes apart in seconds. Nothing is uploaded.",
+    category: "video",
+    icon: "parts",
+    accepts: "Video files",
+    status: "live",
+  },
+  {
+    slug: "trim-audio",
+    name: "Trim audio",
+    tagline: "Cut a range out of an MP3, WAV, M4A or any audio file, without re-encoding.",
+    description:
+      "Trim an audio file entirely in your browser: set the start and the end on the waveform and cut, in the file's own format without re-encoding, or as MP3, M4A, WAV, FLAC or Opus. Nothing is uploaded.",
+    category: "audio",
+    icon: "cut",
+    accepts: "Audio and video files",
+    status: "live",
+  },
+  {
+    slug: "change-volume",
+    name: "Change volume",
+    tagline: "Make a recording louder or quieter, or as loud as it can go without clipping.",
+    description:
+      "Turn an audio file or a video's sound up or down by any number of decibels entirely in your browser, or lift it as loud as it can go without clipping. Audio comes back in its own format; a video keeps its picture copied. Nothing is uploaded.",
+    category: "audio",
+    icon: "volume",
+    accepts: "Audio and video files",
+    status: "live",
+  },
+  {
+    slug: "change-audio-speed",
+    name: "Change audio speed",
+    tagline: "Play a lecture at 1.5x or slow an interview to half, with the pitch kept.",
+    description:
+      "Speed up or slow down an audio file entirely in your browser, from half speed to three times, with the pitch kept so voices still sound like themselves. Written back in the file's own format. Nothing is uploaded.",
+    category: "audio",
+    icon: "tempo",
+    accepts: "Audio and video files",
+    status: "live",
+  },
+  {
+    slug: "add-fade",
+    name: "Fade in and out",
+    tagline: "A gentle start and finish for a recording, or a video's sound and picture.",
+    description:
+      "Add a fade in and a fade out to an audio file, or to a video's sound and picture, entirely in your browser: half a second to ten, at either end or both. Nothing is uploaded.",
+    category: "audio",
+    icon: "fade",
+    accepts: "Audio and video files",
+    status: "live",
+  },
+  {
+    slug: "split-audio",
+    name: "Split audio into parts",
+    tagline: "Cut a long recording every ten minutes, or into equal parts, without re-encoding.",
+    description:
+      "Split an audio file into equal parts entirely in your browser: every minute, five, ten or thirty, or into two, three or ten pieces of the same length, each copied without re-encoding. Nothing is uploaded.",
+    category: "audio",
+    icon: "parts",
+    accepts: "Audio files",
+    status: "live",
+  },
+  {
+    slug: "edit-tags",
+    name: "Edit audio tags",
+    tagline: "Title, artist, album, year, genre, track and a cover picture, written without re-encoding.",
+    description:
+      "Edit the tags of an MP3, M4A, FLAC or Ogg file entirely in your browser: title, artist, album, year, genre, track number and comment, plus a cover picture, all written with the audio copied untouched. Nothing is uploaded.",
+    category: "audio",
+    icon: "tags",
+    accepts: "Audio and video files",
+    status: "live",
+  },
+  {
+    slug: "audio-to-video",
+    name: "Audio to video",
+    tagline: "Turn an MP3 into an MP4 for YouTube: a colour, a picture or a waveform under it.",
+    description:
+      "Turn an audio file into a video entirely in your browser, for the sites that only take video: the sound under a plain colour, a picture you choose or a moving waveform, as an MP4 that YouTube and every feed accept. Nothing is uploaded.",
+    category: "audio",
+    icon: "clapper",
+    accepts: "Audio files, plus an optional image",
+    status: "live",
+  },
+  {
+    slug: "add-subtitles",
+    name: "Add subtitles to video",
+    tagline: "Put an SRT or VTT file into an MP4 or MKV as a track that can be switched on and off.",
+    description:
+      "Add a subtitle file to a video as a track of its own entirely in your browser: an SRT, WebVTT or ASS file written into the MP4, MOV, MKV or WebM with the picture and sound copied untouched, tagged with its language, switchable in any player. Nothing is uploaded.",
+    category: "subtitles",
+    icon: "softsubs",
+    accepts: "Video files, plus a subtitle file",
+    status: "live",
+  },
+  {
+    slug: "convert-image",
+    name: "Convert image",
+    tagline: "HEIC, AVIF, PNG, WebP or anything else to JPEG, PNG or WebP, in bulk.",
+    description:
+      "Convert pictures between JPEG, PNG and WebP entirely in your browser, from any format it can open, including HEIC and AVIF where it can, at a quality you choose. Metadata is left behind. Nothing is uploaded.",
+    category: "images",
+    icon: "picture",
+    accepts: "Image files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "compress-image",
+    name: "Compress image",
+    tagline: "Shrink a photo to under 200 KB, 500 KB, 1 MB or any size you choose.",
+    description:
+      "Compress a picture to a size you choose - 200 KB, 500 KB, 1 MB or your own number - entirely in your browser, by finding the highest quality that fits and scaling the picture down only when it has to. Nothing is uploaded.",
+    category: "images",
+    icon: "shrinkpicture",
+    accepts: "Image files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "resize-image",
+    name: "Resize image",
+    tagline: "Scale pictures down to a longest side or a fraction, never enlarged, in bulk.",
+    description:
+      "Resize pictures entirely in your browser: to a longest side of 1920, 1280, 1024 or 800 pixels, to half or a quarter, or to a number you type, never enlarged, in the format they came in. Nothing is uploaded.",
+    category: "images",
+    icon: "resize",
+    accepts: "Image files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "remove-image-metadata",
+    name: "Remove image metadata (EXIF)",
+    tagline: "See what a photo says about where and how it was taken, and strip it losslessly.",
+    description:
+      "See the EXIF metadata a photo carries - camera, date, location, serial number - and remove it entirely in your browser, without re-encoding the picture, from JPEG, PNG and WebP files. Nothing is uploaded.",
+    category: "images",
+    icon: "hidden",
+    accepts: "JPEG, PNG and WebP files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "images-to-pdf",
+    name: "Images to PDF",
+    tagline: "Photos and scans into one PDF, a page each, in the order you choose.",
+    description:
+      "Turn pictures into one PDF entirely in your browser: a page per picture, on A4, Letter or a page the picture's own size, in the order you put them. JPEGs and PNGs go in as they are. Nothing is uploaded.",
+    category: "documents",
+    icon: "imagepdf",
+    accepts: "Image files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "merge-pdf",
+    name: "Merge PDFs",
+    tagline: "Join several PDFs into one, in the order you choose.",
+    description:
+      "Merge PDF files into one entirely in your browser: put them in order, press the button, and every page of each comes out in one document with nothing re-drawn. Nothing is uploaded.",
+    category: "documents",
+    icon: "merge",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "split-pdf",
+    name: "Split PDF",
+    tagline: "Every page as its own PDF, every N pages, or the ranges you type.",
+    description:
+      "Split a PDF entirely in your browser: into one file per page, into pieces of a set number of pages, or into the page ranges you type, the way a print dialog takes them. Nothing is uploaded.",
+    category: "documents",
+    icon: "split",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "rotate-pdf",
+    name: "Rotate PDF pages",
+    tagline: "Turn every page, or just the ones you name, a quarter or half turn.",
+    description:
+      "Rotate the pages of a PDF entirely in your browser: all of them or the ones you name, by 90 degrees either way or 180, with nothing re-drawn. Nothing is uploaded.",
+    category: "documents",
+    icon: "rotate",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "delete-pdf-pages",
+    name: "Delete PDF pages",
+    tagline: "Take pages out of a PDF by number or range.",
+    description:
+      "Delete pages from a PDF entirely in your browser: type the pages or ranges to remove, the way a print dialog takes them, and get the document back without them. Nothing is uploaded.",
+    category: "documents",
+    icon: "deletepages",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "add-page-numbers",
+    name: "Add page numbers to PDF",
+    tagline: "Number every page, at the bottom or the top, plain or as N of M.",
+    description:
+      "Add page numbers to a PDF entirely in your browser: at the bottom or the top, centred or to one side, as a plain number or as N of M, starting from any number. Nothing is uploaded.",
+    category: "documents",
+    icon: "numbers",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "checksum",
+    name: "File checksum",
+    tagline: "SHA-256, SHA-1, MD5 or CRC-32 of any file, however large, and a check against one.",
+    description:
+      "Compute the SHA-256, SHA-1, MD5 or CRC-32 checksum of a file of any size entirely in your browser, streamed from disk with the memory flat, and compare it with the one a download page printed. Nothing is uploaded.",
+    category: "files",
+    icon: "checksum",
+    accepts: "Any file",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "create-zip",
+    name: "Create ZIP",
+    tagline: "Pack files into one ZIP archive, compressed where that helps.",
+    description:
+      "Put files into a ZIP archive entirely in your browser: each is read in pieces and compressed as it goes, with formats that are already compressed stored as they are. Nothing is uploaded.",
+    category: "files",
+    icon: "archive",
+    accepts: "Any files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "extract-zip",
+    name: "Extract ZIP",
+    tagline: "Open a ZIP archive and save any of the files inside, or all of them.",
+    description:
+      "Unpack a ZIP archive entirely in your browser: every file inside listed with its size, each one a click away, or all of them at once. Nothing is uploaded, and nothing is installed.",
+    category: "files",
+    icon: "unarchive",
+    accepts: "ZIP files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "merge-audio",
+    name: "Merge audio files",
+    tagline: "Join MP3s or any recordings into one file, without re-encoding when they match.",
+    description:
+      "Join several audio files into one entirely in your browser: copied without re-encoding when they share a format, otherwise decoded and joined into the first file's format. Nothing is uploaded.",
+    category: "audio",
+    icon: "merge",
+    accepts: "Audio files",
+    status: "live",
+  },
+  {
+    slug: "add-watermark",
+    name: "Add watermark to video",
+    tagline: "A logo in a corner or a line of text over every frame, at the size and opacity you choose.",
+    description:
+      "Add a watermark to a video entirely in your browser: a logo or picture in a corner, or a line of text, at a size, opacity and position you choose, drawn over every frame in one encode. Nothing is uploaded.",
+    category: "video",
+    icon: "stamp",
+    accepts: "Video files, plus a picture",
+    status: "live",
+  },
+  {
+    slug: "extract-frames",
+    name: "Extract frames from video",
+    tagline: "A picture every second, every ten seconds or every minute, as JPEG or PNG.",
+    description:
+      "Extract frames from a video entirely in your browser: one picture every second, every few seconds or every minute, each as a JPEG or a lossless PNG named by its moment. Nothing is uploaded, however large the file.",
+    category: "video",
+    icon: "frames",
+    accepts: "Video files",
+    status: "live",
+  },
+  {
+    slug: "crop-image",
+    name: "Crop image",
+    tagline: "Square, 4:5, 16:9, 9:16 and the rest, centred, in bulk.",
+    description:
+      "Crop pictures to a shape entirely in your browser: square for a profile, 4:5 and 9:16 for a feed or a story, 16:9 for a thumbnail, 3:2 and 4:3 for a print, centred on the picture, as many at once as you like. Nothing is uploaded.",
+    category: "images",
+    icon: "crop",
+    accepts: "Image files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "watermark-image",
+    name: "Watermark images",
+    tagline: "A logo or a line of text on every photo, in the corner you choose, in bulk.",
+    description:
+      "Put a watermark on pictures entirely in your browser: a logo or a line of text in a corner or the centre, at the size and opacity you choose, on as many photos at once as you like. Nothing is uploaded.",
+    category: "images",
+    icon: "stamp",
+    accepts: "Image files, plus a logo",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "favicon",
+    name: "Favicon generator",
+    tagline: "A favicon.ico and every icon size a site needs, from one picture.",
+    description:
+      "Make a favicon.ico with 16, 32 and 48 pixel entries, an Apple touch icon and the 192 and 512 pixel icons a web app manifest wants, from any picture, entirely in your browser, with the lines to paste into your page. Nothing is uploaded.",
+    category: "images",
+    icon: "favicon",
+    accepts: "Image files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "image-to-base64",
+    name: "Image to Base64",
+    tagline: "A picture as a data URI, with the HTML and CSS to paste it into.",
+    description:
+      "Turn a picture into a Base64 data URI entirely in your browser, with the img tag and the CSS rule ready to copy, for an icon or a small graphic that has to live inside a page or a stylesheet. Nothing is uploaded.",
+    category: "images",
+    icon: "code",
+    accepts: "Image files up to 10 MB",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "pdf-to-images",
+    name: "PDF to images",
+    tagline: "Every page as a JPEG or PNG, at screen or print resolution.",
+    description:
+      "Turn the pages of a PDF into pictures entirely in your browser: each page as a JPEG or a PNG at 72, 150 or 300 dpi, drawn by the same engine Firefox reads PDFs with. Nothing is uploaded.",
+    category: "documents",
+    icon: "frames",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "compress-pdf",
+    name: "Compress PDF",
+    tagline: "Shrink a scanned or picture-heavy PDF by redrawing its pages at a lower resolution.",
+    description:
+      "Compress a PDF entirely in your browser by redrawing every page as a JPEG at screen, e-book or print resolution: a scan or a photo-heavy document shrinks several times over. Text becomes a picture of text, and the page says so. Nothing is uploaded.",
+    category: "documents",
+    icon: "compress",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "pdf-to-text",
+    name: "PDF to text",
+    tagline: "The text of a PDF as a plain text file, page by page.",
+    description:
+      "Pull the text out of a PDF as a plain text file entirely in your browser, page by page, in reading order as far as the document allows. A scan with no text in it says so. Nothing is uploaded.",
+    category: "documents",
+    icon: "text",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "watermark-pdf",
+    name: "Watermark PDF",
+    tagline: "CONFIDENTIAL, DRAFT or your own words across every page.",
+    description:
+      "Stamp a word or a line across every page of a PDF entirely in your browser: diagonally across the page, in the middle or at the foot, as faint or as bold as you like. Nothing is uploaded.",
+    category: "documents",
+    icon: "stamp",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "pdf-metadata",
+    name: "Remove PDF metadata",
+    tagline: "See who made a PDF and when, and strip it, or set a title and author of your own.",
+    description:
+      "See the metadata a PDF carries - title, author, the software that made it, when - and remove all of it, or set the title, author, subject and keywords you want, entirely in your browser with every page untouched. Nothing is uploaded.",
+    category: "documents",
+    icon: "erase",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "find-duplicates",
+    name: "Find duplicate files",
+    tagline: "Drop a folder's worth of files and see which are the same file twice.",
+    description:
+      "Find duplicate files entirely in your browser: drop any number of files and the ones that are byte-for-byte the same are grouped, with how much space the extra copies take. Only files that share a size are hashed. Nothing is uploaded.",
+    category: "files",
+    icon: "copies",
+    accepts: "Any files",
+    status: "live",
+    engine: "browser",
   },
   {
     slug: "transcribe-video",
@@ -477,9 +968,12 @@ export function toolJsonLd(slug: string): Record<string, unknown> {
     name: tool.name,
     url: `${SITE_URL}${toolPath(tool)}`,
     description: tool.description,
-    applicationCategory: "MultimediaApplication",
+    applicationCategory:
+      tool.category === "documents" || tool.category === "files" || tool.category === "data"
+        ? "UtilitiesApplication"
+        : "MultimediaApplication",
     operatingSystem: "Any browser",
-    browserRequirements: "Requires WebAssembly",
+    browserRequirements: (tool.engine ?? "ffmpeg") === "ffmpeg" ? "Requires WebAssembly" : "Requires JavaScript",
     isAccessibleForFree: true,
     offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
     publisher: { "@type": "Organization", name: SITE_NAME, url: SITE_URL },
