@@ -109,19 +109,51 @@ const INITIAL: Omit<MergeStore, "listeners"> = {
   cancelled: false,
 };
 
-let store: MergeStore = { ...INITIAL, listeners: new Set() };
-
-function notify(): void {
-  for (const listener of store.listeners) listener();
+/** Which stream the tool wants every file to have, and where it keeps its state. */
+export interface MergeQueueOptions {
+  /** One store per tool: the video merger and the audio merger each keep their own list. */
+  key?: string;
+  expects?: "video" | "audio";
 }
 
-function patch(changes: Partial<MergeStore>): void {
-  store = { ...store, ...changes };
-  notify();
+const DEFAULT_KEY = "merge-videos";
+
+/**
+ * A store per tool.
+ *
+ * The state is replaced whole on every change and the slot re-pointed at it,
+ * so a snapshot compares by identity; the listeners travel with the slot.
+ */
+class MergeSlot {
+  state: MergeStore;
+
+  constructor() {
+    this.state = { ...INITIAL, listeners: new Set() };
+  }
 }
 
-function patchClip(id: string, changes: Partial<MergeClipState>): void {
-  patch({ clips: store.clips.map((clip) => (clip.id === id ? { ...clip, ...changes } : clip)) });
+const slots = new Map<string, MergeSlot>();
+
+function getSlot(key: string): MergeSlot {
+  let slot = slots.get(key);
+  if (!slot) {
+    slot = new MergeSlot();
+    slots.set(key, slot);
+  }
+  return slot;
+}
+
+function notify(slot: MergeSlot): void {
+  for (const listener of slot.state.listeners) listener();
+}
+
+function patchSlot(slot: MergeSlot, changes: Partial<MergeStore>): void {
+  slot.state = { ...slot.state, ...changes };
+  notify(slot);
+}
+
+function patchClipIn(slot: MergeSlot, id: string, changes: Partial<MergeClipState>): void {
+  patchSlot(slot, { clips: slot.state.clips.map((clip) => (clip.id === id ? { ...clip, ...changes } : clip)) });
 }
 
 function releaseOutput(output: MergeOutputState | null): void {
@@ -134,20 +166,15 @@ function releaseClip(clip: MergeClipState): void {
 
 /** @internal - lets tests start from a clean page. */
 export function resetMergeStore(): void {
-  for (const clip of store.clips) releaseClip(clip);
-  releaseOutput(store.output);
-  store = { ...INITIAL, listeners: new Set() };
+  for (const slot of slots.values()) {
+    for (const clip of slot.state.clips) releaseClip(clip);
+    releaseOutput(slot.state.output);
+  }
+  slots.clear();
 }
 
 let clipCounter = 0;
 const nextClipId = () => `clip-${(clipCounter += 1)}-${Date.now().toString(36)}`;
-
-function subscribe(listener: () => void): () => void {
-  store.listeners.add(listener);
-  return () => store.listeners.delete(listener);
-}
-
-const getSnapshot = () => store;
 
 function isMergeSettings(value: unknown): value is MergeSettings {
   if (typeof value !== "object" || value === null) return false;
@@ -174,9 +201,22 @@ export function describeClips(clips: readonly MergeClipState[]): MergeClip[] {
   }));
 }
 
-export function useMergeQueue() {
+export function useMergeQueue(options: MergeQueueOptions = {}) {
+  const key = options.key ?? DEFAULT_KEY;
+  const expects = options.expects ?? "video";
+  const slot = getSlot(key);
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      slot.state.listeners.add(listener);
+      return () => slot.state.listeners.delete(listener);
+    },
+    [slot],
+  );
+  const getSnapshot = useCallback(() => slot.state, [slot]);
   const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   const engineState = useEngineState();
+  const patch = useCallback((changes: Partial<MergeStore>) => patchSlot(slot, changes), [slot]);
+  const patchClip = useCallback((id: string, changes: Partial<MergeClipState>) => patchClipIn(slot, id, changes), [slot]);
 
   /**
    * Holds the engine for one piece of work, and puts it back whatever happened.
@@ -190,14 +230,14 @@ export function useMergeQueue() {
       work: (session: Awaited<ReturnType<ReturnType<typeof getEngine>["openFiles"]>>) => Promise<void>,
     ): Promise<void> => {
       const engine = getEngine();
-      store.busy = true;
-      store.cancelled = false;
+      slot.state.busy = true;
+      slot.state.cancelled = false;
 
       const logBuffer: string[] = [];
       const flushLogs = () => {
         if (logBuffer.length === 0) return;
         const chunk = logBuffer.splice(0, logBuffer.length);
-        const logs = [...store.logs, ...chunk];
+        const logs = [...slot.state.logs, ...chunk];
         patch({ logs: logs.length > MAX_LOG_LINES ? logs.slice(-MAX_LOG_LINES) : logs });
       };
       engine.setLogListener(({ message }) => {
@@ -209,14 +249,14 @@ export function useMergeQueue() {
       let crashed = false;
       try {
         await loadEngine(engine);
-        if (store.cancelled) throw new ExtractionError(CANCELLED);
-        session = await engine.openFiles(files, { expects: "video" });
-        if (store.cancelled) throw new ExtractionError(CANCELLED);
+        if (slot.state.cancelled) throw new ExtractionError(CANCELLED);
+        session = await engine.openFiles(files, { expects });
+        if (slot.state.cancelled) throw new ExtractionError(CANCELLED);
         await work(session);
       } catch (error) {
         // A cancel kills the worker, and whatever was waiting on it rejects
         // with ffmpeg's own words; the cancel is the fact worth passing on.
-        if (store.cancelled) throw new ExtractionError(CANCELLED, undefined, { retryable: true });
+        if (slot.state.cancelled) throw new ExtractionError(CANCELLED, undefined, { retryable: true });
         if (isFatal(error)) crashed = true;
         if (!engine.loaded) markEngineFailed(toFailure(error));
         throw error;
@@ -224,9 +264,9 @@ export function useMergeQueue() {
         clearInterval(logTimer);
         engine.setLogListener(null);
         flushLogs();
-        const cancelled = store.cancelled;
-        store.cancelled = false;
-        store.busy = false;
+        const cancelled = slot.state.cancelled;
+        slot.state.cancelled = false;
+        slot.state.busy = false;
         if (cancelled || crashed || engine.poisoned) {
           resetEngine();
           markEngineRestarted(crashed || engine.poisoned);
@@ -235,19 +275,19 @@ export function useMergeQueue() {
         }
       }
     },
-    [],
+    [expects, patch, slot],
   );
 
   /** Reads every clip that has not been read yet, in one session. */
   const readNewClips = useCallback(async () => {
-    const pending = store.clips.filter((clip) => clip.status === "new");
+    const pending = slot.state.clips.filter((clip) => clip.status === "new");
     if (pending.length === 0) return;
     const ids = new Set(pending.map((clip) => clip.id));
     patch({
       status: "reading",
       phase: `Reading ${pending.length === 1 ? "the clip" : `${pending.length} clips`}...`,
       ratio: null,
-      clips: store.clips.map((clip) => (ids.has(clip.id) ? { ...clip, status: "reading" } : clip)),
+      clips: slot.state.clips.map((clip) => (ids.has(clip.id) ? { ...clip, status: "reading" } : clip)),
     });
 
     try {
@@ -257,12 +297,12 @@ export function useMergeQueue() {
           for (const [index, input] of session.inputs.entries()) {
             const clip = pending[index];
             // Removed while it was being read: nothing to record.
-            if (!store.clips.some((entry) => entry.id === clip.id)) continue;
+            if (!slot.state.clips.some((entry) => entry.id === clip.id)) continue;
             if (input.probe) {
               patchClip(clip.id, { status: "ready", probe: input.probe, error: undefined });
               try {
                 const poster = await session.poster(index);
-                if (poster && store.clips.some((entry) => entry.id === clip.id)) {
+                if (poster && slot.state.clips.some((entry) => entry.id === clip.id)) {
                   patchClip(clip.id, { posterUrl: URL.createObjectURL(poster.blob) });
                 }
               } catch (error) {
@@ -274,7 +314,7 @@ export function useMergeQueue() {
                 error: input.error ? toFailure(input.error) : { message: "This file could not be read." },
               });
             }
-            if (store.cancelled) throw new ExtractionError(CANCELLED);
+            if (slot.state.cancelled) throw new ExtractionError(CANCELLED);
           }
         },
       );
@@ -287,22 +327,22 @@ export function useMergeQueue() {
           }
         : toFailure(error);
       patch({
-        clips: store.clips.map((clip) =>
+        clips: slot.state.clips.map((clip) =>
           clip.status === "reading" ? { ...clip, status: "error", error: failure } : clip,
         ),
       });
     } finally {
       patch({ status: "idle", phase: "", ratio: null });
     }
-  }, [withEngine]);
+  }, [patch, patchClip, slot, withEngine]);
 
   /** Reads whatever is waiting; safe to call any number of times. */
   const pump = useCallback(async () => {
-    if (store.busy) return;
-    while (store.clips.some((clip) => clip.status === "new")) {
+    if (slot.state.busy) return;
+    while (slot.state.clips.some((clip) => clip.status === "new")) {
       await readNewClips();
     }
-  }, [readNewClips]);
+  }, [readNewClips, slot]);
 
   const addFiles = useCallback(
     (files: File[]) => {
@@ -314,50 +354,50 @@ export function useMergeQueue() {
           : { id: nextClipId(), file, status: "new" };
       });
       // A joined file is the join of a particular list; a new list needs a new join.
-      releaseOutput(store.output);
-      patch({ clips: [...store.clips, ...clips], output: null, error: null });
+      releaseOutput(slot.state.output);
+      patch({ clips: [...slot.state.clips, ...clips], output: null, error: null });
       void pump();
     },
-    [pump],
+    [patch, pump, slot],
   );
 
   const moveClip = useCallback((id: string, direction: -1 | 1) => {
-    const index = store.clips.findIndex((clip) => clip.id === id);
+    const index = slot.state.clips.findIndex((clip) => clip.id === id);
     const target = index + direction;
-    if (index === -1 || target < 0 || target >= store.clips.length) return;
-    const clips = [...store.clips];
+    if (index === -1 || target < 0 || target >= slot.state.clips.length) return;
+    const clips = [...slot.state.clips];
     [clips[index], clips[target]] = [clips[target], clips[index]];
-    releaseOutput(store.output);
+    releaseOutput(slot.state.output);
     patch({ clips, output: null, error: null });
-  }, []);
+  }, [patch, slot]);
 
   const removeClip = useCallback((id: string) => {
-    const clip = store.clips.find((entry) => entry.id === id);
+    const clip = slot.state.clips.find((entry) => entry.id === id);
     if (!clip) return;
     releaseClip(clip);
-    releaseOutput(store.output);
-    patch({ clips: store.clips.filter((entry) => entry.id !== id), output: null, error: null });
-  }, []);
+    releaseOutput(slot.state.output);
+    patch({ clips: slot.state.clips.filter((entry) => entry.id !== id), output: null, error: null });
+  }, [patch, slot]);
 
   const clearClips = useCallback(() => {
-    if (store.busy) return;
-    for (const clip of store.clips) releaseClip(clip);
-    releaseOutput(store.output);
+    if (slot.state.busy) return;
+    for (const clip of slot.state.clips) releaseClip(clip);
+    releaseOutput(slot.state.output);
     patch({ clips: [], output: null, error: null, logs: [] });
-  }, []);
+  }, [patch, slot]);
 
   /** Joins every clip that has been read, in the order shown. */
   const merge = useCallback(async () => {
-    if (store.busy) return;
-    const clips = readyClips(store.clips);
+    if (slot.state.busy) return;
+    const clips = readyClips(slot.state.clips);
     if (clips.length < 2) return;
 
     // The join is of this list, in this order; if the list changes underneath
     // it, the result belongs to nothing on the page and is dropped.
-    const joinedList = store.clips.map((clip) => clip.id).join("|");
-    const listUnchanged = () => store.clips.map((clip) => clip.id).join("|") === joinedList;
+    const joinedList = slot.state.clips.map((clip) => clip.id).join("|");
+    const listUnchanged = () => slot.state.clips.map((clip) => clip.id).join("|") === joinedList;
 
-    releaseOutput(store.output);
+    releaseOutput(slot.state.output);
     patch({
       status: "merging",
       phase: `Joining ${clips.length} clips...`,
@@ -385,21 +425,21 @@ export function useMergeQueue() {
             probe: input.probe!,
             inputPath: input.inputPath,
           }));
-          const blocker = mergeBlocker(planned, store.settings);
+          const blocker = mergeBlocker(planned, slot.state.settings);
           if (blocker) {
             throw new ExtractionError(blocker.message, blocker.hint, {
               severity: blocker.severity ?? "error",
               retryable: blocker.retryable ?? false,
             });
           }
-          const plan = mergePlan(planned, store.settings);
+          const plan = mergePlan(planned, slot.state.settings);
           patch({
             phase: plan.mode === "copy" ? `Joining ${clips.length} clips...` : `Re-encoding ${clips.length} clips into one...`,
           });
 
           let lastTick = 0;
           const result = await session.merge(plan, {
-            stripMetadata: store.stripMetadata,
+            stripMetadata: slot.state.stripMetadata,
             onProgress: (progress) => {
               const now = Date.now();
               if (now - lastTick < PROGRESS_THROTTLE_MS && progress.ratio !== 1) return;
@@ -407,7 +447,7 @@ export function useMergeQueue() {
               patch({ ratio: progress.ratio, processedSeconds: progress.processedSeconds });
             },
           });
-          if (store.cancelled) throw new ExtractionError(CANCELLED);
+          if (slot.state.cancelled) throw new ExtractionError(CANCELLED);
           if (listUnchanged()) {
             patch({ output: { url: URL.createObjectURL(result.blob), result } });
           }
@@ -425,7 +465,7 @@ export function useMergeQueue() {
     }
     // Clips that arrived during the join are read now that the engine is free.
     void pump();
-  }, [pump, withEngine]);
+  }, [patch, pump, slot, withEngine]);
 
   /**
    * Stops whatever holds the engine.
@@ -435,41 +475,41 @@ export function useMergeQueue() {
    * one from the cached core.
    */
   const cancel = useCallback(() => {
-    if (!store.busy) return;
-    store.cancelled = true;
+    if (!slot.state.busy) return;
+    slot.state.cancelled = true;
     patch({ phase: "Cancelling..." });
     getEngine().terminate();
-  }, []);
+  }, [patch, slot]);
 
   const setSettings = useCallback((settings: MergeSettings) => {
     patch({ settings });
-  }, []);
+  }, [patch]);
 
   const setStripMetadata = useCallback((stripMetadata: boolean) => {
     patch({ stripMetadata });
-  }, []);
+  }, [patch]);
 
   // Settings remembered between visits; the metadata switch is shared with every tool.
   useEffect(() => {
-    if (store.hydrated) return;
-    store.hydrated = true;
-    const settings = readStored(storageKey("settings", "merge-videos"), isMergeSettings);
+    if (slot.state.hydrated) return;
+    slot.state.hydrated = true;
+    const settings = readStored(storageKey("settings", key), isMergeSettings);
     const strip = readStored(storageKey("strip-metadata"), isBoolean);
     patch({
-      settings: settings ?? store.settings,
-      stripMetadata: strip ?? store.stripMetadata,
+      settings: settings ?? slot.state.settings,
+      stripMetadata: strip ?? slot.state.stripMetadata,
     });
-  }, []);
+  }, [key, patch, slot]);
 
   useEffect(() => {
-    if (!store.hydrated) return;
-    writeStored(storageKey("settings", "merge-videos"), state.settings);
-  }, [state.settings]);
+    if (!slot.state.hydrated) return;
+    writeStored(storageKey("settings", key), state.settings);
+  }, [key, slot, state.settings]);
 
   useEffect(() => {
-    if (!store.hydrated) return;
+    if (!slot.state.hydrated) return;
     writeStored(storageKey("strip-metadata"), state.stripMetadata);
-  }, [state.stripMetadata]);
+  }, [slot, state.stripMetadata]);
 
   // Warn before navigating away mid-join: the work cannot be resumed.
   useEffect(() => {

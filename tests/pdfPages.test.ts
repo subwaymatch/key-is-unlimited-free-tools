@@ -130,3 +130,63 @@ describe("PDF pages", () => {
     });
   });
 });
+
+describe("stamps and metadata", () => {
+  it("places a stamp along the diagonal, in the middle, or at the foot", async () => {
+    const { stampPlacement, stampPages, DEFAULT_STAMP_SETTINGS } = await import("@/lib/pdf/pages");
+    const page = { width: 400, height: 300 };
+    expect(stampPlacement(page, 100, 20, "bottom")).toEqual({ x: 150, y: 36, degrees: 0 });
+    expect(stampPlacement(page, 100, 20, "center")).toEqual({ x: 150, y: 140, degrees: 0 });
+    const diagonal = stampPlacement(page, 100, 20, "diagonal");
+    expect(diagonal.degrees).toBeCloseTo(36.87, 1);
+    expect(diagonal.x).toBeLessThan(200);
+    expect(diagonal.y).toBeLessThan(150);
+    const stamped = await loadPdf(await stampPages(await loadPdf(await pdfOf([[400, 300], [300, 400]])), DEFAULT_STAMP_SETTINGS));
+    expect(stamped.getPageCount()).toBe(2);
+    expect(stamped.getPage(0).node.Contents()).toBeDefined();
+  });
+
+  it("reads what a document says of itself, clears it, and sets what was typed", async () => {
+    const { loadPdfForMetadata, readMetadata, rewriteMetadata, countEdits } = await import("@/lib/pdf/pages");
+    const document = await PDFDocument.create();
+    document.addPage([100, 100]);
+    document.setTitle("Secret plans");
+    document.setAuthor("Someone");
+    document.setKeywords(["a", "b"]);
+    const bytes = await document.save();
+
+    const before = readMetadata(await loadPdfForMetadata(bytes));
+    expect(before.title).toBe("Secret plans");
+    expect(before.author).toBe("Someone");
+    expect(before.keywords).toBe("a b");
+    expect(before.producer).toBe("pdf-lib (https://github.com/Hopding/pdf-lib)");
+    expect(before.hasXmp).toBe(false);
+
+    const cleared = readMetadata(await loadPdfForMetadata(await rewriteMetadata(await loadPdfForMetadata(bytes), null, true)));
+    expect(cleared.title).toBe("");
+    expect(cleared.author).toBe("");
+    expect(cleared.producer).toBe("");
+    expect(cleared.created).toBe("");
+
+    const edits = { title: "Plans", author: "", subject: "", keywords: "x, y" };
+    expect(countEdits(edits)).toBe(2);
+    const edited = readMetadata(await loadPdfForMetadata(await rewriteMetadata(await loadPdfForMetadata(bytes), edits, false)));
+    expect(edited.title).toBe("Plans");
+    expect(edited.author).toBe("Someone");
+    expect(edited.keywords).toBe("x y");
+  });
+
+  describe.skipIf(!hasFfmpeg)("rebuilding from pictures of pages", () => {
+    it("keeps each page its own size", async () => {
+      const { rebuildFromImages } = await import("@/lib/pdf/pages");
+      mkdirSync(dir, { recursive: true });
+      const path = join(dir, "page.jpg");
+      if (!existsSync(path)) execFileSync("ffmpeg", ["-y", "-v", "error", "-f", "lavfi", "-i", "color=c=white:s=80x100", "-frames:v", "1", path]);
+      const jpg = new Uint8Array(readFileSync(path));
+      const rebuilt = await loadPdf(await rebuildFromImages([{ bytes: jpg, pointWidth: 595.28, pointHeight: 841.89 }, { bytes: jpg, pointWidth: 612, pointHeight: 792 }]));
+      expect(rebuilt.getPageCount()).toBe(2);
+      expect(rebuilt.getPage(0).getSize().width).toBeCloseTo(595.28, 2);
+      expect(rebuilt.getPage(1).getSize().height).toBe(792);
+    });
+  });
+});

@@ -394,3 +394,111 @@ describe.skipIf(!hasFfmpeg)("soundtrack, level, loop, track, tag, parts and visu
     expect(seconds(probed)).toBeCloseTo(2, 0);
   });
 });
+
+/** A luma statistic of one region of the first frame, 0-255, through signalstats. */
+function lumaStat(path: string, crop: string, stat: "YAVG" | "YMAX"): number {
+  const result = spawnSync("ffmpeg", ["-hide_banner", "-i", path, "-frames:v", "1", "-vf", `crop=${crop},signalstats,metadata=print:key=lavfi.signalstats.${stat}:file=-`, "-f", "null", "-"], { encoding: "utf8" });
+  const match = result.stdout.match(new RegExp(`${stat}=(\\d+(?:\\.\\d+)?)`));
+  if (!match) throw new Error(`no ${stat} in ffmpeg's output: ${result.stderr.slice(-400)}`);
+  return Number(match[1]);
+}
+const meanLuma = (path: string, crop: string) => lumaStat(path, crop, "YAVG");
+const peakLuma = (path: string, crop: string) => lumaStat(path, crop, "YMAX");
+
+describe.skipIf(!hasFfmpeg)("watermark, frames and audio-join plans against a real ffmpeg", () => {
+  let video: string;
+  let logo: string;
+  let black: string;
+  let song: string;
+  let song2: string;
+  let tone: string;
+
+  beforeAll(() => {
+    mkdirSync(dir, { recursive: true });
+    video = fixture("clip.mp4", [
+      "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25",
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+      "-t", "6", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+      "-g", "25", "-keyint_min", "25",
+      "-c:a", "aac", "-b:a", "128k", "-ac", "2",
+    ]);
+    // Fixtures are cached by name; a new colour needs a new name.
+    logo = fixture("white-logo.png", ["-f", "lavfi", "-i", "color=c=white:s=100x40,format=rgba", "-frames:v", "1"]);
+    black = fixture("black.mp4", [
+      "-f", "lavfi", "-i", "color=c=black:s=320x180:rate=25",
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+      "-t", "2", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-ac", "2",
+    ]);
+    song = fixture("song.mp3", ["-f", "lavfi", "-i", "sine=frequency=880:sample_rate=44100", "-t", "3", "-c:a", "libmp3lame", "-b:a", "128k"]);
+    song2 = fixture("song2.mp3", ["-f", "lavfi", "-i", "sine=frequency=660:sample_rate=44100", "-t", "2", "-c:a", "libmp3lame", "-b:a", "128k"]);
+    tone = fixture("tone.flac", ["-f", "lavfi", "-i", "sine=frequency=660:sample_rate=48000", "-t", "3", "-c:a", "flac"]);
+  });
+
+  it("lays a picture and draws text over every frame", async () => {
+    const { imageWatermarkFormat, textWatermarkFormat, DEFAULT_WATERMARK_SETTINGS } = await import("@/lib/engine/watermark");
+    const image = { name: "white-logo.png", bytes: new Uint8Array(readFileSync(logo)), mimeType: "image/png", key: "logo" };
+    const marked = run(imageWatermarkFormat(image, DEFAULT_WATERMARK_SETTINGS), video);
+    expect(stream(marked.probed, "video")?.codec_name).toBe("h264");
+    expect(stream(marked.probed, "audio")?.codec_name).toBe("aac");
+    expect(seconds(marked.probed)).toBeCloseTo(6, 0);
+    expect(stream(marked.probed, "video")?.width).toBe(320);
+
+    /*
+     * The mark has to be the size asked for, a fifth of the frame's width:
+     * a white 100x40 logo at 0.7 over black is a 64x26 patch, which lifts
+     * the mean luma of the bottom-right sixteenth of the frame from 16 to
+     * about 85. scale2ref sized against the wrong input once passed every
+     * check above with a 16-pixel mark, which reads about 20 here.
+     */
+    const onBlack = run(imageWatermarkFormat(image, DEFAULT_WATERMARK_SETTINGS), black);
+    expect(meanLuma(onBlack.output, "iw/4:ih/4:3*iw/4:3*ih/4")).toBeGreaterThan(50);
+    expect(meanLuma(onBlack.output, "iw/4:ih/4:0:0")).toBeLessThan(20);
+
+    const font = new Uint8Array(readFileSync(join(process.cwd(), "public", "fonts", "DejaVuSans.ttf")));
+    const texted = run(textWatermarkFormat("(c) key.is", font, { ...DEFAULT_WATERMARK_SETTINGS, position: "top-left" }), video);
+    expect(stream(texted.probed, "video")?.codec_name).toBe("h264");
+    expect(seconds(texted.probed)).toBeCloseTo(6, 0);
+    const textOnBlack = run(textWatermarkFormat("(c) key.is", font, { ...DEFAULT_WATERMARK_SETTINGS, position: "top-left" }), black);
+    expect(peakLuma(textOnBlack.output, "iw/3:ih/4:0:0")).toBeGreaterThan(120);
+    expect(peakLuma(textOnBlack.output, "iw/3:ih/4:2*iw/3:3*ih/4")).toBeLessThan(24);
+  });
+
+  it("lifts a frame at each moment", async () => {
+    const { frameAtFormat } = await import("@/lib/engine/frames");
+    const settings = { everySeconds: 2, image: "jpg" as const };
+    for (const index of [0, 1, 2]) {
+      const { probed, output } = run(frameAtFormat(index, settings), video);
+      expect(stream(probed, "video")?.codec_name).toBe("mjpeg");
+      expect(output).toMatch(/frame-\d\.jpg$/);
+    }
+    const png = run(frameAtFormat(1, { everySeconds: 2, image: "png" }), video);
+    expect(stream(png.probed, "video")?.codec_name).toBe("png");
+  });
+
+  it("joins MP3s by copy and unlike files by re-encoding", async () => {
+    const { mergePlan, mergeBlocker, CONCAT_LIST_PATH } = await import("@/lib/engine/merge");
+    const clipOf = (path: string) => ({ fileName: path.split("/").pop()!, fileBytes: statSync(path).size, probe: probe(path), inputPath: path });
+    const runMerge = (clips: ReturnType<typeof clipOf>[], name: string) => {
+      expect(mergeBlocker(clips)).toBeNull();
+      const plan = mergePlan(clips);
+      const output = join(dir, `${name}.${plan.extension}`);
+      const scratchDir = join(dir, "scratch");
+      mkdirSync(scratchDir, { recursive: true });
+      const listPath = join(scratchDir, "merge.txt");
+      for (const file of plan.scratchFiles ?? []) writeFileSync(listPath, file.contents);
+      const inputArgs = plan.inputArgs.map((arg) => (arg === CONCAT_LIST_PATH ? listPath : arg));
+      const result = spawnSync("ffmpeg", ["-y", "-hide_banner", ...inputArgs, ...plan.args, output], { encoding: "utf8" });
+      expect(result.status, result.stderr.slice(-1200)).toBe(0);
+      return { plan, probed: ffprobe(output) };
+    };
+    const copied = runMerge([clipOf(song), clipOf(song2)], "joined");
+    expect(copied.plan.mode).toBe("copy");
+    expect(stream(copied.probed, "audio")?.codec_name).toBe("mp3");
+    expect(seconds(copied.probed)).toBeCloseTo(5, 0);
+
+    const encoded = runMerge([clipOf(song), clipOf(tone)], "joined-mixed");
+    expect(encoded.plan.mode).toBe("encode");
+    expect(stream(encoded.probed, "audio")?.codec_name).toBe("mp3");
+    expect(seconds(encoded.probed)).toBeCloseTo(6, 0);
+  });
+});

@@ -68,7 +68,15 @@ export type ToolIconName =
   | "numbers"
   | "checksum"
   | "archive"
-  | "unarchive";
+  | "unarchive"
+  | "stamp"
+  | "frames"
+  | "crop"
+  | "favicon"
+  | "code"
+  | "text"
+  | "erase"
+  | "copies";
 
 export interface ToolMeta {
   /** URL segment. Verb-object, lowercase, hyphenated, and permanent once shipped. */
@@ -681,6 +689,159 @@ export const TOOLS: readonly ToolMeta[] = [
     category: "files",
     icon: "unarchive",
     accepts: "ZIP files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "merge-audio",
+    name: "Merge audio files",
+    tagline: "Join MP3s or any recordings into one file, without re-encoding when they match.",
+    description:
+      "Join several audio files into one entirely in your browser: copied without re-encoding when they share a format, otherwise decoded and joined into the first file's format. Nothing is uploaded.",
+    category: "audio",
+    icon: "merge",
+    accepts: "Audio files",
+    status: "live",
+  },
+  {
+    slug: "add-watermark",
+    name: "Add watermark to video",
+    tagline: "A logo in a corner or a line of text over every frame, at the size and opacity you choose.",
+    description:
+      "Add a watermark to a video entirely in your browser: a logo or picture in a corner, or a line of text, at a size, opacity and position you choose, drawn over every frame in one encode. Nothing is uploaded.",
+    category: "video",
+    icon: "stamp",
+    accepts: "Video files, plus a picture",
+    status: "live",
+  },
+  {
+    slug: "extract-frames",
+    name: "Extract frames from video",
+    tagline: "A picture every second, every ten seconds or every minute, as JPEG or PNG.",
+    description:
+      "Extract frames from a video entirely in your browser: one picture every second, every few seconds or every minute, each as a JPEG or a lossless PNG named by its moment. Nothing is uploaded, however large the file.",
+    category: "video",
+    icon: "frames",
+    accepts: "Video files",
+    status: "live",
+  },
+  {
+    slug: "crop-image",
+    name: "Crop image",
+    tagline: "Square, 4:5, 16:9, 9:16 and the rest, centred, in bulk.",
+    description:
+      "Crop pictures to a shape entirely in your browser: square for a profile, 4:5 and 9:16 for a feed or a story, 16:9 for a thumbnail, 3:2 and 4:3 for a print, centred on the picture, as many at once as you like. Nothing is uploaded.",
+    category: "images",
+    icon: "crop",
+    accepts: "Image files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "watermark-image",
+    name: "Watermark images",
+    tagline: "A logo or a line of text on every photo, in the corner you choose, in bulk.",
+    description:
+      "Put a watermark on pictures entirely in your browser: a logo or a line of text in a corner or the centre, at the size and opacity you choose, on as many photos at once as you like. Nothing is uploaded.",
+    category: "images",
+    icon: "stamp",
+    accepts: "Image files, plus a logo",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "favicon",
+    name: "Favicon generator",
+    tagline: "A favicon.ico and every icon size a site needs, from one picture.",
+    description:
+      "Make a favicon.ico with 16, 32 and 48 pixel entries, an Apple touch icon and the 192 and 512 pixel icons a web app manifest wants, from any picture, entirely in your browser, with the lines to paste into your page. Nothing is uploaded.",
+    category: "images",
+    icon: "favicon",
+    accepts: "Image files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "image-to-base64",
+    name: "Image to Base64",
+    tagline: "A picture as a data URI, with the HTML and CSS to paste it into.",
+    description:
+      "Turn a picture into a Base64 data URI entirely in your browser, with the img tag and the CSS rule ready to copy, for an icon or a small graphic that has to live inside a page or a stylesheet. Nothing is uploaded.",
+    category: "images",
+    icon: "code",
+    accepts: "Image files up to 10 MB",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "pdf-to-images",
+    name: "PDF to images",
+    tagline: "Every page as a JPEG or PNG, at screen or print resolution.",
+    description:
+      "Turn the pages of a PDF into pictures entirely in your browser: each page as a JPEG or a PNG at 72, 150 or 300 dpi, drawn by the same engine Firefox reads PDFs with. Nothing is uploaded.",
+    category: "documents",
+    icon: "frames",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "compress-pdf",
+    name: "Compress PDF",
+    tagline: "Shrink a scanned or picture-heavy PDF by redrawing its pages at a lower resolution.",
+    description:
+      "Compress a PDF entirely in your browser by redrawing every page as a JPEG at screen, e-book or print resolution: a scan or a photo-heavy document shrinks several times over. Text becomes a picture of text, and the page says so. Nothing is uploaded.",
+    category: "documents",
+    icon: "compress",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "pdf-to-text",
+    name: "PDF to text",
+    tagline: "The text of a PDF as a plain text file, page by page.",
+    description:
+      "Pull the text out of a PDF as a plain text file entirely in your browser, page by page, in reading order as far as the document allows. A scan with no text in it says so. Nothing is uploaded.",
+    category: "documents",
+    icon: "text",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "watermark-pdf",
+    name: "Watermark PDF",
+    tagline: "CONFIDENTIAL, DRAFT or your own words across every page.",
+    description:
+      "Stamp a word or a line across every page of a PDF entirely in your browser: diagonally across the page, in the middle or at the foot, as faint or as bold as you like. Nothing is uploaded.",
+    category: "documents",
+    icon: "stamp",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "pdf-metadata",
+    name: "Remove PDF metadata",
+    tagline: "See who made a PDF and when, and strip it, or set a title and author of your own.",
+    description:
+      "See the metadata a PDF carries - title, author, the software that made it, when - and remove all of it, or set the title, author, subject and keywords you want, entirely in your browser with every page untouched. Nothing is uploaded.",
+    category: "documents",
+    icon: "erase",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "find-duplicates",
+    name: "Find duplicate files",
+    tagline: "Drop a folder's worth of files and see which are the same file twice.",
+    description:
+      "Find duplicate files entirely in your browser: drop any number of files and the ones that are byte-for-byte the same are grouped, with how much space the extra copies take. Only files that share a size are hashed. Nothing is uploaded.",
+    category: "files",
+    icon: "copies",
+    accepts: "Any files",
     status: "live",
     engine: "browser",
   },

@@ -46,5 +46,8 @@ next-env.d.ts
 # generated: copied from node_modules by scripts/copy-ffmpeg-worker.mjs
 /public/ffmpeg/
 
+# generated: copied from node_modules by scripts/copy-pdfjs-assets.mjs
+/public/pdfjs/
+
 # generated test media for the verification scripts (can be multiple GB)
 /.fixtures/

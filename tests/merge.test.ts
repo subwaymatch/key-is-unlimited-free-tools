@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   assessMerge,
+  concatAudioGraph,
   concatGraph,
   concatList,
   displaySize,
   findMismatches,
   mergeBlocker,
   mergeCanvas,
+  mergeKind,
   mergePlan,
   type MergeClip,
 } from "@/lib/engine/merge";
@@ -297,5 +299,60 @@ describe("mergePlan", () => {
     const list = concatList([clip(), clip()]);
     expect(list.split("\n").filter((line) => line.startsWith("file "))).toHaveLength(2);
     expect(list.startsWith("ffconcat version 1.0\n")).toBe(true);
+  });
+});
+
+describe("joining sound alone", () => {
+  const audioClip = (name: string, codec = "mp3", sampleRate = 44_100, layout = "stereo"): MergeClip => ({
+    fileName: name,
+    fileBytes: 1_000_000,
+    inputPath: `/input/${name}`,
+    probe: {
+      durationSeconds: 60,
+      bitrateKbps: 128,
+      audioStreams: [{ codec, profile: null, sampleRate, channels: layout === "mono" ? 1 : 2, channelLayout: layout, bitrateKbps: 128, language: null, title: null }],
+      audio: { codec, profile: null, sampleRate, channels: layout === "mono" ? 1 : 2, channelLayout: layout, bitrateKbps: 128, language: null, title: null },
+      videoStreams: [],
+      video: null,
+      hasVideo: false,
+      subtitleStreams: [],
+      chapters: [],
+      formatName: codec,
+      log: [],
+    },
+  });
+
+  it("copies matching MP3s through the concat demuxer into an MP3", () => {
+    const clips = [audioClip("a.mp3"), audioClip("b.mp3")];
+    expect(mergeKind(clips)).toBe("audio");
+    expect(findMismatches(clips)).toEqual([]);
+    const assessment = assessMerge(clips);
+    expect(assessment).toMatchObject({ kind: "audio", mode: "copy", container: { extension: "mp3" }, totalSeconds: 120, estimatedBytes: 2_000_000 });
+    const plan = mergePlan(clips);
+    expect(plan.inputArgs).toEqual(["-f", "concat", "-safe", "0", "-i", "/merge.txt"]);
+    expect(plan.args.join(" ")).toBe("-map 0:a:0 -vn -sn -dn -c copy");
+    expect(plan.kind).toBe("audio");
+    expect(plan.baseName).toBe("a-merged");
+    expect(mergeBlocker(clips)).toBeNull();
+  });
+
+  it("names what differs and re-encodes into the first file's own format", () => {
+    const clips = [audioClip("a.mp3"), audioClip("b.m4a", "aac", 48_000, "mono")];
+    expect(findMismatches(clips)).toEqual(["file 2 is AAC while file 1 is MP3", "file 2 is 48000 Hz while file 1 is 44100 Hz", "file 2 is mono while file 1 is stereo"]);
+    const plan = mergePlan(clips);
+    expect(plan.inputArgs).toEqual(["-i", "/input/a.mp3", "-i", "/input/b.m4a"]);
+    expect(plan.args.join(" ")).toBe(
+      "-filter_complex [0:a:0]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a0];[1:a:0]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a1];[a0][a1]concat=n=2:v=0:a=1[a] -map [a] -vn -sn -dn -c:a libmp3lame -q:a 2",
+    );
+    expect(plan.extension).toBe("mp3");
+    expect(plan.mode).toBe("encode");
+    expect(concatAudioGraph([audioClip("m.mp3", "mp3", 44_100, "mono")], 1)).toContain("channel_layouts=mono");
+  });
+
+  it("re-encodes on request, and refuses a file with no sound", () => {
+    const clips = [audioClip("a.flac", "flac"), audioClip("b.flac", "flac")];
+    expect(assessMerge(clips, { mode: "encode" })).toMatchObject({ kind: "audio", mode: "encode", container: { extension: "flac" } });
+    const silent: MergeClip = { ...audioClip("s.mp3"), probe: { ...audioClip("s.mp3").probe, audio: null, audioStreams: [] } };
+    expect(mergeBlocker([audioClip("a.mp3"), silent])?.message).toBe("Every file needs sound to be joined.");
   });
 });

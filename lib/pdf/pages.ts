@@ -201,3 +201,157 @@ export async function imagesToPdf(images: readonly ImagePage[], settings: Images
   }
   return out.save();
 }
+
+/* ---- A text stamp ------------------------------------------------------- */
+
+export type StampLayout = "diagonal" | "center" | "bottom";
+
+export interface StampSettings {
+  text: string;
+  layout: StampLayout;
+  /** 0.05 to 1. */
+  opacity: number;
+  fontSize: number;
+}
+
+export const DEFAULT_STAMP_SETTINGS: StampSettings = { text: "CONFIDENTIAL", layout: "diagonal", opacity: 0.25, fontSize: 60 };
+
+/** Where the stamp goes on a page, and how it is turned. */
+export function stampPlacement(page: { width: number; height: number }, textWidth: number, fontSize: number, layout: StampLayout): { x: number; y: number; degrees: number } {
+  if (layout === "bottom") return { x: (page.width - textWidth) / 2, y: 36, degrees: 0 };
+  if (layout === "center") return { x: (page.width - textWidth) / 2, y: (page.height - fontSize) / 2, degrees: 0 };
+  // Diagonal, corner to corner: turned so it climbs, and shifted so its middle sits on the page's.
+  const angle = Math.atan2(page.height, page.width);
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return {
+    x: page.width / 2 - (textWidth / 2) * cos + (fontSize / 2) * sin,
+    y: page.height / 2 - (textWidth / 2) * sin - (fontSize / 2) * cos,
+    degrees: (angle * 180) / Math.PI,
+  };
+}
+
+/** The text drawn over every page, grey and translucent. */
+export async function stampPages(source: PDFDocumentType, settings: StampSettings): Promise<Uint8Array> {
+  const { StandardFonts, rgb, degrees } = await pdfLib();
+  const font = await source.embedFont(StandardFonts.HelveticaBold);
+  const text = settings.text.trim();
+  for (const page of source.getPages()) {
+    const { width, height } = page.getSize();
+    // Fit the text on the page's diagonal, or its width, whatever the size asked for.
+    const room = settings.layout === "diagonal" ? Math.hypot(width, height) * 0.8 : width * 0.9;
+    let size = settings.fontSize;
+    let textWidth = font.widthOfTextAtSize(text, size);
+    if (textWidth > room) {
+      size = Math.max(8, (size * room) / textWidth);
+      textWidth = font.widthOfTextAtSize(text, size);
+    }
+    const placed = stampPlacement({ width, height }, textWidth, size, settings.layout);
+    page.drawText(text, { x: placed.x, y: placed.y, size, font, color: rgb(0.45, 0.45, 0.45), opacity: settings.opacity, rotate: degrees(placed.degrees) });
+  }
+  return source.save();
+}
+
+/* ---- Metadata ----------------------------------------------------------- */
+
+export interface PdfMetadata {
+  title: string;
+  author: string;
+  subject: string;
+  keywords: string;
+  creator: string;
+  producer: string;
+  created: string;
+  modified: string;
+  /** True when the file also carries an XMP metadata stream. */
+  hasXmp: boolean;
+}
+
+/** What the document says about itself. */
+export function readMetadata(document: PDFDocumentType): PdfMetadata {
+  const { PDFName } = { PDFName: pdfNameSync() };
+  const date = (value: Date | undefined) => (value && !Number.isNaN(value.getTime()) ? value.toISOString().slice(0, 16).replace("T", " ") : "");
+  return {
+    title: document.getTitle() ?? "",
+    author: document.getAuthor() ?? "",
+    subject: document.getSubject() ?? "",
+    keywords: document.getKeywords() ?? "",
+    creator: document.getCreator() ?? "",
+    producer: document.getProducer() ?? "",
+    created: date(document.getCreationDate()),
+    modified: date(document.getModificationDate()),
+    hasXmp: PDFName !== null && document.catalog.has(PDFName.of("Metadata")),
+  };
+}
+
+let pdfNameClass: PdfLib["PDFName"] | null = null;
+
+/** pdf-lib's PDFName, once the library is loaded; the loaders below load it first. */
+function pdfNameSync(): PdfLib["PDFName"] | null {
+  return pdfNameClass;
+}
+
+/** Loads the library, so readMetadata can name the XMP entry without an await of its own. */
+export async function loadPdfForMetadata(bytes: Uint8Array): Promise<PDFDocumentType> {
+  const lib = await pdfLib();
+  pdfNameClass = lib.PDFName;
+  return loadPdf(bytes);
+}
+
+export interface MetadataEdits {
+  title: string;
+  author: string;
+  subject: string;
+  keywords: string;
+}
+
+/** The fields of the panel that were filled in. */
+export function countEdits(edits: MetadataEdits): number {
+  return (Object.keys(edits) as (keyof MetadataEdits)[]).filter((field) => edits[field].trim() !== "").length;
+}
+
+/**
+ * The document with its metadata cleared, and then any of these written:
+ * the Info dictionary emptied of every key and the XMP stream dropped, so
+ * nothing about who made it or when survives; then the title, author,
+ * subject and keywords typed, if any.
+ */
+export async function rewriteMetadata(source: PDFDocumentType, edits: MetadataEdits | null, clear: boolean): Promise<Uint8Array> {
+  const { PDFName, PDFDict } = await pdfLib();
+  if (clear) {
+    const info = source.context.lookup(source.context.trailerInfo.Info);
+    if (info instanceof PDFDict) {
+      for (const key of [...info.keys()]) info.delete(key);
+    }
+    source.catalog.delete(PDFName.of("Metadata"));
+  }
+  if (edits) {
+    if (edits.title.trim()) source.setTitle(edits.title.trim());
+    if (edits.author.trim()) source.setAuthor(edits.author.trim());
+    if (edits.subject.trim()) source.setSubject(edits.subject.trim());
+    if (edits.keywords.trim()) source.setKeywords(edits.keywords.split(/[,;]+/).map((word) => word.trim()).filter(Boolean));
+  }
+  return source.save({ updateFieldAppearances: false });
+}
+
+/* ---- Pages from pictures of pages --------------------------------------- */
+
+export interface RenderedPageImage {
+  bytes: Uint8Array;
+  /** The page's own size in points, kept so the document stays the size it was. */
+  pointWidth: number;
+  pointHeight: number;
+}
+
+/** A document whose every page is a JPEG of the page it replaces, at its own size. */
+export async function rebuildFromImages(pages: readonly RenderedPageImage[], report?: (index: number) => void): Promise<Uint8Array> {
+  const { PDFDocument } = await pdfLib();
+  const out = await PDFDocument.create();
+  for (const [index, image] of pages.entries()) {
+    report?.(index);
+    const embedded = await out.embedJpg(image.bytes);
+    const page = out.addPage([image.pointWidth, image.pointHeight]);
+    page.drawImage(embedded, { x: 0, y: 0, width: image.pointWidth, height: image.pointHeight });
+  }
+  return out.save();
+}

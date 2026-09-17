@@ -11,6 +11,8 @@
  * Everything here is pure: the decision, the reasons for it and the argument
  * strings are unit-tested without a browser.
  */
+import { audioTargetFor } from "./audio";
+import { copyTargetForCodec } from "./formats";
 import { isQuarterTurn } from "./probe";
 import { fileStem } from "../mediaTypes";
 import type { ExtractMode, FormatBlocker, MergePlan, ProbeResult, VideoStreamInfo } from "./types";
@@ -54,7 +56,11 @@ export interface MergeCanvas {
   fps: number;
 }
 
+/** Whether the clips are pictures with sound or sound alone. */
+export type MergeKind = "video" | "audio";
+
 export interface MergeAssessment {
+  kind: MergeKind;
   mode: ExtractMode;
   /**
    * Why the clips cannot simply be concatenated, one line per difference,
@@ -109,11 +115,34 @@ export function findMismatches(clips: readonly MergeClip[]): string[] {
   const mismatches: string[] = [];
   const firstVideo = first.probe.video;
   const firstAudio = first.probe.audio;
+  const audioOnly = mergeKind(clips) === "audio";
 
   for (const [offset, clip] of rest.entries()) {
     const n = offset + 2;
     const video = clip.probe.video;
     const audio = clip.probe.audio;
+
+    if (audioOnly) {
+      // Sound alone: the codec, the rate and the layout are all a copy needs.
+      if (!audio || !firstAudio) {
+        mismatches.push(`file ${!audio ? n : 1} has no audio stream`);
+        continue;
+      }
+      const audioCodec = audio.codec.toLowerCase();
+      const firstAudioCodec = firstAudio.codec.toLowerCase();
+      if (audioCodec !== firstAudioCodec) {
+        mismatches.push(`file ${n} is ${audioCodec.toUpperCase()} while file 1 is ${firstAudioCodec.toUpperCase()}`);
+      }
+      if (audio.sampleRate && firstAudio.sampleRate && audio.sampleRate !== firstAudio.sampleRate) {
+        mismatches.push(`file ${n} is ${audio.sampleRate} Hz while file 1 is ${firstAudio.sampleRate} Hz`);
+      }
+      const layout = audio.channelLayout ?? (audio.channels ? `${audio.channels} channels` : null);
+      const firstLayout = firstAudio.channelLayout ?? (firstAudio.channels ? `${firstAudio.channels} channels` : null);
+      if (layout && firstLayout && layout !== firstLayout) {
+        mismatches.push(`file ${n} is ${layout} while file 1 is ${firstLayout}`);
+      }
+      continue;
+    }
 
     if (!video || !firstVideo) {
       mismatches.push(`clip ${!video ? n : 1} has no video stream`);
@@ -179,6 +208,11 @@ export function findMismatches(clips: readonly MergeClip[]): string[] {
   return mismatches;
 }
 
+/** Sound alone when no clip has a picture; a picture anywhere makes it a video join. */
+export function mergeKind(clips: readonly MergeClip[]): MergeKind {
+  return clips.length > 0 && clips.every((clip) => clip.probe.video === null) ? "audio" : "video";
+}
+
 function totalSeconds(clips: readonly MergeClip[]): number | null {
   let total = 0;
   for (const clip of clips) {
@@ -214,8 +248,11 @@ export function assessMerge(
     .map((clip, index) => (clip.probe.audio ? -1 : index + 1))
     .filter((n) => n > 0);
 
+  if (mergeKind(clips) === "audio") return assessAudioMerge(clips, mismatches, copy, seconds);
+
   if (copy) {
     return {
+      kind: "video",
       mode: "copy",
       mismatches,
       container: containerFor(
@@ -253,12 +290,56 @@ export function assessMerge(
       : null;
 
   return {
+    kind: "video",
     mode: "encode",
     mismatches,
     container: MP4,
     canvas,
     hasAudio,
     silentClips: hasAudio ? silentClips : [],
+    totalSeconds: seconds,
+    estimatedBytes,
+  };
+}
+
+/**
+ * Sound alone: copied through the concat demuxer into the codec's own
+ * container when the files match, otherwise decoded, brought to one rate
+ * and layout, joined by the concat filter and written in the first file's
+ * own format, or AAC in an M4A where that format has no encoder here.
+ */
+function assessAudioMerge(clips: readonly MergeClip[], mismatches: string[], copy: boolean, seconds: number | null): MergeAssessment {
+  const first = clips[0];
+  const codec = first?.probe.audio?.codec ?? null;
+  if (copy) {
+    const target = copyTargetForCodec(codec);
+    return {
+      kind: "audio",
+      mode: "copy",
+      mismatches,
+      container: { extension: target.extension, mimeType: target.mimeType },
+      canvas: null,
+      hasAudio: true,
+      silentClips: [],
+      totalSeconds: seconds,
+      estimatedBytes: clips.reduce((total, clip) => total + clip.fileBytes, 0),
+    };
+  }
+  const target = audioTargetFor(codec);
+  const estimatedBytes =
+    seconds === null
+      ? null
+      : target.extension === "wav"
+        ? Math.round(seconds * AUDIO_RATE * (first?.probe.audio?.channels === 1 ? 1 : 2) * 2)
+        : Math.round((AUDIO_KBPS * 1000 * seconds) / 8);
+  return {
+    kind: "audio",
+    mode: "encode",
+    mismatches,
+    container: { extension: target.extension, mimeType: target.mimeType },
+    canvas: null,
+    hasAudio: true,
+    silentClips: [],
     totalSeconds: seconds,
     estimatedBytes,
   };
@@ -277,14 +358,29 @@ export function mergeBlocker(
     };
   }
   const assessment = assessMerge(clips, settings);
-  if (assessment.mode === "encode" && assessment.canvas === null) {
+  if (assessment.kind === "audio" && clips.some((clip) => clip.probe.audio === null)) {
+    return {
+      message: "Every file needs sound to be joined.",
+      hint: `${clips.filter((clip) => clip.probe.audio === null).length === 1 ? "One of them has" : "Some of them have"} no audio stream. Remove it, or drop a video with a soundtrack instead.`,
+      retryable: false,
+    };
+  }
+  if (assessment.mode === "encode" && assessment.kind === "video" && assessment.canvas === null) {
     return {
       message: "The first clip's frame size is unknown.",
       hint: "The other clips are fitted to the first one's frame, so it has to have a readable size. Put a different clip first.",
       retryable: false,
     };
   }
-  return sizeBlocker(assessment.estimatedBytes, "The joined video");
+  return sizeBlocker(assessment.estimatedBytes, assessment.kind === "audio" ? "The joined audio" : "The joined video");
+}
+
+/** The concat filter graph for sound alone: every file brought to one rate and layout, then joined. */
+export function concatAudioGraph(clips: readonly MergeClip[], channels: number): string {
+  const layout = channels === 1 ? "mono" : "stereo";
+  const chains = clips.map((_, index) => `[${index}:a:0]aresample=${AUDIO_RATE},aformat=sample_fmts=fltp:channel_layouts=${layout}[a${index}]`);
+  const labels = clips.map((_, index) => `[a${index}]`).join("");
+  return `${chains.join(";")};${labels}concat=n=${clips.length}:v=0:a=1[a]`;
 }
 
 /** The concat demuxer's list: one `file` line per clip, in order. */
@@ -341,7 +437,33 @@ export function mergePlan(
 ): MergePlan {
   const assessment = assessMerge(clips, settings);
   const first = clips[0];
-  const baseName = `${fileStem(first?.fileName ?? "", "video")}-merged`;
+  const baseName = `${fileStem(first?.fileName ?? "", assessment.kind === "audio" ? "audio" : "video")}-merged`;
+
+  if (assessment.kind === "audio") {
+    if (assessment.mode === "copy") {
+      return {
+        inputArgs: ["-f", "concat", "-safe", "0", "-i", CONCAT_LIST_PATH],
+        args: ["-map", "0:a:0", "-vn", "-sn", "-dn", "-c", "copy", ...containerArgs(assessment.container)],
+        scratchFiles: [{ path: CONCAT_LIST_PATH, contents: concatList(clips) }],
+        ...assessment.container,
+        mode: "copy",
+        kind: "audio",
+        baseName,
+        expectedSeconds: assessment.totalSeconds,
+      };
+    }
+    const target = audioTargetFor(first?.probe.audio?.codec);
+    return {
+      inputArgs: clips.flatMap((clip) => ["-i", clip.inputPath]),
+      args: ["-filter_complex", concatAudioGraph(clips, first?.probe.audio?.channels ?? 2), "-map", "[a]", "-vn", "-sn", "-dn", ...target.args],
+      extension: target.extension,
+      mimeType: target.mimeType,
+      mode: "encode",
+      kind: "audio",
+      baseName,
+      expectedSeconds: assessment.totalSeconds,
+    };
+  }
 
   if (assessment.mode === "copy") {
     return {

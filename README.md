@@ -59,6 +59,19 @@ The live tools, each on its own route:
 | `/checksum` | SHA-256, SHA-1, MD5 or CRC-32 of a file of any size, checked against a pasted one | The algorithms written to take the file a chunk at a time, so the heap stays flat |
 | `/create-zip` | Files packed into one ZIP | fflate streaming each file in and deflating what is not already compressed |
 | `/extract-zip` | Every file inside a ZIP, a click away | fflate streaming the archive in |
+| `/merge-audio` | Several recordings joined into one file | The concat demuxer with the sound copied when the files match; `aresample` and `aformat` into the concat filter and one encode when they do not |
+| `/add-watermark` | A logo or a line of text on every frame of a video, at a corner or the centre, at a size and an opacity | `scale2ref` and `overlay` with the picture's alpha scaled, or `drawtext` in the font the site ships; one H.264 encode, the sound copied |
+| `/extract-frames` | A frame every second, ten seconds or minute as JPEG or PNG, or one frame at a time | One seek-and-grab format per frame: `-ss` before the input, `-frames:v 1`, named by its time |
+| `/crop-image` | A picture cut to 1:1, 4:5, 16:9, 9:16, 4:3 or 3:2 about its centre | The crop in the canvas, in the format it came in |
+| `/watermark-image` | A logo or a line of text on a photo, at a corner or the centre | Drawn on the canvas at a fraction of the picture's width, with the opacity set |
+| `/favicon` | Every size a site needs from one picture: the ICO, the PNGs and the tags | Drawn square at 16, 32 and 48 for the ICO written by hand, at 180, 192 and 512 for the PNGs; no library |
+| `/image-to-base64` | A picture as a data URL, an `<img>` tag and a CSS rule, ready to paste | Base64 of the file as it is, capped at 2 MB where the snippet stops being useful |
+| `/pdf-to-images` | Every page of a PDF as a JPEG or PNG at 72, 150 or 300 dpi | PDF.js drawing each page to a canvas, the canvas encoded |
+| `/compress-pdf` | A scanned PDF made smaller by redrawing every page as a picture | PDF.js drawing at a chosen dpi, the JPEGs rebuilt into a PDF by pdf-lib at the page's own size |
+| `/pdf-to-text` | The text of a PDF as a text file, a page at a time | PDF.js reading the text layer in order, with line breaks where the text moves down |
+| `/watermark-pdf` | A word across every page, diagonal and faint, or a footer line | Helvetica drawn by pdf-lib with a rotation and an opacity |
+| `/pdf-metadata` | What a PDF says about itself, cleared or rewritten | pdf-lib reading the Info dictionary and the XMP stream, and emptying both or writing new values |
+| `/find-duplicates` | The files in a drop that are the same file, and how much space the copies take | Sizes first, then SHA-256 of the files sharing a size, grouped |
 
 Every media tool is one configuration of the same machinery: a catalogue of formats in
 `lib/engine/`, a page shell in `components/ToolApp.tsx`, and an entry in the registry in
@@ -71,7 +84,8 @@ load ffmpeg at all.
 The image, PDF and file tools load no WebAssembly either: they are the browser's own canvas,
 two small pure-JavaScript libraries and some arithmetic, on a second, smaller queue
 (`lib/plainQueue.ts`) with two shells of its own, one for a job per file and one for many files
-into one. See [Tools with no engine at all](#tools-with-no-engine-at-all).
+into one. The three tools that draw or read a PDF's pages add PDF.js, pulled in on first use.
+See [Tools with no engine at all](#tools-with-no-engine-at-all).
 
 The research behind the site is in [`agent-outputs/`](agent-outputs/): the
 [audio extraction plan](agent-outputs/audio-extraction-research-and-implementation-plan.md) for the
@@ -89,7 +103,9 @@ npm run dev          # http://localhost:3000
 `dev` and `build` first run `scripts/copy-ffmpeg-worker.mjs`, which copies ffmpeg.wasm's class
 worker into `public/ffmpeg/<version>/` and checks that the versions and core checksums pinned in
 `lib/engine/constants.ts` still match what is installed (see
-[The class worker](#the-class-worker) below).
+[The class worker](#the-class-worker) below), and `scripts/copy-pdfjs-assets.mjs`, which does the
+same for PDF.js's worker and data files into `public/pdfjs/<version>/` against the version pinned
+in `lib/pdf/render.ts`.
 
 ```bash
 npm test             # unit tests: parsers, format catalogues, core loader, conversion queue
@@ -144,6 +160,7 @@ components/
   ToolApp.tsx        the page every queue-driven tool is built from: banner, drop zone, settings, queue, cards
   tools/*.tsx        one small file per tool: its catalogue, features and settings panel
   tools/MergeVideosApp.tsx      the merger: a list of clips to order, one join, one output
+  tools/MergeAudioApp.tsx       the same shell pointed at audio files, on a store of its own
   tools/ConvertSubtitlesApp.tsx the subtitle converter: files parsed on arrival, outputs derived live
   tools/MergeSubtitlesApp.tsx   the subtitle merger: one second-language file, every first-language file merged with it
   tools/SplitPartsApp.tsx       the equal-parts splitter, which serves the video route and the audio route
@@ -153,7 +170,7 @@ components/
   FileCard.tsx       a file in the queue: outputs, progress, preview, clip panel
   *.module.css       plain CSS modules; no utility-class framework
 lib/useConversionQueue.ts   sequential job runner, progress + cancellation, per-tool options
-lib/useMergeQueue.ts        the merger's store: clips read as they arrive, joined on request
+lib/useMergeQueue.ts        the merger's store: clips read as they arrive, joined on request; one slot per tool
 lib/engineState.ts   the one engine's load state, shared by the queue and the merger
 lib/toolFeatures.ts  what a tool's cards offer: clip panel, silence detection, whole-file chips
 lib/mediaTypes.ts    the cheap first pass: is this even a media file, and what an input accepts
@@ -166,13 +183,17 @@ lib/images/
   canvas.ts          pictures through the browser's decoder and canvas encoder; the size and quality arithmetic
   metadata.ts        Exif read, and JPEG, PNG and WebP metadata stripped by chunk without re-encoding
   run.ts             the image tools' shared steps: decode, draw, encode, name
+  edit.ts            crops to a shape, a mark drawn on a picture, the ICO writer, the favicon and Base64 snippets
 lib/hash/digest.ts   SHA-256, SHA-1, MD5 and CRC-32 a chunk at a time
+lib/hash/duplicates.ts  files grouped by size and then by digest, and what the copies cost
 lib/pdf/
   ranges.ts          print-dialog page ranges
-  pages.ts           merge, split, rotate, remove, number, pictures to pages, through pdf-lib
+  pages.ts           merge, split, rotate, remove, number, stamp, metadata, pictures to pages, through pdf-lib
+  render.ts          PDF.js, for drawing a page and reading its text; opened on first use
   files.ts           taking a PDF, reading it, naming the result
 lib/zip/archive.ts   ZIPs written and read through fflate, streamed
-public/fonts/        DejaVu Sans, the one font the burn-in tool has, with its licence
+public/fonts/        DejaVu Sans, the one font the burn-in and watermark tools have, with its licence
+public/pdfjs/        PDF.js's worker, fonts, CMaps and decoders, copied in at build time (gitignored)
 lib/engine/
   types.ts           the engine contract, and the OutputFormat shape every tool's catalogue uses
   ffmpegEngine.ts    ffmpeg.wasm implementation - mount, probe, run a plan (one pass or two), scan, merge
@@ -196,7 +217,9 @@ lib/engine/
   pieces.ts          one stream-copy format per equal part, from the length and a rule
   visualize.ts       an audio file under a colour, an image or a waveform, as an MP4
   cut.ts             the extractor's catalogue insisting on a range, for the audio trimmer
-  merge.ts           the merger's decision - copy or re-encode, and why - and both command lines
+  merge.ts           the merger's decision - copy or re-encode, and why - and both command lines, for video and for audio alone
+  watermark.ts       a picture or a line of text over every frame: the overlay graph and the drawtext filter
+  frames.ts          one frame at a time, at an interval: the seek, the grab and the name
   trim.ts            pure trim logic - ranges, timecodes, silence parsing
   probe.ts           pure parsers for ffmpeg's stderr, audio and video streams alike
   constants.ts       pinned versions, checksums and asset URLs
@@ -584,6 +607,29 @@ frames a second with `-tune stillimage`, which every player and upload form acce
 hour of podcast to a few minutes of encoding on one WebAssembly thread; the waveform runs at 25
 and costs about real time.
 
+### Watermarks, frames and audio joined
+
+A watermark is a second input, like a cover or a backdrop: the logo is written into the core
+and `scale2ref` sizes it against the video's own width, so the same setting gives the same
+proportion on a phone clip and a 4K one, then `colorchannelmixer=aa=` sets its opacity and
+`overlay` puts it at a corner or the centre with the margin in the same fraction. A line of text
+is `drawtext` in DejaVu Sans, the font the burn-in tool already ships, read from a text file
+written into the core so a quote or a colon in the caption cannot break the filter. Either way
+the picture is encoded once and the sound copied. The image tool does the same on the canvas.
+
+Frames are one seek-and-grab per frame rather than one `fps` run: `-ss` before the input jumps
+to the keyframe and decodes forward from there, `-frames:v 1` takes one picture, and the format
+is named by its time. The interval decides how many frames a file yields and the tool caps it at
+64 per run, since a frame a second from an hour of video is more than anyone wanted in a
+downloads list; the card says how many were skipped and the interval can be widened.
+
+Joining audio reuses the merger whole: the same store, the same list to order, the same decision
+between copying and re-encoding. The files match when they share a codec, sample rate and
+channel layout, and the concat demuxer copies them with `-vn` and `-c copy`. When they do not, an
+`aresample` to 48 kHz and `aformat` to a common layout in front of the concat filter make them
+joinable, and the result is encoded into the first file's own format. The store is one slot per
+tool, so the audio joiner and the video joiner each keep their own list.
+
 ### Tools with no engine at all
 
 The catalogue's second tier is tools that need no WebAssembly: plain TypeScript, the browser's
@@ -628,7 +674,32 @@ across; splitting copies each range out as its own document, with the ranges par
 print dialog takes them ("1-3, 5, 8-"); rotating sets the page's rotation rather than re-drawing;
 removing edits the page list; numbering draws Helvetica, which every viewer carries, at the
 position asked. Pictures become pages with an upright JPEG or PNG embedded as it is and anything
-else drawn again by the browser. A password-protected PDF is refused with a reason.
+else drawn again by the browser. A password-protected PDF is refused with a reason. Stamping a
+word across the page and rewriting the Info dictionary are pdf-lib too: the stamp is Helvetica
+drawn with a rotation and an opacity, and clearing metadata empties the Info dictionary and drops
+the catalog's XMP stream, which is where a viewer reads the title and author from.
+
+Drawing a page and reading its text is beyond pdf-lib, which writes PDFs and does not render
+them, so the three tools that need it - pages to pictures, the scan compressor and the text
+extractor - use PDF.js, Mozilla's Apache-2.0 renderer and the one every Firefox carries. It is
+plain JavaScript with a worker and a directory of data files (CMaps for CJK text, the fourteen
+standard fonts, an OpenJPEG decoder for JPEG 2000, ICC profiles), so
+`scripts/copy-pdfjs-assets.mjs` copies those into `public/pdfjs/<version>/` at build time the
+way the ffmpeg worker is, asserts the version pinned in `lib/pdf/render.ts`, and the routes that
+use it import the library on first use so no other page pays for it. It is the legacy build and
+the legacy worker, not the modern pair: the modern build is written for the current release of
+each browser and used a Map method a year-old Chromium did not have, which the browser run found
+as a failed card on the first document; the legacy build carries the polyfills and supports
+browsers about two years back, which is the promise the rest of the site makes. A page is rendered to an
+`OffscreenCanvas` at 72, 150 or 300 dpi and encoded by the canvas; text comes back in reading
+order with a line break where the text moves down. The scan compressor redraws every page at a
+chosen dpi as a JPEG and rebuilds the document at each page's own size in points, which is the
+right tool for a scan and the wrong one for a document that is already text, so a result no
+smaller than the source is reported as a note rather than written.
+
+Finding duplicates is the checksum tool run over a drop: files are grouped by size first, since
+two files of different sizes cannot be the same, and only the files sharing a size are hashed,
+with SHA-256, so a folder of large videos costs one read of the few that could match.
 
 ZIPs go through fflate, also MIT and also streamed: each file is read in 4 MB slices and deflated
 as it arrives, with formats that are already compressed stored as they are, and an archive is
@@ -845,13 +916,17 @@ covers the batch after that - audio added, looped and mixed under a video, the s
 way and read back from the edit list, a peak lift measured with `volumedetect`, fades measured
 quiet at both ends, a loop three times over and out to a minute, a GIF to MP4 and WebM, a subtitle
 file muxed into an MP4, an MKV and a WebM, tags and covers into an MP3 and a FLAC, equal parts,
-an MP3 under a colour, an image and a waveform, and a range cut out by copy. The subtitle library
+an MP3 under a colour, an image and a waveform, a range cut out by copy, a logo and a line of
+text drawn over a video, single frames at an interval, and MP3s joined by copy and unlike files
+by re-encoding. The subtitle library
 is pure and its tests round-trip every format. The no-engine tools are tested without a browser
 where they can be: the metadata stripper against synthetic JPEG, PNG and WebP files carrying a
 hand-built Exif block, the digests against Node's own at every awkward length and chunk size,
 the page ranges, the size and quality arithmetic, the PDF operations against documents pdf-lib
-makes in Node, the archives round-tripped through fflate, and both plain queues through fake
-runners; the canvas itself only exists in a browser.
+makes in Node, the archives round-tripped through fflate, the crop, mark and ICO arithmetic, the
+duplicate grouping, and both plain queues through fake runners; the canvas and PDF.js's renderer
+only exist in a browser, and the pages built on them are driven through Chromium by hand-run
+scripts before a release.
 The browser scripts need ffmpeg and ffprobe on `PATH`, plus a Chromium: one Playwright can find
 on its own (`npx playwright install chromium`), or any Chrome/Chromium binary named in
 `CHROMIUM_PATH`.
@@ -965,6 +1040,19 @@ calling large-file support universal.
   file and in all: ZIP64 is neither written nor read. Password-protected PDFs and ZIPs are refused.
 - Merging or splitting PDFs copies pages, not documents: bookmarks and form fields do not carry
   over, and fonts and images do.
+- Compressing a PDF redraws every page as a picture, so the text of the result cannot be selected
+  or searched, and a document that is mostly text comes out larger, not smaller; the tool says so
+  and writes nothing. Shrinking a text PDF without rasterising it is a different tool that needs
+  a PDF library with an object-level optimiser, which none of the permissively licensed ones has.
+- Text extraction reads the text layer PDF.js finds. A scanned PDF has none and comes back empty
+  per page; turning the picture into text is OCR, which is not built.
+- A watermark's text and a PDF stamp are set in DejaVu Sans and Helvetica respectively, which
+  cover Latin, Greek and Cyrillic; other scripts need a font the site does not ship.
+- Frames are grabbed at most 64 at a time, and each is a seek from the start of the file, so a
+  frame a second over a long video takes a while; the card says how many were skipped.
+- Joining audio files by copy needs the same codec, sample rate and channel layout; anything else
+  is resampled to 48 kHz and re-encoded into the first file's format, and the summary says why.
+- The favicon writer squares a picture about its centre; a wide logo is cropped, not padded.
 - Cancelling terminates the ffmpeg worker, since ffmpeg blocks its worker while running and cannot
   be interrupted cooperatively. See [Cancelling one format](#cancelling-one-format) for why that is
   survivable. The engine restarts on the next job; the core is already cached, so this costs a
