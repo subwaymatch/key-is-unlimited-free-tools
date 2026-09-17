@@ -13,8 +13,23 @@
 }
 
 .wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   font-weight: 600;
   letter-spacing: var(--tracking-tight);
+}
+
+/*
+ * The mark sits a touch above the text's baseline: the drawing's weight is
+ * in its lower half, where the keys hang, so centring it on the cap height
+ * leaves it looking low.
+ */
+.mark {
+  display: block;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin-top: -0.125rem;
 }
 
 .nav {
