@@ -1,0 +1,276 @@
+/* The page every no-engine tool is built from: cards of files and their outputs. */
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.card {
+  padding: 0;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.identity {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0%;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.thumb {
+  flex: none;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: var(--radius-sm);
+  background: var(--muted);
+  object-fit: cover;
+}
+
+.names {
+  min-width: 0;
+}
+
+.fileName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.meta {
+  margin-top: 0.125rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--muted-foreground);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.status {
+  border-radius: 9999px;
+  padding: 0.125rem 0.5rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  font-weight: 500;
+}
+
+.statusIdle {
+  background: var(--border);
+  color: var(--muted-foreground);
+}
+
+.statusDone {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.statusError {
+  background: var(--destructive-soft);
+  color: var(--destructive);
+}
+
+.progress {
+  margin-top: 0.75rem;
+}
+
+.phase {
+  margin-bottom: 0.375rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--muted-foreground);
+}
+
+.alert {
+  margin-top: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--destructive) 40%, transparent);
+  border-radius: var(--radius-lg);
+  background: var(--destructive-soft);
+  padding: 0.5rem 0.75rem;
+}
+
+.alertInfo {
+  border-color: var(--border);
+  background: var(--muted);
+}
+
+.alertMessage {
+  font-weight: 500;
+  color: var(--destructive);
+}
+
+.alertInfo .alertMessage {
+  color: var(--foreground);
+}
+
+.alertHint {
+  margin-top: 0.125rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--muted-foreground);
+}
+
+.note {
+  margin-top: 0.5rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--muted-foreground);
+}
+
+/* What the file says about itself: a metadata list. */
+.facts {
+  margin-top: 0.75rem;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.125rem 0.75rem;
+  border-radius: var(--radius-lg);
+  background: var(--muted);
+  padding: 0.625rem 0.75rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+}
+
+.factLabel {
+  color: var(--muted-foreground);
+}
+
+.factValue {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ---- Outputs ----------------------------------------------------------- */
+
+.outputs {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem 0.75rem;
+}
+
+.rowLabel {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.formatName {
+  font-weight: 500;
+}
+
+.tag {
+  border-radius: var(--radius-sm);
+  background: var(--muted);
+  padding: 0.125rem 0.375rem;
+  font-size: var(--text-sm);
+  line-height: 1.2;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+}
+
+.rowState {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.rowMeta {
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+
+.rowNote {
+  width: 100%;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--muted-foreground);
+}
+
+/* A finished picture, shown at a modest size. */
+.preview {
+  margin-top: 0.5rem;
+  max-width: 100%;
+  max-height: 16rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--muted);
+  object-fit: contain;
+}
+
+/* A hash, in a box it can be copied from. */
+.textOutput {
+  display: flex;
+  width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.textValue {
+  min-width: 0;
+  flex: 1 1 16rem;
+  overflow-wrap: anywhere;
+  border-radius: var(--radius);
+  background: var(--muted);
+  padding: 0.375rem 0.5rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+}
+
+.match {
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  font-weight: 500;
+  color: var(--success);
+}
+
+.mismatch {
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  font-weight: 500;
+  color: var(--destructive);
+}
+
+/* The download link, the same as the file card's. */
+.download {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border-radius: var(--radius);
+  background: var(--primary);
+  padding: 0.25rem 0.625rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  font-weight: 500;
+  color: var(--primary-foreground);
+  transition: background-color 150ms;
+}
+
+.download:hover {
+  background: var(--primary-hover);
+}

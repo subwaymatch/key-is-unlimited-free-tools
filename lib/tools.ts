@@ -15,7 +15,7 @@ import type { Metadata } from "next";
 
 import { SITE_NAME, SITE_URL } from "./site";
 
-export type ToolCategory = "video" | "audio" | "subtitles" | "images" | "documents" | "data";
+export type ToolCategory = "video" | "audio" | "subtitles" | "images" | "documents" | "files" | "data";
 
 /*
  * Icon keys, resolved to lucide components by components/ToolIcon.tsx.
@@ -59,7 +59,16 @@ export type ToolIconName =
   | "parts"
   | "clapper"
   | "fade"
-  | "tempo";
+  | "tempo"
+  | "picture"
+  | "shrinkpicture"
+  | "hidden"
+  | "imagepdf"
+  | "deletepages"
+  | "numbers"
+  | "checksum"
+  | "archive"
+  | "unarchive";
 
 export interface ToolMeta {
   /** URL segment. Verb-object, lowercase, hyphenated, and permanent once shipped. */
@@ -80,6 +89,12 @@ export interface ToolMeta {
    * worse than an absent one, for visitors and crawlers alike.
    */
   status: "live" | "planned";
+  /**
+   * What runs the tool: ffmpeg compiled to WebAssembly, or the browser's own
+   * JavaScript with no runtime to download. Says which requirement the page's
+   * structured data states. Defaults to "ffmpeg", which most tools are.
+   */
+  engine?: "ffmpeg" | "browser";
 }
 
 export const CATEGORY_LABELS: Record<ToolCategory, string> = {
@@ -88,6 +103,7 @@ export const CATEGORY_LABELS: Record<ToolCategory, string> = {
   subtitles: "Subtitles",
   images: "Images",
   documents: "Documents",
+  files: "Files",
   data: "Data",
 };
 
@@ -98,6 +114,7 @@ export const CATEGORY_ORDER: readonly ToolCategory[] = [
   "subtitles",
   "images",
   "documents",
+  "files",
   "data",
 ];
 
@@ -211,6 +228,7 @@ export const TOOLS: readonly ToolMeta[] = [
     icon: "subtitles",
     accepts: "Subtitle files",
     status: "live",
+    engine: "browser",
   },
   {
     slug: "resize-video",
@@ -343,6 +361,7 @@ export const TOOLS: readonly ToolMeta[] = [
     icon: "bilingual",
     accepts: "Subtitle files",
     status: "live",
+    engine: "browser",
   },
   {
     slug: "split-chapters",
@@ -510,6 +529,162 @@ export const TOOLS: readonly ToolMeta[] = [
     status: "live",
   },
   {
+    slug: "convert-image",
+    name: "Convert image",
+    tagline: "HEIC, AVIF, PNG, WebP or anything else to JPEG, PNG or WebP, in bulk.",
+    description:
+      "Convert pictures between JPEG, PNG and WebP entirely in your browser, from any format it can open, including HEIC and AVIF where it can, at a quality you choose. Metadata is left behind. Nothing is uploaded.",
+    category: "images",
+    icon: "picture",
+    accepts: "Image files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "compress-image",
+    name: "Compress image",
+    tagline: "Shrink a photo to under 200 KB, 500 KB, 1 MB or any size you choose.",
+    description:
+      "Compress a picture to a size you choose - 200 KB, 500 KB, 1 MB or your own number - entirely in your browser, by finding the highest quality that fits and scaling the picture down only when it has to. Nothing is uploaded.",
+    category: "images",
+    icon: "shrinkpicture",
+    accepts: "Image files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "resize-image",
+    name: "Resize image",
+    tagline: "Scale pictures down to a longest side or a fraction, never enlarged, in bulk.",
+    description:
+      "Resize pictures entirely in your browser: to a longest side of 1920, 1280, 1024 or 800 pixels, to half or a quarter, or to a number you type, never enlarged, in the format they came in. Nothing is uploaded.",
+    category: "images",
+    icon: "resize",
+    accepts: "Image files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "remove-image-metadata",
+    name: "Remove image metadata (EXIF)",
+    tagline: "See what a photo says about where and how it was taken, and strip it losslessly.",
+    description:
+      "See the EXIF metadata a photo carries - camera, date, location, serial number - and remove it entirely in your browser, without re-encoding the picture, from JPEG, PNG and WebP files. Nothing is uploaded.",
+    category: "images",
+    icon: "hidden",
+    accepts: "JPEG, PNG and WebP files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "images-to-pdf",
+    name: "Images to PDF",
+    tagline: "Photos and scans into one PDF, a page each, in the order you choose.",
+    description:
+      "Turn pictures into one PDF entirely in your browser: a page per picture, on A4, Letter or a page the picture's own size, in the order you put them. JPEGs and PNGs go in as they are. Nothing is uploaded.",
+    category: "documents",
+    icon: "imagepdf",
+    accepts: "Image files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "merge-pdf",
+    name: "Merge PDFs",
+    tagline: "Join several PDFs into one, in the order you choose.",
+    description:
+      "Merge PDF files into one entirely in your browser: put them in order, press the button, and every page of each comes out in one document with nothing re-drawn. Nothing is uploaded.",
+    category: "documents",
+    icon: "merge",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "split-pdf",
+    name: "Split PDF",
+    tagline: "Every page as its own PDF, every N pages, or the ranges you type.",
+    description:
+      "Split a PDF entirely in your browser: into one file per page, into pieces of a set number of pages, or into the page ranges you type, the way a print dialog takes them. Nothing is uploaded.",
+    category: "documents",
+    icon: "split",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "rotate-pdf",
+    name: "Rotate PDF pages",
+    tagline: "Turn every page, or just the ones you name, a quarter or half turn.",
+    description:
+      "Rotate the pages of a PDF entirely in your browser: all of them or the ones you name, by 90 degrees either way or 180, with nothing re-drawn. Nothing is uploaded.",
+    category: "documents",
+    icon: "rotate",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "delete-pdf-pages",
+    name: "Delete PDF pages",
+    tagline: "Take pages out of a PDF by number or range.",
+    description:
+      "Delete pages from a PDF entirely in your browser: type the pages or ranges to remove, the way a print dialog takes them, and get the document back without them. Nothing is uploaded.",
+    category: "documents",
+    icon: "deletepages",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "add-page-numbers",
+    name: "Add page numbers to PDF",
+    tagline: "Number every page, at the bottom or the top, plain or as N of M.",
+    description:
+      "Add page numbers to a PDF entirely in your browser: at the bottom or the top, centred or to one side, as a plain number or as N of M, starting from any number. Nothing is uploaded.",
+    category: "documents",
+    icon: "numbers",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "checksum",
+    name: "File checksum",
+    tagline: "SHA-256, SHA-1, MD5 or CRC-32 of any file, however large, and a check against one.",
+    description:
+      "Compute the SHA-256, SHA-1, MD5 or CRC-32 checksum of a file of any size entirely in your browser, streamed from disk with the memory flat, and compare it with the one a download page printed. Nothing is uploaded.",
+    category: "files",
+    icon: "checksum",
+    accepts: "Any file",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "create-zip",
+    name: "Create ZIP",
+    tagline: "Pack files into one ZIP archive, compressed where that helps.",
+    description:
+      "Put files into a ZIP archive entirely in your browser: each is read in pieces and compressed as it goes, with formats that are already compressed stored as they are. Nothing is uploaded.",
+    category: "files",
+    icon: "archive",
+    accepts: "Any files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "extract-zip",
+    name: "Extract ZIP",
+    tagline: "Open a ZIP archive and save any of the files inside, or all of them.",
+    description:
+      "Unpack a ZIP archive entirely in your browser: every file inside listed with its size, each one a click away, or all of them at once. Nothing is uploaded, and nothing is installed.",
+    category: "files",
+    icon: "unarchive",
+    accepts: "ZIP files",
+    status: "live",
+    engine: "browser",
+  },
+  {
     slug: "transcribe-video",
     name: "Transcribe video or audio",
     tagline: "Turn speech into subtitles with a model that runs in your browser.",
@@ -632,9 +807,12 @@ export function toolJsonLd(slug: string): Record<string, unknown> {
     name: tool.name,
     url: `${SITE_URL}${toolPath(tool)}`,
     description: tool.description,
-    applicationCategory: "MultimediaApplication",
+    applicationCategory:
+      tool.category === "documents" || tool.category === "files" || tool.category === "data"
+        ? "UtilitiesApplication"
+        : "MultimediaApplication",
     operatingSystem: "Any browser",
-    browserRequirements: "Requires WebAssembly",
+    browserRequirements: (tool.engine ?? "ffmpeg") === "ffmpeg" ? "Requires WebAssembly" : "Requires JavaScript",
     isAccessibleForFree: true,
     offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
     publisher: { "@type": "Organization", name: SITE_NAME, url: SITE_URL },

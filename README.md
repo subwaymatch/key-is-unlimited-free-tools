@@ -46,13 +46,32 @@ The live tools, each on its own route:
 | `/edit-tags` | Title, artist, album, year, genre, track, comment and a cover picture | `-metadata` under ffmpeg's generic names with every stream copied; the cover a second input with `-disposition attached_pic` |
 | `/audio-to-video` | An MP3 as an MP4 for YouTube: a colour, a picture or a waveform under it | A `color` source, a looped image or `showwaves` as the picture, `-tune stillimage` at 5 fps for a still, the sound copied where the MP4 holds it |
 | `/add-subtitles` | An SRT, VTT or ASS file inside an MP4, MOV, MKV or WebM as a track that can be switched off | The file written into the core as a second input and mapped in as MOV text, SRT, ASS or WebVTT by container, with everything else copied |
+| `/convert-image` | Any picture the browser opens, out as JPEG, PNG or WebP | The browser's own decoder and canvas encoder; no library, no WebAssembly |
+| `/compress-image` | A photo under a size you choose | Bisection on the encoder's quality, and a smaller frame only when the lowest quality is still too large |
+| `/resize-image` | A picture scaled down to a longest side or a fraction, never enlarged | Drawn in halves down to the size, in the format it came in |
+| `/remove-image-metadata` | What a photo says about itself, and a copy without it | JPEG, PNG and WebP taken apart by chunk and written back without the metadata ones; the orientation tag kept |
+| `/images-to-pdf` | Pictures into one PDF, a page each | pdf-lib embedding an upright JPEG or PNG as it is, the rest drawn again by the browser |
+| `/merge-pdf` | Several PDFs as one | pdf-lib copying every page across |
+| `/split-pdf` | One PDF per page, every N pages, or the ranges typed | Print-dialog ranges parsed and each copied out as its own document |
+| `/rotate-pdf` | Pages turned a quarter or a half | The page's rotation set, nothing re-drawn |
+| `/delete-pdf-pages` | Pages taken out by number or range | The page list edited |
+| `/add-page-numbers` | A number on every page, plain or N of M | Helvetica, one of the fonts every viewer carries, drawn at the position asked |
+| `/checksum` | SHA-256, SHA-1, MD5 or CRC-32 of a file of any size, checked against a pasted one | The algorithms written to take the file a chunk at a time, so the heap stays flat |
+| `/create-zip` | Files packed into one ZIP | fflate streaming each file in and deflating what is not already compressed |
+| `/extract-zip` | Every file inside a ZIP, a click away | fflate streaming the archive in |
 
-Every tool is one configuration of the same machinery: a catalogue of formats in `lib/engine/`,
-a page shell in `components/ToolApp.tsx`, and an entry in the registry in `lib/tools.ts` that
-puts it on the index, in the header and footer, in the related-tools block and in the sitemap.
-Adding a tool is a registry entry, a catalogue and a page. Three tools have a shape of their own
-and share only the frame: the merger, which is one job over several files rather than one job
-per file, and the subtitle converter and the subtitle merger, which never load ffmpeg at all.
+Every media tool is one configuration of the same machinery: a catalogue of formats in
+`lib/engine/`, a page shell in `components/ToolApp.tsx`, and an entry in the registry in
+`lib/tools.ts` that puts it on the index, in the header and footer, in the related-tools block and
+in the sitemap. Adding a tool is a registry entry, a catalogue and a page. Three tools have a
+shape of their own and share only the frame: the merger, which is one job over several files
+rather than one job per file, and the subtitle converter and the subtitle merger, which never
+load ffmpeg at all.
+
+The image, PDF and file tools load no WebAssembly either: they are the browser's own canvas,
+two small pure-JavaScript libraries and some arithmetic, on a second, smaller queue
+(`lib/plainQueue.ts`) with two shells of its own, one for a job per file and one for many files
+into one. See [Tools with no engine at all](#tools-with-no-engine-at-all).
 
 The research behind the site is in [`agent-outputs/`](agent-outputs/): the
 [audio extraction plan](agent-outputs/audio-extraction-research-and-implementation-plan.md) for the
@@ -128,6 +147,8 @@ components/
   tools/ConvertSubtitlesApp.tsx the subtitle converter: files parsed on arrival, outputs derived live
   tools/MergeSubtitlesApp.tsx   the subtitle merger: one second-language file, every first-language file merged with it
   tools/SplitPartsApp.tsx       the equal-parts splitter, which serves the video route and the audio route
+  PlainToolApp.tsx   the page every no-engine tool is built from: a job per file, a card per job
+  CombineApp.tsx     the page for a no-engine tool that makes one thing of several files: a list to order, a button, one result
   ui/FileField.tsx   a file chooser inside a settings panel, for the tools that take a second file
   FileCard.tsx       a file in the queue: outputs, progress, preview, clip panel
   *.module.css       plain CSS modules; no utility-class framework
@@ -140,6 +161,17 @@ lib/persist.ts       remembering a tool's settings between visits, without a hyd
 lib/subtitles/       SRT, WebVTT and ASS parsers and writers, retiming and merging; no WebAssembly
 lib/download.ts      hands a text output to the browser as a file, for the tools with no engine
 lib/chosenFile.ts    a second file read whole for a scratch file: its bytes, a key, its image type
+lib/plainQueue.ts    the queue for the tools with no engine: one job per file, and one job over many
+lib/images/
+  canvas.ts          pictures through the browser's decoder and canvas encoder; the size and quality arithmetic
+  metadata.ts        Exif read, and JPEG, PNG and WebP metadata stripped by chunk without re-encoding
+  run.ts             the image tools' shared steps: decode, draw, encode, name
+lib/hash/digest.ts   SHA-256, SHA-1, MD5 and CRC-32 a chunk at a time
+lib/pdf/
+  ranges.ts          print-dialog page ranges
+  pages.ts           merge, split, rotate, remove, number, pictures to pages, through pdf-lib
+  files.ts           taking a PDF, reading it, naming the result
+lib/zip/archive.ts   ZIPs written and read through fflate, streamed
 public/fonts/        DejaVu Sans, the one font the burn-in tool has, with its licence
 lib/engine/
   types.ts           the engine contract, and the OutputFormat shape every tool's catalogue uses
@@ -552,6 +584,59 @@ frames a second with `-tune stillimage`, which every player and upload form acce
 hour of podcast to a few minutes of encoding on one WebAssembly thread; the waveform runs at 25
 and costs about real time.
 
+### Tools with no engine at all
+
+The catalogue's second tier is tools that need no WebAssembly: plain TypeScript, the browser's
+own facilities, and at most a small pure-JavaScript library. They cost nothing they do not
+already have - no CDN pin, no checksum, no class-worker path, no memory ceiling of their own -
+which is why the image, PDF and file tools came before a second runtime. They run on a queue of
+their own, `lib/plainQueue.ts`: the conversion queue's shape without the engine, a function of
+one file and the settings run one file at a time in a module-level store keyed by tool, so a
+visit to another page and a press of Back finds the work where it was left. `PlainToolApp` is the
+page for a job per file; `CombineApp` is the page for many files into one thing, with a list to
+order and one result.
+
+The image tools are the canvas. Every browser decodes JPEG, PNG, WebP, GIF and BMP, most decode
+AVIF and Safari decodes HEIC; `createImageBitmap` with `imageOrientation: "from-image"` gives the
+picture the right way up, the picture is drawn in halves down to the size asked for so every step
+averages the pixels it drops, and `toBlob` or `convertToBlob` writes JPEG, PNG or WebP (Safari
+writes no WebP, and the panel says so). What comes out carries no metadata and no colour profile.
+Compressing to a size is bisection on the quality between 0.4 and 0.95, checking the ends first
+so a picture already small enough costs one encode, and a smaller frame only when the lowest
+quality is still too large, shrunk by the square root of the ratio since bytes go with pixels.
+
+Removing metadata is the one image tool that never decodes. A JPEG, a PNG and a WebP are each a
+sequence of chunks, and the chunks that carry metadata - Exif, XMP, IPTC, comments, PNG text and
+time, the multi-picture extension - are left out of the copy while the picture's own chunks are
+copied byte for byte; the JFIF header, the ICC profile and the Adobe marker stay because the
+picture needs them. The Exif block is read first, from its TIFF structure, for the card: camera,
+lens, exposure, the moment, the software, the serial number and the GPS position. One tag is put
+back: orientation, as a minimal Exif block carrying only that, since dropping it turns every
+portrait photo on its side. HEIC, AVIF and GIF cannot be stripped without decoding and are
+pointed at the converter.
+
+The checksums are SHA-256, SHA-1, MD5 and CRC-32 written to take the file a chunk at a time,
+because the Web Crypto API hashes a buffer and a buffer is the whole file in memory; the file is
+read in 8 MB slices and every algorithm asked for is fed in one pass, at a few hundred megabytes
+a second, with the heap flat however large the file. They are tested against Node's own digests
+at every awkward length and chunk size. A pasted hash is matched against the results whatever
+its case and whatever prefix it was pasted with.
+
+PDFs go through pdf-lib, chosen for its MIT licence where Ghostscript and MuPDF are AGPL (section
+2.2 of the catalogue), loaded on first use so no other page pays for it. Merging copies pages
+across; splitting copies each range out as its own document, with the ranges parsed the way a
+print dialog takes them ("1-3, 5, 8-"); rotating sets the page's rotation rather than re-drawing;
+removing edits the page list; numbering draws Helvetica, which every viewer carries, at the
+position asked. Pictures become pages with an upright JPEG or PNG embedded as it is and anything
+else drawn again by the browser. A password-protected PDF is refused with a reason.
+
+ZIPs go through fflate, also MIT and also streamed: each file is read in 4 MB slices and deflated
+as it arrives, with formats that are already compressed stored as they are, and an archive is
+read the same way, its entries unpacked into blobs. fflate writes and reads classic ZIP only, so
+anything past 4 GB is refused with a reason rather than corrupted. A file that does not start
+with the ZIP signature is refused too, since fflate would otherwise skip quietly past it and
+report an empty archive.
+
 ### Cancelling one format
 
 Each output is a format *and* a range, and each can be cancelled on its own. Cancelling one that is
@@ -761,7 +846,12 @@ way and read back from the edit list, a peak lift measured with `volumedetect`, 
 quiet at both ends, a loop three times over and out to a minute, a GIF to MP4 and WebM, a subtitle
 file muxed into an MP4, an MKV and a WebM, tags and covers into an MP3 and a FLAC, equal parts,
 an MP3 under a colour, an image and a waveform, and a range cut out by copy. The subtitle library
-is pure and its tests round-trip every format.
+is pure and its tests round-trip every format. The no-engine tools are tested without a browser
+where they can be: the metadata stripper against synthetic JPEG, PNG and WebP files carrying a
+hand-built Exif block, the digests against Node's own at every awkward length and chunk size,
+the page ranges, the size and quality arithmetic, the PDF operations against documents pdf-lib
+makes in Node, the archives round-tripped through fflate, and both plain queues through fake
+runners; the canvas itself only exists in a browser.
 The browser scripts need ffmpeg and ffprobe on `PATH`, plus a Chromium: one Playwright can find
 on its own (`npx playwright install chromium`), or any Chrome/Chromium binary named in
 `CHROMIUM_PATH`.
@@ -865,6 +955,16 @@ calling large-file support universal.
   track, such as AVI, comes back as an MKV.
 - A still backdrop under audio is written at 5 frames a second. Every player and upload form
   tested accepts it; a site that insists on 24 or more wants the waveform, which runs at 25.
+- Which picture formats can be opened is the browser's decision: HEIC opens in Safari and nowhere
+  else, TIFF in Safari only, and Safari writes no WebP. A picture that comes out of the canvas
+  carries no colour profile, so a photo in a wide-gamut profile is converted to sRGB.
+- Metadata removal without re-encoding covers JPEG, PNG and WebP. HEIC, AVIF and GIF are pointed
+  at the converter, which writes no metadata at all.
+- PDFs and ZIPs are worked on in memory, since pdf-lib and fflate build their output there; a
+  multi-gigabyte one needs that much room in the browser. ZIPs are classic ZIP, up to 4 GB per
+  file and in all: ZIP64 is neither written nor read. Password-protected PDFs and ZIPs are refused.
+- Merging or splitting PDFs copies pages, not documents: bookmarks and form fields do not carry
+  over, and fonts and images do.
 - Cancelling terminates the ffmpeg worker, since ffmpeg blocks its worker while running and cannot
   be interrupted cooperatively. See [Cancelling one format](#cancelling-one-format) for why that is
   survivable. The engine restarts on the next job; the core is already cached, so this costs a
