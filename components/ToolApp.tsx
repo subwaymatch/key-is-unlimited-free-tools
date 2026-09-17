@@ -4,6 +4,7 @@ import { ChevronDown, DownloadCloud } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { Button } from "./ui/Button";
+import { archiveName, downloadAllAsZip } from "@/lib/download";
 import { formatBytes } from "@/lib/format-utils";
 import type { ToolFeatures } from "@/lib/toolFeatures";
 import type { ToolMeta } from "@/lib/tools";
@@ -147,26 +148,27 @@ export function ToolApp({
   );
 
   /**
-   * Saves every finished output, one click instead of one per file.
+   * Saves every finished output, one click and one file.
    *
-   * A plain sequence of synthetic anchor clicks rather than a zip: no library,
-   * no second copy of every file in memory, and the browser's own downloads
-   * list is where they were going anyway. Chrome asks once for permission to
-   * save multiple files and remembers the answer; the small gap between clicks
-   * is what keeps it from treating the burst as a popup.
+   * A ZIP written by the same streaming writer the Create ZIP tool uses. The
+   * alternative - a burst of synthetic anchor clicks - makes Chrome ask
+   * whether this site may save several files at once, and leaves however
+   * many loose in the downloads folder when it says yes. Packing a handful
+   * of finished videos takes a moment, so the button says what it is doing;
+   * an archive too large for classic ZIP falls back to the old burst.
    */
+  const [packing, setPacking] = useState(false);
   const downloadAll = useCallback(() => {
-    completedOutputs.forEach((output, index) => {
-      window.setTimeout(() => {
-        const link = document.createElement("a");
-        link.href = output.url!;
-        link.download = output.result?.fileName ?? "download";
-        document.body.append(link);
-        link.click();
-        link.remove();
-      }, index * 250);
-    });
-  }, [completedOutputs]);
+    setPacking(true);
+    void downloadAllAsZip(
+      completedOutputs.map((output) => ({
+        fileName: output.result?.fileName ?? "download",
+        blob: output.result!.blob,
+        url: output.url,
+      })),
+      archiveName(tool.slug),
+    ).finally(() => setPacking(false));
+  }, [completedOutputs, tool.slug]);
 
   return (
     <ToolFrame
@@ -297,9 +299,9 @@ export function ToolApp({
                 )}{" "}
                 total
               </p>
-              <Button onClick={downloadAll}>
+              <Button onClick={downloadAll} disabled={packing}>
                 <DownloadCloud aria-hidden="true" size={14} strokeWidth={2} />
-                Download all
+                {packing ? "Packing..." : "Download all as a ZIP"}
               </Button>
             </div>
           )}

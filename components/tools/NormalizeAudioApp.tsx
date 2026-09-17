@@ -53,8 +53,12 @@ const TARGET_OPTIONS = [
 /**
  * Loudness normalisation to a platform target.
  *
- * Two passes, measured then corrected, so the result is one clean gain
- * rather than a limiter riding the file. The target is baked into the
+ * Two passes: the file is measured, and then corrected by the gain that
+ * measurement calls for, rather than by a limiter guessing its way through
+ * a file it is hearing for the first time. Where that one gain would push a
+ * transient past the true-peak ceiling, loudnorm holds the peak instead of
+ * overshooting it, which is the only thing here that is not a single gain
+ * and is what the copy on the page says. The target is baked into the
  * format, so a file queued at -14 stays a -14 job however the panel changes.
  */
 export function NormalizeAudioApp() {
@@ -164,7 +168,7 @@ export function NormalizeAudioApp() {
   return (
     <ToolApp
       tool={tool}
-      lead="Drop an audio file, or a video, and get it back at the loudness a platform expects: -14 LUFS for Spotify and YouTube, -16 for Apple, -23 for European broadcast, or a number of your own. The file is measured first and then corrected with one clean gain, so nothing pumps or squashes. An audio file comes back in its own format; a video keeps its picture untouched. Nothing is uploaded."
+      lead="Drop an audio file, or a video, and get it back at the loudness a platform expects: -14 LUFS for Spotify and YouTube, -16 for Apple, -23 for European broadcast, or a number of your own. The whole file is measured first and then corrected by the one gain that measurement calls for, so nothing pumps; where that gain would push a peak past the ceiling, the peak is held there rather than the target being missed. An audio file comes back in its own format; a video keeps its picture untouched. Nothing is uploaded."
       queue={queue}
       features={FEATURES}
       settings={toolSettings}
@@ -176,7 +180,7 @@ export function NormalizeAudioApp() {
           ? "Choose a target below before adding a file"
           : `Normalization to ${label} starts automatically - change it below`,
       }}
-      note="Two passes over the audio: one to measure, one to apply, so expect the file to take about twice as long as a plain conversion. A file that is already at the target comes back the same loudness, re-encoded; the sample rate is kept as it was. True peaks are held under -1 dBTP (-2 for US broadcast), which is what stops a loud master clipping after a lossy encode."
+      note="Two passes over the audio: one to measure, one to apply, so expect the file to take about twice as long as a plain conversion. A file that is already at the target comes back the same loudness, re-encoded; the sample rate is kept as it was. True peaks are held under -1 dBTP (-2 for US broadcast), which is what stops a loud master clipping after a lossy encode. Most files need only a single gain to reach the target under that ceiling. A quiet recording with sharp transients - a lecture, a field recording, anything with a clap or a door in it - needs more gain than its peaks have room for, and there loudnorm limits those peaks so the target is still met: the peak lands exactly on the ceiling and the loudest moments are held down a little relative to the rest. That is the trade the alternative would reverse, coming back quieter than asked for."
     />
   );
 }

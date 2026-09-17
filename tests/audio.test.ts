@@ -314,7 +314,12 @@ describe("pictures of audio", () => {
     expect(format.id).toBe("waveform-1200x300-dark");
     const plan = format.plan(probe(), context());
     const graph = plan.args[plan.args.indexOf("-filter_complex") + 1];
-    expect(graph).toBe("[0:a:0]aformat=channel_layouts=mono,showwavespic=s=1200x300:colors=0x171717[v]");
+    // The first pass measures the peak; until it has, the draw is at the
+    // file's own level.
+    expect(graph).toBe("[0:a:0]aformat=channel_layouts=mono,volume=0dB,showwavespic=s=1200x300:colors=0x171717[v]");
+    expect(plan.analysisPasses?.[0]).toContain("volumedetect");
+    const refined = plan.refine!.args(["[Parsed_volumedetect_0 @ 0x0] max_volume: -18.0 dB"]);
+    expect(refined[refined.indexOf("-filter_complex") + 1]).toContain("volume=17dB");
     expect(joined(plan.args)).toContain("-map [v] -frames:v 1 -c:v png -f image2 -update 1");
     expect(plan.extension).toBe("png");
     expect(plan.kind).toBe("image");

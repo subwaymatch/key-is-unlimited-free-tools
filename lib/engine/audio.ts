@@ -15,6 +15,7 @@
  * the passes and hands the first one's printout to `refine`.
  */
 import { copyTargetForCodec, estimateOutputBytes, SELECT_AUDIO } from "./formats";
+import { isPeakLine, parsePeak, peakGainDb } from "./peak";
 import { trimDuration } from "./trim";
 import type { FormatBlocker, FormatPlan, OutputFormat, PlanContext, ProbeResult } from "./types";
 import { containerArgs, containerFor, estimateCopyBytes, playbackWarning, sizeBlocker } from "./video";
@@ -208,7 +209,7 @@ export function normalizeFormat(settings: NormalizeSettings): OutputFormat {
   return {
     id,
     label,
-    blurb: `Integrated loudness ${label}, peaks under ${settings.truePeak} dBTP, in two passes`,
+    blurb: `Integrated loudness ${label}, peaks under ${settings.truePeak} dBTP, in two passes: one measured gain, with the peaks limited only where that gain would breach the ceiling`,
     lossless: false,
     requiredEncoder: "aac",
     plan(probe): FormatPlan {
@@ -601,24 +602,40 @@ const IMAGE_ARGS = ["-frames:v", "1", "-c:v", "png", "-f", "image2", "-update", 
  *
  * Mixed to mono first so the picture is one shape rather than two stacked;
  * `showwavespic` scales it to the size asked for.
+ *
+ * Drawn to the file's own peak rather than to full scale. `showwavespic`
+ * plots absolute amplitude, so a recording that peaks at -18 dBFS - which
+ * is most of them, and every one that has not been mastered - fills an
+ * eighth of the height and comes out as a line with a texture. A first pass
+ * measures the loudest sample and the second lifts the whole file by the
+ * difference before drawing: the same shape, using the picture it was given.
+ * Nothing is written but the PNG, so the file's own level is untouched.
  */
 export function waveformFormat(settings: AudioPictureSettings): OutputFormat {
   const size = `${settings.width}x${settings.height}`;
+  const draw = (gainDb: number) => [
+    "-filter_complex",
+    `[0:a:0]aformat=channel_layouts=mono,volume=${gainDb}dB,showwavespic=s=${size}:colors=${INK[settings.tone]}[v]`,
+    "-map",
+    "[v]",
+    ...IMAGE_ARGS,
+  ];
   return {
     id: `waveform-${size}-${settings.tone}`,
     label: "Waveform",
-    blurb: `${size}, ${settings.tone} on a transparent background, as a PNG`,
+    blurb: `${size}, ${settings.tone} on a transparent background, drawn to the file's own peak, as a PNG`,
     lossless: false,
     requiredEncoder: "png",
     plan() {
       return {
-        args: [
-          "-filter_complex",
-          `[0:a:0]aformat=channel_layouts=mono,showwavespic=s=${size}:colors=${INK[settings.tone]}[v]`,
-          "-map",
-          "[v]",
-          ...IMAGE_ARGS,
-        ],
+        analysisPasses: [[...SELECT_AUDIO, "-af", "volumedetect"]],
+        args: draw(0),
+        refine: {
+          keep: isPeakLine,
+          // A silent file measures nothing and is drawn at its own level,
+          // which is a flat line, because that is what it is.
+          args: (lines) => draw(peakGainDb(parsePeak(lines))),
+        },
         extension: "png",
         mimeType: "image/png",
         mode: "encode",

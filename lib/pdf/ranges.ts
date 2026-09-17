@@ -53,6 +53,31 @@ export function parsePageRanges(text: string, pageCount: number): ParsedRanges {
   return { ranges, problems };
 }
 
+/**
+ * What is wrong with a range list, read on its own, or null when it reads.
+ *
+ * The panel has no page count to check against until a file is dropped, but
+ * "abc" is not a range whatever the document turns out to be. Catching that
+ * in the panel is what stops a typo from being accepted into the box and
+ * failing every file added after it.
+ */
+export function rangeSyntaxProblem(text: string): string | null {
+  const parts = text.replace(/\s*-\s*/g, "-").split(/[,;\s]+/).map((part) => part.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+  for (const part of parts) {
+    const match = part.match(/^(\d*)(?:-(\d*))?$/);
+    if (!match || (match[1] === "" && (match[2] === undefined || match[2] === ""))) return `"${part}" is not a page or a range.`;
+    const from = match[1] === "" ? 1 : Number(match[1]);
+    if (from < 1) return `"${part}" starts before page 1.`;
+    if (match[2] !== undefined && match[2] !== "") {
+      const to = Number(match[2]);
+      if (to < 1) return `"${part}" ends before page 1.`;
+      if (to < from) return `"${part}" ends before it starts.`;
+    }
+  }
+  return null;
+}
+
 /** The 0-based page indices a range list names, in order, without repeats. */
 export function pageIndices(ranges: readonly PageRange[]): number[] {
   const seen = new Set<number>();

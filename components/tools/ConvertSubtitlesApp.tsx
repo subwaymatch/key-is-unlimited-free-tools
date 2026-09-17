@@ -3,7 +3,7 @@
 import { ChevronDown, Download, DownloadCloud, X } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
-import { downloadText } from "@/lib/download";
+import { archiveName, downloadAllAsZip, downloadText } from "@/lib/download";
 import { formatBytes } from "@/lib/format-utils";
 import { fileExtension, fileStem } from "@/lib/mediaTypes";
 import { storageKey, useStoredSettings } from "@/lib/persist";
@@ -133,7 +133,9 @@ function buildOutputs(entry: Entry, retiming: Retiming, targets: SubtitleTarget[
   const sourceExtension = fileExtension(entry.file.name);
   const outputs = targets.map((id) => {
     const target = targetFor(id);
-    const text = serialize(cues, id);
+    // An ASS source writing ASS keeps its own header, styles and override
+    // tags; every other pairing gets this app's plain default.
+    const text = serialize(cues, id, entry.parsed?.script);
     // The same format back again needs a different name, or the download
     // lands beside the source under the very name it started from.
     const sameFormat = target.extension === sourceExtension || (id === "ass" && sourceExtension === "ssa");
@@ -177,6 +179,13 @@ function SubtitleCard({
     if (entry.encoding && entry.encoding !== "UTF-8") meta.push(`read as ${entry.encoding}`);
   }
 
+  /*
+   * A shift large enough to push every cue before the start leaves nothing
+   * to write. A one-byte SRT under a card marked "Ready" is not a result,
+   * so the downloads come off and the card says what happened.
+   */
+  const emptied = parsed !== null && parsed !== undefined && parsed.cues.length > 0 && cues.length === 0;
+
   const notes = [...(parsed?.warnings ?? [])];
   if (isRetimed(retiming) && parsed) {
     const parts: string[] = [];
@@ -203,10 +212,10 @@ function SubtitleCard({
         <div className={styles.actions}>
           <span
             className={`${styles.status} ${
-              entry.status === "error" ? styles.statusError : entry.status === "ready" ? styles.statusDone : styles.statusIdle
+              entry.status === "error" ? styles.statusError : entry.status === "ready" && !emptied ? styles.statusDone : styles.statusIdle
             }`}
           >
-            {entry.status === "error" ? "Failed" : entry.status === "ready" ? "Ready" : "Reading"}
+            {entry.status === "error" ? "Failed" : entry.status === "ready" ? (emptied ? "Nothing left" : "Ready") : "Reading"}
           </span>
           <Button onClick={onRemove} aria-label={`Remove ${entry.file.name}`} variant="ghost">
             <X aria-hidden="true" size={13} strokeWidth={2} />
@@ -222,13 +231,22 @@ function SubtitleCard({
         </div>
       )}
 
+      {emptied && (
+        <div role="status" className={styles.alert}>
+          <p className={styles.alertMessage}>This shift leaves nothing to write.</p>
+          <p className={styles.alertHint}>
+            {`All ${parsed.cues.length} ${parsed.cues.length === 1 ? "cue" : "cues"} end before the start of the video once moved, so the file would be empty. The last one ends at ${formatVttTime(parsed.cues[parsed.cues.length - 1].end)}; shift by less than that.`}
+          </p>
+        </div>
+      )}
+
       {notes.map((note) => (
         <p key={note} className={styles.note}>
           {note}
         </p>
       ))}
 
-      {outputs.length > 0 && (
+      {outputs.length > 0 && !emptied && (
         <ul className={styles.outputs}>
           {outputs.map((output) => (
             <li key={output.target} className={styles.row}>
@@ -334,17 +352,26 @@ export function ConvertSubtitlesApp() {
     setEntries((previous) => previous.filter((entry) => entry.id !== id));
   }, []);
 
-  const readyEntries = entries.filter((entry) => entry.status === "ready");
+  // A file the shift has emptied has nothing to save, on its own card or here.
+  const readyEntries = entries.filter(
+    (entry) =>
+      entry.status === "ready" &&
+      (!entry.parsed || entry.parsed.cues.length === 0 || buildOutputs(entry, retiming ?? NO_RETIMING, targets).cues.length > 0),
+  );
 
+  const [packing, setPacking] = useState(false);
+
+  // One archive rather than a burst of clicks Chrome has to be asked about.
   const downloadAll = useCallback(() => {
     if (!retiming) return;
-    let index = 0;
-    for (const entry of readyEntries) {
-      for (const output of buildOutputs(entry, retiming, targets).outputs) {
-        window.setTimeout(() => downloadText(output.fileName, output.text, output.mimeType), index * 250);
-        index += 1;
-      }
-    }
+    const files = readyEntries.flatMap((entry) =>
+      buildOutputs(entry, retiming, targets).outputs.map((output) => ({
+        fileName: output.fileName,
+        blob: new Blob([output.text], { type: `${output.mimeType};charset=utf-8` }),
+      })),
+    );
+    setPacking(true);
+    void downloadAllAsZip(files, archiveName(tool.slug)).finally(() => setPacking(false));
   }, [readyEntries, retiming, targets]);
 
   const invalid =
@@ -370,8 +397,10 @@ export function ConvertSubtitlesApp() {
           <p>
             Italics, bold and underline survive the conversion; fonts, colours and positions do
             not, because SRT has no way to say them and a WebVTT file that depends on them would
-            not look the same anywhere else. Files that are not UTF-8 are read as Windows-1252,
-            which is what most older subtitle files are, and always written back as UTF-8.
+            not look the same anywhere else. An ASS or SSA file written back as ASS is the
+            exception: it keeps its own frame size, styles and override tags, and only its times
+            are rewritten. Files that are not UTF-8 are read as Windows-1252, which is what most
+            older subtitle files are, and always written back as UTF-8.
           </p>
           <p>Your files never leave this device. The conversion is a few lines of JavaScript, run in your browser.</p>
         </>
@@ -515,9 +544,9 @@ export function ConvertSubtitlesApp() {
               <p className={toolStyles.total}>
                 {readyEntries.length * targets.length} files ready
               </p>
-              <Button onClick={downloadAll}>
+              <Button onClick={downloadAll} disabled={packing}>
                 <DownloadCloud aria-hidden="true" size={14} strokeWidth={2} />
-                Download all
+                {packing ? "Packing..." : "Download all as a ZIP"}
               </Button>
             </div>
           )}

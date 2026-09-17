@@ -274,3 +274,35 @@
 .download:hover {
   background: var(--primary-hover);
 }
+
+/* The "also as" chips, the same as the file card's. */
+.chips {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.chipsLabel {
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--muted-foreground);
+}
+
+.chip {
+  border-radius: var(--radius);
+  background: var(--secondary);
+  padding: 0.125rem 0.5rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  font-weight: 500;
+  transition:
+    border-color 150ms,
+    color 150ms;
+}
+
+.chip:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--foreground);
+}

@@ -35,7 +35,9 @@ describe("PDF pages", () => {
   it("reads a document and describes it", async () => {
     const bytes = await pdfOf([[595.28, 841.89], [612, 792]]);
     expect(await pdfPageCount(bytes)).toBe(2);
-    expect(describePdf(await loadPdf(bytes))).toBe("2 pages, A4");
+    // A document of two page sizes is not described by whichever comes first.
+    expect(describePdf(await loadPdf(bytes))).toBe("2 pages, mixed sizes: A4, Letter");
+    expect(describePdf(await loadPdf(await pdfOf([[595.28, 841.89], [595.28, 841.89]])))).toBe("2 pages, A4");
     expect(describePageSize(841.89, 595.28)).toBe("A4 landscape");
     expect(describePageSize(612, 792)).toBe("Letter");
     expect(describePageSize(300, 300)).toBe("106 x 106 mm");

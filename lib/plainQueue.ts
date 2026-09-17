@@ -87,6 +87,14 @@ export interface PlainJob {
   previewUrl?: string;
   /** The settings this job runs with, captured when it was added. */
   settings: unknown;
+  /**
+   * Extra outputs asked for from the card and not yet produced, by id.
+   *
+   * "Also as WebP" on a finished file: the work is the same runner with one
+   * more format, so it queues here rather than as a second job with a second
+   * copy of the source.
+   */
+  extras: string[];
 }
 
 export interface FileRejection {
@@ -104,6 +112,18 @@ export interface PlainQueueOptions<S> {
   reject?: (file: File) => FileRejection | null;
   /** Keep an object URL of the source for a thumbnail: images. */
   preview?: boolean;
+  /**
+   * The other formats this file could also come back as, offered on its card
+   * once it is done, the way every engine-backed converter offers them.
+   */
+  alsoAs?: {
+    /** The word before the chips: "Also as:". */
+    label: string;
+    /** What is still worth offering, given what the card already holds. */
+    options: (settings: S, job: PlainJob) => readonly { id: string; label: string; blurb?: string }[];
+    /** One more output for a file already done. */
+    run: (file: File, settings: S, id: string, report: PlainReport, signal: AbortSignal) => Promise<PlainOutputSpec[]>;
+  };
 }
 
 interface PlainStore {
@@ -165,13 +185,71 @@ export function resetPlainStores(): void {
   combineStores.clear();
 }
 
+/** One more output on a file already done: the "also as" chips. */
+async function pumpExtra(store: PlainStore, job: PlainJob): Promise<void> {
+  const also = store.options.alsoAs;
+  const id = job.extras[0];
+  const patch = (changes: Partial<PlainJob>) => {
+    store.jobs = store.jobs.map((entry) => (entry.id === job.id ? { ...entry, ...changes } : entry));
+    notify(store);
+  };
+  // Nothing to run it with: drop the request rather than leaving the pump
+  // something it will find again on every pass.
+  if (!also || id === undefined) {
+    patch({ extras: [] });
+    return;
+  }
+  const controller = new AbortController();
+  store.active = { jobId: job.id, controller };
+  patch({ status: "working", phase: "Working...", ratio: null });
+  try {
+    const specs = await also.run(
+      job.file,
+      job.settings,
+      id,
+      (phase, ratio) => {
+        if (!controller.signal.aborted) patch({ phase, ratio });
+      },
+      controller.signal,
+    );
+    if (controller.signal.aborted) return;
+    const current = store.jobs.find((entry) => entry.id === job.id);
+    patch({
+      status: "done",
+      phase: "Done",
+      ratio: 1,
+      extras: (current?.extras ?? []).filter((entry) => entry !== id),
+      outputs: [...(current?.outputs ?? []), ...materializeOutputs(specs)],
+    });
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    const current = store.jobs.find((entry) => entry.id === job.id);
+    // The outputs already on the card are finished files and stay; only the
+    // one that was just asked for failed.
+    patch({
+      status: "done",
+      phase: "Done",
+      ratio: 1,
+      extras: (current?.extras ?? []).filter((entry) => entry !== id),
+      notes: [...(current?.notes ?? []), toPlainFailure(error).message],
+    });
+  } finally {
+    store.active = null;
+  }
+}
+
 async function pump(store: PlainStore): Promise<void> {
   if (store.pumping) return;
   store.pumping = true;
   try {
     for (;;) {
       const job = store.jobs.find((entry) => entry.status === "queued");
-      if (!job) break;
+      if (!job) {
+        const waiting = store.jobs.find((entry) => entry.status === "done" && entry.extras.length > 0);
+        if (!waiting) break;
+        await pumpExtra(store, waiting);
+        continue;
+      }
       const controller = new AbortController();
       store.active = { jobId: job.id, controller };
       const patch = (changes: Partial<PlainJob>) => {
@@ -243,6 +321,7 @@ export function usePlainQueue<S>(options: PlainQueueOptions<S>) {
           notes: [],
           outputs: [],
           settings,
+          extras: [],
         };
         if (rejection) base.error = { ...rejection, retryable: false };
         else if (preview) base.previewUrl = URL.createObjectURL(file);
@@ -272,8 +351,17 @@ export function usePlainQueue<S>(options: PlainQueueOptions<S>) {
       store.jobs = store.jobs.map((job) => {
         if (job.id !== id || job.status === "working" || job.status === "queued") return job;
         for (const output of job.outputs) URL.revokeObjectURL(output.url);
-        return { ...job, status: "queued", phase: "Waiting", ratio: null, outputs: [], error: undefined, notes: [] };
+        return { ...job, status: "queued", phase: "Waiting", ratio: null, outputs: [], error: undefined, notes: [], extras: [] };
       });
+      notify(store);
+      void pump(store);
+    },
+    [store],
+  );
+
+  const addExtra = useCallback(
+    (id: string, formatId: string) => {
+      store.jobs = store.jobs.map((job) => (job.id === id && !job.extras.includes(formatId) ? { ...job, extras: [...job.extras, formatId] } : job));
       notify(store);
       void pump(store);
     },
@@ -290,9 +378,9 @@ export function usePlainQueue<S>(options: PlainQueueOptions<S>) {
     notify(store);
   }, [store]);
 
-  const activeCount = jobs.filter((job) => job.status === "queued" || job.status === "working").length;
+  const activeCount = jobs.filter((job) => job.status === "queued" || job.status === "working" || job.extras.length > 0).length;
 
-  return { jobs, addFiles, removeJob, retryJob, clearFinished, activeCount };
+  return { jobs, addFiles, addExtra, removeJob, retryJob, clearFinished, activeCount };
 }
 
 /* ---- Many files, one job ------------------------------------------------ */

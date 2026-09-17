@@ -3,3 +3,4 @@ export * from "./parse";
 export * from "./write";
 export * from "./timing";
 export * from "./merge";
+export * from "./coverage";

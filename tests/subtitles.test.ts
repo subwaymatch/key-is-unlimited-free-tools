@@ -138,12 +138,22 @@ describe("parseAss", () => {
     const parsed = parseAss(ASS);
     expect(parsed.format).toBe("ass");
     expect(parsed.cues).toHaveLength(2);
-    expect(parsed.cues[0]).toEqual({ start: 1, end: 4, text: "<b>Hello</b> there." });
-    expect(parsed.cues[1]).toEqual({
+    expect(parsed.cues[0]).toMatchObject({ start: 1, end: 4, text: "<b>Hello</b> there." });
+    expect(parsed.cues[1]).toMatchObject({
       start: 5.5,
       end: 7.25,
       text: "<i>Second,</i> with a comma\nand a break",
     });
+  });
+
+  it("keeps the script's own header, styles and event text", () => {
+    const parsed = parseAss(ASS);
+    expect(parsed.script?.info).toEqual(["ScriptType: v4.00+"]);
+    expect(parsed.script?.styles).toEqual(["Format: Name, Fontname", "Style: Default,Arial"]);
+    expect(parsed.script?.stylesHeading).toBe("[V4+ Styles]");
+    // The text as written, override tags and all, for writing ASS back out.
+    expect(parsed.cues[0].ass?.text).toBe("{\\an8\\b1}Hello{\\b0} there.");
+    expect(parsed.cues[0].ass?.style).toBe("Default");
   });
 
   it("ignores comment lines", () => {
@@ -152,6 +162,34 @@ describe("parseAss", () => {
 
   it("needs an events section", () => {
     expect(() => parseAss("[Script Info]\nTitle: x\n")).toThrow(/no \[Events\]/);
+  });
+});
+
+describe("ASS back out as ASS", () => {
+  it("keeps the source's styles, frame size and override tags, and rewrites only the times", () => {
+    const parsed = parseAss(ASS);
+    const written = serialize(parsed.cues, "ass", parsed.script);
+    expect(written).toContain("Style: Default,Arial");
+    expect(written).toContain("Format: Name, Fontname");
+    // None of this app's defaults: no PlayResX it invented, no white it chose.
+    expect(written).not.toContain("PlayResX: 1280");
+    expect(written).not.toContain("&H00FFFFFF");
+    expect(written).toContain("{\\an8\\b1}Hello{\\b0} there.");
+    expect(written).toContain("0:00:01.00,0:00:04.00");
+  });
+
+  it("writes the plain default style for a source that brought none", () => {
+    const written = serialize([{ start: 1, end: 2, text: "Hi" }], "ass");
+    expect(written).toContain("PlayResX: 1280");
+    expect(written).toContain("Style: Default,Arial,48,");
+  });
+
+  it("re-times the source's own events", () => {
+    const parsed = parseAss(ASS);
+    const moved = parsed.cues.map((cue) => ({ ...cue, start: cue.start + 10, end: cue.end + 10 }));
+    const written = serialize(moved, "ass", parsed.script);
+    expect(written).toContain("0:00:11.00,0:00:14.00");
+    expect(written).not.toContain("0:00:01.00,0:00:04.00");
   });
 });
 

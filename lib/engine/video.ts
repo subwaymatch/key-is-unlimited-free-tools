@@ -750,10 +750,20 @@ export function compressFormat(settings: CompressSettings): OutputFormat {
          * Not a failure: the job was asked for a file under a size, and one
          * already is. Retrying it would only produce the same sentence, so
          * this reads as a note and the card offers the smaller sizes instead.
+         *
+         * Unless there are none. A 0.2 MB clip is under every preset here,
+         * so the card shows no chips at all, and telling someone to pick a
+         * smaller size below when there is nothing below is worse than
+         * saying nothing.
          */
+        const size = (already / 1_000_000).toFixed(already < 10_000_000 ? 1 : 0);
+        const smallest = COMPRESS_PRESETS[0].megabytes;
+        const smaller = COMPRESS_PRESETS.some((preset) => preset.megabytes * 1_000_000 < already);
         return {
           message: `This ${context.trim ? "range" : "file"} is already under ${megabytes} MB.`,
-          hint: `It is about ${(already / 1_000_000).toFixed(already < 10_000_000 ? 1 : 0)} MB, so there is nothing to do. Pick a smaller size below to shrink it further.`,
+          hint: smaller
+            ? `It is about ${size} MB, so there is nothing to do. Pick a smaller size below to shrink it further.`
+            : `It is about ${size} MB, which is under every size this tool offers - the smallest is ${smallest} MB - so there is nothing to shrink it to. ${context.trim ? "Widen the range" : "Use Resize video"} if you want it smaller still.`,
           severity: "info",
           retryable: false,
         };
@@ -1024,7 +1034,13 @@ export const DEFAULT_SPEED_SETTINGS: SpeedSettings = { factor: 2, keepAudio: tru
 const FALLBACK_FPS = 30;
 
 /**
- * Reads a typed speed. Null for anything outside the range the tool takes.
+ * Reads a typed speed. Null for anything outside the range the tool takes,
+ * and for 1, which is not a change.
+ *
+ * 1x is a full re-encode that hands back the same running time at a lower
+ * quality than it started with, which is nobody's intention when they type
+ * it; refusing it in the panel is the same answer the volume change gives
+ * to 0 dB.
  *
  * Kept to two decimals: "1.333" is not a speed anyone means, and it would
  * otherwise reach the filename and the format id as typed.
@@ -1032,7 +1048,7 @@ const FALLBACK_FPS = 30;
 export function parseSpeedFactor(value: number): number | null {
   if (!Number.isFinite(value)) return null;
   const rounded = Math.round(value * 100) / 100;
-  if (rounded < MIN_SPEED_FACTOR || rounded > MAX_SPEED_FACTOR) return null;
+  if (rounded === 1 || rounded < MIN_SPEED_FACTOR || rounded > MAX_SPEED_FACTOR) return null;
   return rounded;
 }
 
@@ -1104,9 +1120,7 @@ export function speedFormat(settings: SpeedSettings): OutputFormat {
     id,
     label: speed,
     blurb:
-      settings.factor === 1
-        ? "The same speed, re-encoded"
-        : settings.factor > 1
+      settings.factor > 1
           ? `${speed} faster, ${settings.keepAudio ? "audio pitch-corrected" : "without audio"}`
           : `${speed} slower, ${settings.keepAudio ? "audio pitch-corrected" : "without audio"}`,
     lossless: false,

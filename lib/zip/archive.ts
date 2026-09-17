@@ -12,12 +12,20 @@ import { Unzip, UnzipInflate, Zip, ZipDeflate, ZipPassThrough } from "fflate";
 
 import { PlainError } from "../plainQueue";
 
-/** Formats that are already compressed, which deflate would only make slower. */
+/**
+ * Formats that are already compressed, which deflate would only make slower.
+ *
+ * PDF is not one of them, whatever its reputation: a PDF's images are
+ * already compressed but its page content, fonts and cross-reference tables
+ * are usually not, and a text document typically deflates by 10 to 30 per
+ * cent. The archives - zip, docx, apk and the rest - are containers whose
+ * entries are deflated inside, so a second pass gains nothing.
+ */
 const STORED_EXTENSIONS: ReadonlySet<string> = new Set([
   "jpg", "jpeg", "png", "gif", "webp", "avif", "heic", "heif",
   "mp3", "m4a", "aac", "ogg", "opus", "flac", "wma",
   "mp4", "m4v", "mov", "mkv", "webm", "avi", "wmv",
-  "zip", "gz", "tgz", "bz2", "xz", "7z", "rar", "jar", "apk", "docx", "xlsx", "pptx", "epub", "odt", "pdf", "woff", "woff2",
+  "zip", "gz", "tgz", "bz2", "xz", "7z", "rar", "jar", "apk", "docx", "xlsx", "pptx", "epub", "odt", "woff", "woff2",
 ]);
 
 /** The most a ZIP without ZIP64 can hold, per entry and in all. */

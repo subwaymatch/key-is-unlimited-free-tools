@@ -88,6 +88,46 @@ export function cropFilter(aspect: AspectCrop): string | null {
   return `crop=w=floor(min(iw\\,ih*${a}/${b})/2)*2:h=floor(min(ih\\,iw*${b}/${a})/2)*2`;
 }
 
+/**
+ * The frame the crop leaves, in pixels: the same arithmetic as the filter.
+ *
+ * What is offered and what the chip says both depend on this rather than on
+ * the source, because a crop makes the frame smaller: an 854x480 clip cut to
+ * 4:5 is 384x480, which is already inside every box from 480p up, so there
+ * is nothing for those sizes to do and no honest way to call the result
+ * "1080p".
+ */
+export function croppedSize(video: VideoStreamInfo | null, aspect: AspectCrop): VideoStreamInfo | null {
+  if (!video || !video.width || !video.height) return null;
+  if (aspect === "keep") return video;
+  const [a, b] = aspect.split(":").map(Number);
+  const even = (value: number) => Math.max(2, Math.floor(value / 2) * 2);
+  return {
+    ...video,
+    width: even(Math.min(video.width, (video.height * a) / b)),
+    height: even(Math.min(video.height, (video.width * b) / a)),
+  };
+}
+
+/**
+ * The frame a target leaves, given the frame going into it: the box fitted
+ * into without enlarging, or the fraction, with both sides even.
+ *
+ * The same arithmetic `fitFilter` writes into the filter string, so a chip
+ * can say what the file will be before anything has run.
+ */
+export function fittedSize(video: VideoStreamInfo, target: ResizeTarget): { width: number; height: number } {
+  const even = (value: number) => Math.max(2, Math.round(value / 2) * 2);
+  const width = video.width ?? 0;
+  const height = video.height ?? 0;
+  if (target === "half") return { width: even(width / 2), height: even(height / 2) };
+  if (target === "quarter") return { width: even(width / 4), height: even(height / 4) };
+  const long = Math.round((target * 16) / 9);
+  const box = width > height ? { width: long, height: target } : { width: target, height: long };
+  const scale = Math.min(1, box.width / width, box.height / height);
+  return { width: even(width * scale), height: even(height * scale) };
+}
+
 /** The scale step for a target: a bounded box for a height, a fraction otherwise. */
 export function resizeScaleFilter(target: ResizeTarget): string {
   if (target === "half") return "scale=trunc(iw/4)*2:trunc(ih/4)*2";
@@ -133,6 +173,23 @@ export function resizeFormat(settings: ResizeSettings): OutputFormat {
         : `Cropped to ${settings.aspect} from the centre, then scaled to fit ${resizeLabel(settings.target).toLowerCase()}`,
     lossless: false,
     requiredEncoder: "libx264",
+    /*
+     * The size the file will really be, once the crop has taken its share.
+     *
+     * A height the cropped frame is already inside is not what comes out -
+     * nothing is enlarged - so it drops out of the label rather than
+     * standing in front of a number that contradicts it: an 854x480 clip
+     * cropped to 4:5 is "384x480, 4:5", never "1080p, 4:5".
+     */
+    describe(probe) {
+      const cropped = croppedSize(probe.video, settings.aspect);
+      if (!cropped) return label;
+      const fitted = fittedSize(cropped, settings.target);
+      const size = `${fitted.width}x${fitted.height}`;
+      const reaches = typeof settings.target !== "number" || !fitsHeight(cropped, settings.target);
+      if (reaches) return `${label}: ${size}`;
+      return settings.aspect === "keep" ? size : `${size}, ${settings.aspect}`;
+    },
     plan(probe, context) {
       const container = pictureContainer(probe, context);
       return {
@@ -154,12 +211,21 @@ export function resizeFormat(settings: ResizeSettings): OutputFormat {
         }${settings.aspect === "keep" ? "" : `-${aspectSlug(settings.aspect)}`}`,
       };
     },
-    // A height the frame already fits under is nothing to offer, unless a
-    // crop changes the shape anyway.
+    /*
+     * A height the frame already fits under is nothing to offer - and what
+     * matters is the frame after the crop, not the source. Cropping alone,
+     * with no size to fit into, is always worth offering.
+     */
     offer(probe) {
-      if (settings.aspect !== "keep" || typeof settings.target !== "number") return true;
-      return !fitsHeight(probe.video, settings.target);
+      if (typeof settings.target !== "number") return true;
+      const cropped = croppedSize(probe.video, settings.aspect);
+      if (!cropped) return true;
+      return !fitsHeight(cropped, settings.target);
     },
+    /*
+     * A crop always has work to do, whatever height it is paired with, so
+     * only the shape-preserving resize can find there is nothing to do.
+     */
     blocker(probe, context) {
       if (
         settings.aspect === "keep" &&

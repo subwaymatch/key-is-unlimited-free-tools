@@ -72,6 +72,64 @@ describe("the plain queue", () => {
     expect(URL.revokeObjectURL).toHaveBeenCalled();
   });
 
+  it("adds one more output to a finished card, then forgets the request", async () => {
+    const run = vi.fn(async () => ({ outputs: [{ label: "JPEG", fileName: "a.jpg", blob: new Blob([new Uint8Array(3)]), kind: "image" as const }] }));
+    const alsoRun = vi.fn(async (_file: File, _settings: unknown, id: string) => [
+      { label: id.toUpperCase(), fileName: `a.${id}`, blob: new Blob([new Uint8Array(5)]), kind: "image" as const },
+    ]);
+    const hook = renderHook(() =>
+      usePlainQueue({
+        key: "also",
+        run,
+        settings: { quality: 80 },
+        alsoAs: {
+          label: "Also as:",
+          options: (_settings, job) => ["png", "webp"].filter((id) => !job.outputs.some((output) => output.label === id.toUpperCase())).map((id) => ({ id, label: id })),
+          run: alsoRun,
+        },
+      }),
+    );
+    act(() => hook.result.current.addFiles([file("a.png")]));
+    await waitFor(() => expect(hook.result.current.jobs[0].status).toBe("done"));
+
+    act(() => hook.result.current.addExtra(hook.result.current.jobs[0].id, "webp"));
+    await waitFor(() => expect(hook.result.current.jobs[0].outputs).toHaveLength(2));
+    // The settings the job was added under, not whatever the panel says now.
+    expect(alsoRun).toHaveBeenCalledWith(expect.any(File), { quality: 80 }, "webp", expect.any(Function), expect.any(AbortSignal));
+    expect(hook.result.current.jobs[0].outputs[1]).toMatchObject({ label: "WEBP", bytes: 5 });
+    expect(hook.result.current.jobs[0].extras).toEqual([]);
+    expect(hook.result.current.jobs[0].status).toBe("done");
+    expect(hook.result.current.activeCount).toBe(0);
+    // The source is read again, not re-run: one call to the main runner.
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the finished outputs when one more of them fails", async () => {
+    const run = vi.fn(async () => ({ outputs: [{ label: "JPEG", fileName: "a.jpg", blob: new Blob([new Uint8Array(3)]), kind: "image" as const }] }));
+    const hook = renderHook(() =>
+      usePlainQueue({
+        key: "also-bad",
+        run,
+        settings: {},
+        alsoAs: {
+          label: "Also as:",
+          options: () => [{ id: "webp", label: "WebP" }],
+          run: async () => {
+            throw new PlainError("This browser cannot write WebP.");
+          },
+        },
+      }),
+    );
+    act(() => hook.result.current.addFiles([file("a.png")]));
+    await waitFor(() => expect(hook.result.current.jobs[0].status).toBe("done"));
+    act(() => hook.result.current.addExtra(hook.result.current.jobs[0].id, "webp"));
+    await waitFor(() => expect(hook.result.current.jobs[0].notes).toHaveLength(1));
+    expect(hook.result.current.jobs[0].notes[0]).toBe("This browser cannot write WebP.");
+    expect(hook.result.current.jobs[0].outputs).toHaveLength(1);
+    expect(hook.result.current.jobs[0].status).toBe("done");
+    expect(hook.result.current.jobs[0].extras).toEqual([]);
+  });
+
   it("refuses what the tool rejects, and aborts a job that is removed while working", async () => {
     const calls: Deferred[] = [];
     const run = vi.fn(

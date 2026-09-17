@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { PDF_ACCEPT, pdfBlob, pdfName, rejectNonPdf } from "@/lib/pdf/files";
 import { describePdf, loadPdf, splitPdf } from "@/lib/pdf/pages";
-import { everyPages, parsePageRanges, type PageRange } from "@/lib/pdf/ranges";
+import { everyPages, parsePageRanges, rangeSyntaxProblem, type PageRange } from "@/lib/pdf/ranges";
 import { storageKey, useStoredSettings } from "@/lib/persist";
 import { PlainError, type PlainQueueOptions } from "@/lib/plainQueue";
 import { requireTool } from "@/lib/tools";
@@ -44,6 +44,7 @@ export function SplitPdfApp() {
 
   const everyInvalid = settings.mode === "every" && !(Number.isInteger(settings.every) && settings.every >= 1);
   const rangesInvalid = settings.mode === "ranges" && settings.ranges.trim() === "";
+  const rangesUnreadable = settings.mode === "ranges" ? rangeSyntaxProblem(settings.ranges) : null;
 
   const queue = useMemo<PlainQueueOptions<SplitSettings>>(
     () => ({
@@ -88,7 +89,7 @@ export function SplitPdfApp() {
   const toolSettings: PlainSettings = {
     title: "How to split",
     defaultOpen: true,
-    invalid: () => (everyInvalid ? "A whole number of pages per piece is needed." : rangesInvalid ? "Type at least one page range before adding a PDF." : null),
+    invalid: () => (everyInvalid ? "A whole number of pages per piece is needed." : rangesInvalid ? "Type at least one page range before adding a PDF." : rangesUnreadable),
     summary: () => (settings.mode === "each" ? "every page on its own" : settings.mode === "every" ? `every ${settings.every} pages` : settings.ranges.trim() || "no ranges yet"),
     render: () => (
       <fieldset className={styles.fieldset}>
@@ -106,7 +107,7 @@ export function SplitPdfApp() {
           <div className={styles.panel}>
             <label>
               <span className={styles.fieldLabel}>Ranges, one PDF each</span>
-              <input type="text" value={settings.ranges} placeholder="1-3, 5, 8-" aria-invalid={rangesInvalid} onChange={(event) => setSettings((previous) => ({ ...previous, ranges: event.target.value }))} className={styles.input} style={{ width: "20rem" }} />
+              <input type="text" value={settings.ranges} placeholder="1-3, 5, 8-" aria-invalid={rangesInvalid || rangesUnreadable !== null} onChange={(event) => setSettings((previous) => ({ ...previous, ranges: event.target.value }))} className={styles.input} style={{ width: "20rem" }} />
             </label>
             <p className={styles.panelNote}>Pages are numbered from 1. &quot;8-&quot; runs to the end and &quot;-3&quot; from the start.</p>
           </div>
@@ -122,7 +123,7 @@ export function SplitPdfApp() {
       queue={queue}
       settings={toolSettings}
       busyLabel="Splitting"
-      dropZone={{ accept: PDF_ACCEPT, inputLabel: "Choose PDF files", headline: "Drop PDF files here", subhead: "Split as they land - choose how below" }}
+      dropZone={{ accept: PDF_ACCEPT, inputLabel: "Choose PDF files", headline: "Drop PDF files here", subhead: rangesUnreadable ?? "Split as they land - choose how below" }}
       note="Each piece is a new document holding copies of its pages, with their fonts and images; bookmarks do not carry over. A range past the last page is cut there and the card says so; a document too short to split says so too."
     />
   );

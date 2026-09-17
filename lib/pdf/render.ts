@@ -85,6 +85,34 @@ export interface RenderedPage {
   pointHeight: number;
 }
 
+/**
+ * A tick that a hidden tab still gets.
+ *
+ * PDF.js draws a page in slices and asks for the next one through
+ * `requestAnimationFrame`, which Chrome does not run for a minimized window
+ * or a background tab: the render stops after the first slice and never
+ * resumes, so a card sits at "Drawing page 1 of 5" until the visitor comes
+ * back. A message posted to a channel is an ordinary task, not a frame and
+ * not a timer, so it is delivered whether or not the page is painting and
+ * without the one-second floor Chrome puts on timers in the background.
+ *
+ * `RenderTask.onContinue` is PDF.js's own hook for this: given one, it hands
+ * over the "draw the next slice" callback instead of scheduling a frame.
+ */
+function nextTick(run: () => void): void {
+  if (typeof MessageChannel !== "function") {
+    setTimeout(run, 0);
+    return;
+  }
+  const channel = new MessageChannel();
+  channel.port1.onmessage = () => {
+    channel.port1.close();
+    channel.port2.close();
+    run();
+  };
+  channel.port2.postMessage(null);
+}
+
 /** One page drawn at a resolution and encoded. */
 export async function renderPage(document: PDFDocumentProxy, index: number, dpi: number, mime: ImageMime, quality: number | null): Promise<RenderedPage> {
   const page = await document.getPage(index + 1);
@@ -98,7 +126,9 @@ export async function renderPage(document: PDFDocumentProxy, index: number, dpi:
     context.fillStyle = "#ffffff";
     context.fillRect(0, 0, width, height);
   }
-  await page.render({ canvasContext: context, viewport, canvas: canvas as HTMLCanvasElement }).promise;
+  const task = page.render({ canvasContext: context, viewport, canvas: canvas as HTMLCanvasElement });
+  task.onContinue = (continueRendering: () => void) => nextTick(continueRendering);
+  await task.promise;
   page.cleanup();
   const blob = await encodeCanvas(canvas, mime, quality ?? undefined);
   return { blob, width, height, pointWidth: points.width, pointHeight: points.height };

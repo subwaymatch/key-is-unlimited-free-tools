@@ -9,6 +9,7 @@
  */
 import { audioTargetFor } from "./audio";
 import { estimateOutputBytes, SELECT_AUDIO } from "./formats";
+import { isPeakLine, parsePeak, peakGainDb, PEAK_TARGET_DB } from "./peak";
 import { soundtrackTarget } from "./soundtrack";
 import { formatSeconds, trimDuration } from "./trim";
 import type { FormatBlocker, FormatPlan, OutputFormat, PlanContext, ProbeResult } from "./types";
@@ -32,9 +33,6 @@ export const VOLUME_PRESETS: readonly { db: number; blurb: string }[] = [
 export const MIN_VOLUME_DB = -40;
 export const MAX_VOLUME_DB = 40;
 
-/** Where a peak-normalised file's loudest sample lands, in dBFS. Under zero, so lossy encoders do not clip it. */
-export const PEAK_TARGET_DB = -1;
-
 /** Reads a typed change in decibels. Null for zero, or anything outside the range the tool takes. */
 export function parseVolumeDb(value: number): number | null {
   if (!Number.isFinite(value)) return null;
@@ -48,31 +46,8 @@ export function formatDb(db: number): string {
   return `${db > 0 ? "+" : ""}${Number(db.toFixed(1))} dB`;
 }
 
-/** True for the one line of volumedetect's report the second pass reads. */
-export function isPeakLine(line: string): boolean {
-  return /max_volume:\s*-?\d/.test(line);
-}
-
-/**
- * Reads the loudest sample out of volumedetect's report:
- *
- *   [Parsed_volumedetect_0 @ 0x...] max_volume: -12.3 dB
- *
- * Null when it is missing, which is the case for a silent file.
- */
-export function parsePeak(lines: readonly string[]): number | null {
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    const match = lines[i].match(/max_volume:\s*(-?\d+(?:\.\d+)?)\s*dB/);
-    if (match) return Number(match[1]);
-  }
-  return null;
-}
-
-/** The gain that brings a measured peak to the target, to a tenth of a decibel. */
-export function peakGainDb(peakDb: number | null): number {
-  if (peakDb === null) return 0;
-  return Math.round((PEAK_TARGET_DB - peakDb) * 10) / 10;
-}
+/** Re-exported so the volume tool and its tests keep one import. */
+export { isPeakLine, parsePeak, peakGainDb, PEAK_TARGET_DB };
 
 /** The output options for a re-encoded soundtrack: the file's own format, or the picture copied and AAC. */
 function levelArgs(probe: ProbeResult, context: PlanContext | undefined, filter: string): Omit<FormatPlan, "mode"> {

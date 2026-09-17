@@ -1,7 +1,7 @@
 /**
  * Writing cues back out as SRT, WebVTT, ASS or a plain transcript.
  */
-import { targetFor, type Cue, type SubtitleTarget } from "./types";
+import { targetFor, type AssScript, type Cue, type SubtitleTarget } from "./types";
 
 const pad = (value: number, width = 2) => String(value).padStart(width, "0");
 
@@ -130,7 +130,80 @@ function assText(text: string): string {
     .replace(/\n/g, "\\N");
 }
 
-export function toAss(cues: readonly Cue[], style: AssStyle = {}): string {
+/**
+ * The source's own script, with only the times rewritten.
+ *
+ * An ASS file that arrived with its own frame size, fonts and colours comes
+ * back with all of them: the header is the file's, each event keeps its
+ * style name, margins, effect and override tags, and the retimer's new
+ * start and end are dropped into the two fields that hold them. A cue this
+ * app added or a cue whose source was another format has no ASS line of its
+ * own and is written in the script's first style.
+ */
+function toSourceAss(cues: readonly Cue[], script: AssScript): string {
+  const columns = script.eventFormat;
+  const fallbackStyle = styleNameIn(script) ?? "Default";
+  const events = cues.map((cue) => {
+    const event = cue.ass;
+    const fields = columns.map((column) => {
+      switch (column) {
+        case "Start":
+          return formatAssTime(cue.start);
+        case "End":
+          return formatAssTime(cue.end);
+        case "Layer":
+        case "Marked":
+          return event?.layer ?? "0";
+        case "Style":
+          return event?.style || fallbackStyle;
+        case "Name":
+        case "Actor":
+          return event?.name ?? "";
+        case "MarginL":
+          return event?.marginL ?? "0";
+        case "MarginR":
+          return event?.marginR ?? "0";
+        case "MarginV":
+          return event?.marginV ?? "0";
+        case "Effect":
+          return event?.effect ?? "";
+        case "Text":
+          return event?.text ?? `${cue.position === "top" ? TOP_TAG : ""}${assText(cue.text)}`;
+        default:
+          return "";
+      }
+    });
+    // Text is the last column and may hold commas, so it is joined last and
+    // never escaped: that is the format's own rule.
+    return `${event?.kind ?? "Dialogue"}: ${fields.join(",")}`;
+  });
+  return [
+    "[Script Info]",
+    ...script.info,
+    "",
+    script.stylesHeading,
+    ...script.styles,
+    "",
+    "[Events]",
+    `Format: ${columns.join(", ")}`,
+    ...events,
+    "",
+  ].join("\n");
+}
+
+/** The name of the first style the script defines, for a cue that names none. */
+function styleNameIn(script: AssScript): string | null {
+  for (const line of script.styles) {
+    const match = line.match(/^Style:\s*([^,]+)/i);
+    if (match) return match[1].trim();
+  }
+  return null;
+}
+
+export function toAss(cues: readonly Cue[], style: AssStyle = {}, script?: AssScript): string {
+  // A source that brought its own styles keeps them; anything else gets the
+  // plain default, which is what SRT and WebVTT have to be given.
+  if (script && script.styles.length > 0) return toSourceAss(cues, script);
   const events = cues.map(
     (cue) =>
       `Dialogue: 0,${formatAssTime(cue.start)},${formatAssTime(cue.end)},Default,,0,0,0,,${
@@ -149,20 +222,20 @@ export function toText(cues: readonly Cue[]): string {
     .concat("\n");
 }
 
-export function serialize(cues: readonly Cue[], target: SubtitleTarget): string {
+export function serialize(cues: readonly Cue[], target: SubtitleTarget, script?: AssScript): string {
   switch (target) {
     case "srt":
       return toSrt(cues);
     case "vtt":
       return toVtt(cues);
     case "ass":
-      return toAss(cues);
+      return toAss(cues, {}, script);
     case "txt":
       return toText(cues);
   }
 }
 
 /** The bytes a download of this target would be, as a Blob. */
-export function subtitleBlob(cues: readonly Cue[], target: SubtitleTarget): Blob {
-  return new Blob([serialize(cues, target)], { type: `${targetFor(target).mimeType};charset=utf-8` });
+export function subtitleBlob(cues: readonly Cue[], target: SubtitleTarget, script?: AssScript): Blob {
+  return new Blob([serialize(cues, target, script)], { type: `${targetFor(target).mimeType};charset=utf-8` });
 }

@@ -140,7 +140,7 @@ export function ChangeSpeedApp() {
     defaultOpen: true,
     invalid: () =>
       customInvalid
-        ? `A speed between ${MIN_SPEED_FACTOR}x and ${MAX_SPEED_FACTOR}x is needed before a file can be re-timed.`
+        ? `A speed between ${MIN_SPEED_FACTOR}x and ${MAX_SPEED_FACTOR}x, and not 1x, is needed before a file can be re-timed.`
         : null,
     summary: () =>
       customInvalid
@@ -180,7 +180,7 @@ export function ChangeSpeedApp() {
               </label>
               <p id="speed-custom-note" className={styles.panelNote}>
                 {customInvalid
-                  ? `Type a speed between ${MIN_SPEED_FACTOR} and ${MAX_SPEED_FACTOR}. Nothing will start until you do.`
+                  ? `Type a speed between ${MIN_SPEED_FACTOR} and ${MAX_SPEED_FACTOR}. 1 is not a change, and re-encoding a file to the same running time would only cost it quality. Nothing will start until you do.`
                   : `1.5 plays half as fast again; 0.8 is a fifth slower. Using ${speed}.`}
               </p>
             </div>

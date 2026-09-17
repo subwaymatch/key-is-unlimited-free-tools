@@ -847,8 +847,10 @@ export class FFmpegEngine implements AudioExtractor {
      * ffmpeg can open, and only for the plans that ask - it is one probe of
      * something already in memory, but it is not free.
      */
+    const planned = plan.requestedRange ?? null;
+    const plannedSeconds = planned ? trimDuration(planned, probe.durationSeconds) : clipSeconds;
     const actualTrim = plan.verifyDuration
-      ? await this.#measureActualTrim(ffmpeg, outputPath, trim, clipSeconds)
+      ? await this.#measureActualTrim(ffmpeg, outputPath, planned ?? trim, plannedSeconds)
       : null;
 
     const data = await ffmpeg.readFile(outputPath);
@@ -877,6 +879,7 @@ export class FFmpegEngine implements AudioExtractor {
       kind: plan.kind ?? "audio",
       trim,
       actualTrim,
+      requestedTrim: planned,
       warning: plan.warning,
     };
   }
@@ -1139,8 +1142,15 @@ export class FFmpegEngine implements AudioExtractor {
         "1",
         // Fit the card without carrying a 4K frame around in memory. -2 keeps
         // the height even, which the JPEG encoder needs for chroma subsampling.
+        //
+        // setsar=1 because a source with non-square pixels - a DVD rip, some
+        // phone and screen-capture encoders - carries its sample aspect ratio
+        // through the scale, and the mjpeg encoder has been seen to refuse a
+        // frame with an odd one ("Error submitting video frame to the
+        // encoder") and take the whole WebAssembly instance down with it.
+        // Square pixels are what the card draws anyway.
         "-vf",
-        `scale=${POSTER_WIDTH}:-2:flags=fast_bilinear`,
+        `scale=${POSTER_WIDTH}:-2:flags=fast_bilinear,setsar=1`,
         "-q:v",
         "4",
         "-f",

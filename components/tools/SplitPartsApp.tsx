@@ -11,6 +11,7 @@ import {
   PIECE_LENGTHS,
   pieceFormatIds,
   pieceFormats,
+  type PieceCut,
   type PieceRule,
 } from "@/lib/engine/pieces";
 import { AUDIO_ACCEPT, VIDEO_ACCEPT } from "@/lib/mediaTypes";
@@ -70,6 +71,8 @@ export function SplitPartsApp({ slug }: SplitPartsAppProps) {
   const [rule, setRule] = useState<PieceRule>(DEFAULT_PIECE_RULE);
   const [choice, setChoice] = useState<string>(choiceFor(DEFAULT_PIECE_RULE));
   const [customText, setCustomText] = useState("20");
+  // Sound is cut to the frame either way, so only the video page offers the choice.
+  const [cut, setCut] = useState<PieceCut>("fast");
 
   useStoredSettings(
     storageKey("settings", slug),
@@ -88,7 +91,7 @@ export function SplitPartsApp({ slug }: SplitPartsAppProps) {
   const queue = useMemo<QueueOptions>(
     () => ({
       key: slug,
-      formats: pieceFormats(rule),
+      formats: pieceFormats(rule, video ? cut : "fast"),
       defaultFormatIds: [],
       formatsForFile: pieceFormatIds(rule),
       expects: video ? "video" : "audio",
@@ -96,7 +99,7 @@ export function SplitPartsApp({ slug }: SplitPartsAppProps) {
       waveform: false,
       phase: ({ label }) => `Cutting ${label}...`,
     }),
-    [rule, slug, video],
+    [cut, rule, slug, video],
   );
 
   const choose = (value: string) => {
@@ -114,40 +117,62 @@ export function SplitPartsApp({ slug }: SplitPartsAppProps) {
     title: "Where to cut",
     defaultOpen: true,
     invalid: () => (customInvalid ? "A length in minutes is needed before a file can be split." : null),
-    summary: () => (customInvalid ? "no length chosen" : describeRule(rule)),
+    summary: () => (customInvalid ? "no length chosen" : `${describeRule(rule)}${video && cut === "exact" ? ", cut to the frame" : ""}`),
     render: () => (
-      <fieldset className={styles.fieldset}>
-        <legend className={styles.legend}>Cut</legend>
-        <p className={styles.intro}>
-          Every so many minutes, or into a number of equal parts. A last piece under a second long
-          joins the one before it. At most {MAX_PIECES} pieces per file.
-        </p>
-        <RadioCards aria-label="Cut" value={choice} onValueChange={choose} options={RULE_OPTIONS} />
-        {choice === CUSTOM && (
-          <div className={styles.panel}>
-            <label>
-              <span className={styles.fieldLabel}>Minutes per piece</span>
-              <input
-                type="number"
-                inputMode="decimal"
-                min={0.1}
-                step="0.5"
-                value={customText}
-                aria-invalid={customInvalid}
-                onChange={(event) => {
-                  setCustomText(event.target.value);
-                  const seconds = parsePieceMinutes(Number(event.target.value));
-                  if (seconds !== null) setRule({ kind: "length", seconds });
-                }}
-                className={styles.input}
-              />
-            </label>
-            <p className={styles.panelNote}>
-              {customInvalid ? "Type a length in minutes. Nothing will start until you do." : `Cutting ${describeRule(rule)}.`}
+      <>
+        <fieldset className={styles.fieldset}>
+          <legend className={styles.legend}>Cut</legend>
+          <p className={styles.intro}>
+            Every so many minutes, or into a number of equal parts. A last piece under a second long
+            joins the one before it. At most {MAX_PIECES} pieces per file.
+          </p>
+          <RadioCards aria-label="Cut" value={choice} onValueChange={choose} options={RULE_OPTIONS} />
+          {choice === CUSTOM && (
+            <div className={styles.panel}>
+              <label>
+                <span className={styles.fieldLabel}>Minutes per piece</span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min={0.1}
+                  step="0.5"
+                  value={customText}
+                  aria-invalid={customInvalid}
+                  onChange={(event) => {
+                    setCustomText(event.target.value);
+                    const seconds = parsePieceMinutes(Number(event.target.value));
+                    if (seconds !== null) setRule({ kind: "length", seconds });
+                  }}
+                  className={styles.input}
+                />
+              </label>
+              <p className={styles.panelNote}>
+                {customInvalid ? "Type a length in minutes. Nothing will start until you do." : `Cutting ${describeRule(rule)}.`}
+              </p>
+            </div>
+          )}
+        </fieldset>
+        {video && (
+          <fieldset className={styles.fieldset}>
+            <legend className={styles.legend}>Where each piece begins</legend>
+            <p className={styles.intro}>
+              A copied stream can only begin on a keyframe, so a fast piece starts at or a little before
+              its mark and repeats the end of the piece before it. Cutting to the frame re-encodes, which
+              gives pieces that join exactly and costs a full encode.
             </p>
-          </div>
+            <RadioCards
+              aria-label="Where each piece begins"
+              value={cut}
+              onValueChange={(value) => setCut(value as PieceCut)}
+              options={[
+                { value: "fast", label: "On a keyframe", blurb: "Instant and lossless; pieces can overlap by a second or two" },
+                { value: "exact", label: "On the frame", blurb: "Pieces join exactly, as H.264 in an MP4; as slow as any re-encode" },
+              ]}
+              columns={2}
+            />
+          </fieldset>
         )}
-      </fieldset>
+      </>
     ),
   };
 
@@ -170,7 +195,7 @@ export function SplitPartsApp({ slug }: SplitPartsAppProps) {
       }}
       note={
         video
-          ? "Pieces are cut without re-encoding, so each starts on the keyframe before its cut and can begin a few seconds early; the sound is cut to the frame. A cut to the exact frame is a re-encode of every piece, which is the precise cut on the trimmer, one piece at a time. The chapter splitter cuts at a file's own markers instead of at fixed lengths."
+          ? "Pieces are cut without re-encoding, so each starts on the keyframe before its cut and can begin a few seconds early; the row says by how much once the piece exists, and that head is a repeat of the end of the piece before. Cutting on the frame instead re-encodes every piece to H.264 in an MP4, which joins them exactly and takes as long as any encode. The chapter splitter cuts at a file's own markers instead of at fixed lengths."
           : "Pieces are cut on a frame of the codec, a few hundredths of a second, without re-encoding, so nothing is lost. A recording with chapter markers can be cut at those instead with the chapter splitter."
       }
     />

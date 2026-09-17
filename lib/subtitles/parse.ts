@@ -8,7 +8,7 @@
  * and say what they skipped.
  */
 import { fileExtension } from "../mediaTypes";
-import { SubtitleError, type Cue, type ParsedSubtitles, type SubtitleFormat } from "./types";
+import { SubtitleError, type AssScript, type Cue, type ParsedSubtitles, type SubtitleFormat } from "./types";
 
 /**
  * A time in any of the three notations: `01:02:03,456` (SRT), `01:02:03.456`
@@ -218,10 +218,28 @@ function assMarkup(raw: string): string {
   return cleanMarkup(text);
 }
 
+/** The lines of one bracketed section of an ASS script, and the heading itself. */
+function assSection(lines: readonly string[], heading: RegExp): { heading: string | null; body: string[] } {
+  const at = lines.findIndex((line) => heading.test(line.trim()));
+  if (at === -1) return { heading: null, body: [] };
+  const body: string[] = [];
+  for (const raw of lines.slice(at + 1)) {
+    const line = raw.trim();
+    if (line.startsWith("[")) break;
+    if (line !== "") body.push(line);
+  }
+  return { heading: lines[at].trim(), body };
+}
+
 /**
- * ASS and SSA. Only the `[Events]` section matters: `Format:` names the
- * columns, `Dialogue:` lines are cues, and `Text` is always the last column,
- * so it may contain commas.
+ * ASS and SSA. The `[Events]` section is where the cues are: `Format:` names
+ * the columns, `Dialogue:` lines are cues, and `Text` is always the last
+ * column, so it may contain commas.
+ *
+ * `[Script Info]` and the styles are read too, and kept whole. They are the
+ * difference between a file that comes back looking like itself and one
+ * that comes back in this app's default style, and nothing in the cue model
+ * can hold a colour, a font or a frame size.
  */
 export function parseAss(text: string): ParsedSubtitles {
   const lines = normalise(text).split("\n");
@@ -281,6 +299,17 @@ export function parseAss(text: string): ParsedSubtitles {
       end: Math.max(start, end),
       text: assMarkup(body),
       ...(readTopPosition(body) ? { position: "top" as const } : {}),
+      ass: {
+        kind: "Dialogue",
+        layer: value("Layer"),
+        style: value("Style"),
+        name: value("Name"),
+        marginL: value("MarginL"),
+        marginR: value("MarginR"),
+        marginV: value("MarginV"),
+        effect: value("Effect"),
+        text: body,
+      },
     });
   }
 
@@ -295,7 +324,15 @@ export function parseAss(text: string): ParsedSubtitles {
       } skipped.`,
     );
   }
-  return { format: "ass", cues, warnings };
+  const styles = assSection(lines, /^\[V4\+? Styles\]/i);
+  const script: AssScript = {
+    info: assSection(lines, /^\[Script Info\]/i).body,
+    styles: styles.body,
+    stylesHeading: styles.heading ?? "[V4+ Styles]",
+    eventFormat:
+      columns ?? ["Layer", "Start", "End", "Style", "Name", "MarginL", "MarginR", "MarginV", "Effect", "Text"],
+  };
+  return { format: "ass", cues, warnings, script };
 }
 
 /**

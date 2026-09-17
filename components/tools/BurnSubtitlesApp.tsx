@@ -12,6 +12,7 @@ import {
 } from "@/lib/engine/burn";
 import { storageKey, useStoredSettings } from "@/lib/persist";
 import {
+  coverageWarning,
   decodeSubtitleBytes,
   parseSubtitles,
   SubtitleError,
@@ -148,6 +149,19 @@ export function BurnSubtitlesApp() {
       });
   }, []);
 
+  /*
+   * Whether the one font this site ships can draw what is in the file.
+   *
+   * Asked here rather than after the encode: a Japanese file burned in
+   * DejaVu Sans is a row of empty boxes, and finding that out costs a full
+   * re-encode of the video.
+   */
+  const fontGap = useMemo(() => {
+    if (!loaded) return null;
+    const text = loaded.ass ?? (loaded.cues ?? []).map((cue) => cue.text).join("\n");
+    return coverageWarning(text, BURN_FONT_NAME);
+  }, [loaded]);
+
   /** The subtitle file as ASS in the current style, ready to burn. */
   const source = useMemo<BurnSource | null>(() => {
     if (!loaded) return null;
@@ -190,7 +204,7 @@ export function BurnSubtitlesApp() {
     defaultOpen: true,
     invalid: () => invalid,
     summary: () =>
-      `${loaded ? loaded.name : "the video's own track"}, ${settings.size}, ${settings.position}${settings.box ? ", boxed" : ""}`,
+      `${loaded ? loaded.name : "the video's own track"}, ${settings.size}, ${settings.position}${settings.box ? ", boxed" : ""}${fontGap ? "; the font cannot draw this text" : ""}`,
     render: () => (
       <>
         <fieldset className={styles.fieldset}>
@@ -223,6 +237,11 @@ export function BurnSubtitlesApp() {
             {loadError && (
               <p role="alert" className={styles.warning}>
                 {loadError}
+              </p>
+            )}
+            {fontGap && (
+              <p role="alert" className={styles.warning}>
+                {fontGap}
               </p>
             )}
             {loaded?.ass !== null && loaded && (
@@ -277,11 +296,13 @@ export function BurnSubtitlesApp() {
       features={FEATURES}
       settings={toolSettings}
       dropZone={{
-        subhead: source
-          ? `${source.name} will be burned into each video you add`
-          : "Add a subtitle file above, or drop a video with its own subtitle track",
+        subhead: fontGap
+          ? "The shipped font cannot draw this file's text - see the panel above"
+          : source
+            ? `${source.name} will be burned into each video you add`
+            : "Add a subtitle file above, or drop a video with its own subtitle track",
       }}
-      note={`Burning is a full re-encode of the picture, at a quality a notch above the converter's, so expect about real time for 1080p. The text is set in ${BURN_FONT_NAME}, the one font this site ships, which covers Latin, Greek and Cyrillic scripts and not Chinese, Japanese, Korean or Arabic. Timing comes from the file as it is; the subtitle converter next door can shift or stretch it first.`}
+      note={`Burning is a full re-encode of the picture, at a quality a notch above the converter's, so expect about real time for 1080p. The text is set in ${BURN_FONT_NAME}, the one font this site ships, which covers the Latin, Greek and Cyrillic scripts, Hebrew, Arabic, Armenian and Georgian, and not Chinese, Japanese, Korean, Thai or the Indic scripts; a file this font cannot draw is flagged in the panel above before anything is encoded, and "Add subtitles to a video" is the tool for it, since a track keeps the text and the player supplies the font. Timing comes from the file as it is; the subtitle converter next door can shift or stretch it first.`}
     />
   );
 }

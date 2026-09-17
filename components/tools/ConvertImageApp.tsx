@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 
-import { canEncode, describeSize, IMAGE_ACCEPT, MIME_LABELS, QUALITY_PRESETS, rejectNonImage, type ImageMime } from "@/lib/images/canvas";
+import { stillFrameNote } from "@/lib/images/animation";
+import { canEncode, describeSize, IMAGE_ACCEPT, MIME_LABELS, QUALITY_PRESETS, rejectNonImage, type DecodedImage, type ImageMime, type Size } from "@/lib/images/canvas";
 import { encodePicture, pictureName, readPicture } from "@/lib/images/run";
 import { storageKey, useStoredSettings } from "@/lib/persist";
 import type { PlainQueueOptions } from "@/lib/plainQueue";
@@ -33,6 +34,14 @@ const FORMAT_OPTIONS: { value: ImageMime; label: string; blurb: string }[] = [
   { value: "image/webp", label: "WebP", blurb: "Smaller than JPEG at the same quality, with transparency; every current browser opens it" },
 ];
 
+/** One picture written as a format, with the line that goes under the row. */
+async function writeAs(image: DecodedImage, file: File, size: Size, mime: ImageMime, qualityId: string): Promise<{ blob: Blob; note: string }> {
+  const lossy = mime !== "image/png";
+  const preset = QUALITY_PRESETS.find((entry) => entry.id === qualityId) ?? QUALITY_PRESETS[1];
+  const { blob } = await encodePicture(image, file, size, mime, lossy ? preset.quality : null);
+  return { blob, note: `${describeSize(size)}${lossy ? `, quality ${Math.round(preset.quality * 100)}` : ""}` };
+}
+
 /** The converter: any picture the browser opens, out as JPEG, PNG or WebP. */
 export function ConvertImageApp() {
   const [settings, setSettings] = useState<ConvertSettings>(DEFAULT_SETTINGS);
@@ -49,29 +58,43 @@ export function ConvertImageApp() {
       preview: true,
       run: async (file, current, report) => {
         report("Decoding...", null);
+        const moving = await stillFrameNote(file);
         const image = await readPicture(file);
         try {
           const size = { width: image.width, height: image.height };
           report(`Writing the ${MIME_LABELS[current.mime]}...`, null);
-          const lossy = current.mime !== "image/png";
-          const preset = QUALITY_PRESETS.find((entry) => entry.id === current.qualityId) ?? QUALITY_PRESETS[1];
-          const { blob } = await encodePicture(image, file, size, current.mime, lossy ? preset.quality : null);
+          const { blob, note } = await writeAs(image, file, size, current.mime, current.qualityId);
           return {
             facts: [describeSize(size)],
-            outputs: [
-              {
-                label: MIME_LABELS[current.mime],
-                fileName: pictureName(file, current.mime),
-                blob,
-                kind: "image",
-                note: `${describeSize(size)}${lossy ? `, quality ${Math.round(preset.quality * 100)}` : ""}`,
-              },
-            ],
-            notes: ["Written without the source's metadata: no camera, date or location."],
+            outputs: [{ label: MIME_LABELS[current.mime], fileName: pictureName(file, current.mime), blob, kind: "image", note }],
+            notes: ["Written without the source's metadata: no camera, date or location.", ...(moving ? [moving] : [])],
           };
         } finally {
           image.close();
         }
+      },
+      alsoAs: {
+        label: "Also as:",
+        // Whatever this card does not already hold, and nothing the browser
+        // cannot write.
+        options: (_current, job) =>
+          FORMAT_OPTIONS.filter((option) => !job.outputs.some((output) => output.label === MIME_LABELS[option.value]) && canEncode(option.value)).map((option) => ({
+            id: option.value,
+            label: MIME_LABELS[option.value],
+            blurb: option.blurb,
+          })),
+        run: async (file, current, id, report) => {
+          const mime = id as ImageMime;
+          report(`Writing the ${MIME_LABELS[mime]}...`, null);
+          const image = await readPicture(file);
+          try {
+            const size = { width: image.width, height: image.height };
+            const { blob, note } = await writeAs(image, file, size, mime, current.qualityId);
+            return [{ label: MIME_LABELS[mime], fileName: pictureName(file, mime), blob, kind: "image" as const, note }];
+          } finally {
+            image.close();
+          }
+        },
       },
     }),
     [settings],
