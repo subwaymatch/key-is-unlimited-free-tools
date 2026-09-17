@@ -47,7 +47,19 @@ export type ToolIconName =
   | "chapters"
   | "bilingual"
   | "split"
-  | "tracks";
+  | "tracks"
+  | "addaudio"
+  | "volume"
+  | "sync"
+  | "softsubs"
+  | "loop"
+  | "film"
+  | "tags"
+  | "cut"
+  | "parts"
+  | "clapper"
+  | "fade"
+  | "tempo";
 
 export interface ToolMeta {
   /** URL segment. Verb-object, lowercase, hyphenated, and permanent once shipped. */
@@ -352,6 +364,149 @@ export const TOOLS: readonly ToolMeta[] = [
     category: "audio",
     icon: "tracks",
     accepts: "Video and audio files",
+    status: "live",
+  },
+  {
+    slug: "add-audio",
+    name: "Add audio to video",
+    tagline: "Put music or a voiceover under a video, in place of its sound or mixed with it.",
+    description:
+      "Add an audio file to a video entirely in your browser: music, a voiceover or a new soundtrack, in place of the original sound or mixed under it, padded, cut or looped to the picture. The picture is copied untouched. Nothing is uploaded.",
+    category: "video",
+    icon: "addaudio",
+    accepts: "Video files, plus an audio file",
+    status: "live",
+  },
+  {
+    slug: "sync-audio",
+    name: "Fix audio sync",
+    tagline: "Move a video's sound earlier or later to line it up with the picture.",
+    description:
+      "Fix a video whose sound runs ahead of or behind the picture entirely in your browser: shift the audio by any number of milliseconds with every stream copied, so it takes seconds however long the film. Nothing is uploaded.",
+    category: "video",
+    icon: "sync",
+    accepts: "Video files",
+    status: "live",
+  },
+  {
+    slug: "loop-video",
+    name: "Loop video",
+    tagline: "Repeat a clip a number of times, or run it out to an hour, without re-encoding.",
+    description:
+      "Loop a video or an audio file entirely in your browser: play it two, three or ten times over, or repeat a short clip until it is a minute, ten minutes or an hour long, with every stream copied. Nothing is uploaded.",
+    category: "video",
+    icon: "loop",
+    accepts: "Video and audio files",
+    status: "live",
+  },
+  {
+    slug: "gif-to-video",
+    name: "GIF to MP4",
+    tagline: "Turn an animated GIF into an MP4 or WebM that plays anywhere and weighs a fraction.",
+    description:
+      "Convert an animated GIF to an MP4 or a WebM entirely in your browser, at a fraction of the size, with the animation played once or several times over. Nothing is uploaded.",
+    category: "video",
+    icon: "film",
+    accepts: "GIF files",
+    status: "live",
+  },
+  {
+    slug: "split-video",
+    name: "Split video into parts",
+    tagline: "Cut a long video every ten minutes, or into four equal parts, without re-encoding.",
+    description:
+      "Split a video into equal parts entirely in your browser: every minute, five, ten or thirty, or into two, three or ten pieces of the same length, each cut by stream copy so a long recording comes apart in seconds. Nothing is uploaded.",
+    category: "video",
+    icon: "parts",
+    accepts: "Video files",
+    status: "live",
+  },
+  {
+    slug: "trim-audio",
+    name: "Trim audio",
+    tagline: "Cut a range out of an MP3, WAV, M4A or any audio file, without re-encoding.",
+    description:
+      "Trim an audio file entirely in your browser: set the start and the end on the waveform and cut, in the file's own format without re-encoding, or as MP3, M4A, WAV, FLAC or Opus. Nothing is uploaded.",
+    category: "audio",
+    icon: "cut",
+    accepts: "Audio and video files",
+    status: "live",
+  },
+  {
+    slug: "change-volume",
+    name: "Change volume",
+    tagline: "Make a recording louder or quieter, or as loud as it can go without clipping.",
+    description:
+      "Turn an audio file or a video's sound up or down by any number of decibels entirely in your browser, or lift it as loud as it can go without clipping. Audio comes back in its own format; a video keeps its picture copied. Nothing is uploaded.",
+    category: "audio",
+    icon: "volume",
+    accepts: "Audio and video files",
+    status: "live",
+  },
+  {
+    slug: "change-audio-speed",
+    name: "Change audio speed",
+    tagline: "Play a lecture at 1.5x or slow an interview to half, with the pitch kept.",
+    description:
+      "Speed up or slow down an audio file entirely in your browser, from half speed to three times, with the pitch kept so voices still sound like themselves. Written back in the file's own format. Nothing is uploaded.",
+    category: "audio",
+    icon: "tempo",
+    accepts: "Audio and video files",
+    status: "live",
+  },
+  {
+    slug: "add-fade",
+    name: "Fade in and out",
+    tagline: "A gentle start and finish for a recording, or a video's sound and picture.",
+    description:
+      "Add a fade in and a fade out to an audio file, or to a video's sound and picture, entirely in your browser: half a second to ten, at either end or both. Nothing is uploaded.",
+    category: "audio",
+    icon: "fade",
+    accepts: "Audio and video files",
+    status: "live",
+  },
+  {
+    slug: "split-audio",
+    name: "Split audio into parts",
+    tagline: "Cut a long recording every ten minutes, or into equal parts, without re-encoding.",
+    description:
+      "Split an audio file into equal parts entirely in your browser: every minute, five, ten or thirty, or into two, three or ten pieces of the same length, each copied without re-encoding. Nothing is uploaded.",
+    category: "audio",
+    icon: "parts",
+    accepts: "Audio files",
+    status: "live",
+  },
+  {
+    slug: "edit-tags",
+    name: "Edit audio tags",
+    tagline: "Title, artist, album, year, genre, track and a cover picture, written without re-encoding.",
+    description:
+      "Edit the tags of an MP3, M4A, FLAC or Ogg file entirely in your browser: title, artist, album, year, genre, track number and comment, plus a cover picture, all written with the audio copied untouched. Nothing is uploaded.",
+    category: "audio",
+    icon: "tags",
+    accepts: "Audio and video files",
+    status: "live",
+  },
+  {
+    slug: "audio-to-video",
+    name: "Audio to video",
+    tagline: "Turn an MP3 into an MP4 for YouTube: a colour, a picture or a waveform under it.",
+    description:
+      "Turn an audio file into a video entirely in your browser, for the sites that only take video: the sound under a plain colour, a picture you choose or a moving waveform, as an MP4 that YouTube and every feed accept. Nothing is uploaded.",
+    category: "audio",
+    icon: "clapper",
+    accepts: "Audio files, plus an optional image",
+    status: "live",
+  },
+  {
+    slug: "add-subtitles",
+    name: "Add subtitles to video",
+    tagline: "Put an SRT or VTT file into an MP4 or MKV as a track that can be switched on and off.",
+    description:
+      "Add a subtitle file to a video as a track of its own entirely in your browser: an SRT, WebVTT or ASS file written into the MP4, MOV, MKV or WebM with the picture and sound copied untouched, tagged with its language, switchable in any player. Nothing is uploaded.",
+    category: "subtitles",
+    icon: "softsubs",
+    accepts: "Video files, plus a subtitle file",
     status: "live",
   },
   {

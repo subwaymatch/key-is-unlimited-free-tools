@@ -59,6 +59,11 @@ interface ToolAppProps {
   settings?: ToolSettings;
   /** A note for the footer, for anything this tool has to say about its limits. */
   note?: ReactNode;
+  /**
+   * What the "remove metadata" switch means on this tool, in place of the
+   * usual paragraph, for the one tool where it means something else.
+   */
+  metadataIntro?: string;
 }
 
 /**
@@ -77,6 +82,7 @@ export function ToolApp({
   dropZone,
   settings,
   note,
+  metadataIntro,
 }: ToolAppProps) {
   /*
    * The queue's own state lives in a module-level store keyed by tool, so a
@@ -211,9 +217,8 @@ export function ToolApp({
                 <fieldset className={settingsStyles.fieldset}>
                   <legend className={settingsStyles.legend}>Metadata</legend>
                   <p className={settingsStyles.intro}>
-                    On by default. A clip from a phone carries the time it was taken, the model
-                    of the phone and the GPS fix of where you were standing, and none of that
-                    has any business riding along into a file you are about to send to someone.
+                    {metadataIntro ??
+                      "On by default. A clip from a phone carries the time it was taken, the model of the phone and the GPS fix of where you were standing, and none of that has any business riding along into a file you are about to send to someone."}
                   </p>
                   <label className={styles.checkboxRow}>
                     <input

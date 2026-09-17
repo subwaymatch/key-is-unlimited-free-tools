@@ -69,8 +69,18 @@ export const AUDIO_EXTENSIONS = [
   "wv",
 ] as const;
 
+/**
+ * Animated pictures ffmpeg reads as video.
+ *
+ * A GIF is a video stream to ffmpeg, and "GIF to MP4" is a tool here, so a
+ * GIF is media. Its MIME type says image, which is why it needs naming.
+ */
+export const ANIMATED_IMAGE_EXTENSIONS = ["gif"] as const;
+const ANIMATED_IMAGE_TYPES: ReadonlySet<string> = new Set(["image/gif"]);
+
 const VIDEO_SET: ReadonlySet<string> = new Set<string>(VIDEO_EXTENSIONS);
 const AUDIO_SET: ReadonlySet<string> = new Set<string>(AUDIO_EXTENSIONS);
+const ANIMATED_SET: ReadonlySet<string> = new Set<string>(ANIMATED_IMAGE_EXTENSIONS);
 
 /** Lower-case extension of a filename, without the dot, or null when it has none. */
 export function fileExtension(fileName: string): string | null {
@@ -101,6 +111,10 @@ export const MEDIA_ACCEPT = acceptList(
   ["video/*", "audio/*"],
   [...VIDEO_EXTENSIONS, ...AUDIO_EXTENSIONS],
 );
+export const AUDIO_ACCEPT = acceptList(["audio/*"], AUDIO_EXTENSIONS);
+export const GIF_ACCEPT = acceptList(["image/gif"], ANIMATED_IMAGE_EXTENSIONS);
+/** A cover or a backdrop: the two picture formats every tagging format and muxer takes. */
+export const IMAGE_ACCEPT = "image/jpeg,image/png,.jpg,.jpeg,.png";
 
 /** What the tool is prepared to open, matching MediaExpectation. */
 export type MediaKind = "audio" | "video" | "media";
@@ -116,8 +130,12 @@ export type MediaKind = "audio" | "video" | "media";
  */
 export function looksLikeMedia(file: File): boolean {
   if (file.type.startsWith("video/") || file.type.startsWith("audio/")) return true;
+  if (ANIMATED_IMAGE_TYPES.has(file.type)) return true;
   const extension = fileExtension(file.name);
-  return extension !== null && (VIDEO_SET.has(extension) || AUDIO_SET.has(extension));
+  return (
+    extension !== null &&
+    (VIDEO_SET.has(extension) || AUDIO_SET.has(extension) || ANIMATED_SET.has(extension))
+  );
 }
 
 export interface RejectionReason {

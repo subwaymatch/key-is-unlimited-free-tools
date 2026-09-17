@@ -33,6 +33,19 @@ The live tools, each on its own route:
 | `/merge-subtitles` | Two languages in one subtitle file: the second at the top of the picture, or both folded into one cue | Plain TypeScript again: the cues of both files stacked with a position tag, or the overlapping pairs joined |
 | `/split-chapters` | A podcast, audiobook or video cut into one file per chapter, named after it | One stream-copy format per chapter, from the probe's chapter list: `-ss` before the input, `-t` after, the piece titled after its chapter |
 | `/extract-audio-tracks` | Every audio track of a film or recording as its own file, named by its language | One stream-copy format per track, `-map 0:a:N` into the container the codec belongs in |
+| `/add-audio` | Music or a voiceover under a video, in place of its sound or mixed under it, fitted or looped to the picture | The audio file written into the core as a second input, `apad` or `-stream_loop -1` and `-shortest`, `amix` for the mix; the picture copied |
+| `/sync-audio` | A video's sound moved earlier or later to line up with the picture | The file read twice, `-itsoffset` on whichever read has to start later, every stream copied |
+| `/loop-video` | A clip played two, three or ten times over, or a short one run out to a minute, ten or an hour | `-stream_loop` before the input with every stream copied; a length is an endless loop cut by `-t` |
+| `/gif-to-video` | An animated GIF as an MP4 or WebM, played once or several times over | `fps` to a steady rate, `scale` to even edges, `format=yuv420p`, one H.264 or VP8 encode; `-stream_loop` for the repeats |
+| `/split-video` | A long video every ten minutes, or into four equal parts, without re-encoding | The chapter splitter's shape with the cuts worked out from the length: one stream-copy format per piece |
+| `/trim-audio` | A range cut out of an MP3, WAV or any audio file, in its own format or another | The extractor's catalogue insisting on a range; the file's own format is a stream copy cut on a codec frame |
+| `/change-volume` | A recording turned up or down by a number of decibels, or as loud as it can go without clipping | `volume`, or `volumedetect` in a pass of its own and the gain worked out from the peak it found |
+| `/change-audio-speed` | A lecture at 1.5x or an interview at half speed, pitch kept | The video speed tool's `atempo` chain on the sound alone, written back in the file's own format |
+| `/add-fade` | A fade in, a fade out or both, for a recording or a video's sound and picture | `afade`, and `fade` with one H.264 encode when the picture goes too |
+| `/split-audio` | A long recording every ten minutes, or into equal parts, without re-encoding | The same equal-parts splitter as `/split-video`, pointed at audio files |
+| `/edit-tags` | Title, artist, album, year, genre, track, comment and a cover picture | `-metadata` under ffmpeg's generic names with every stream copied; the cover a second input with `-disposition attached_pic` |
+| `/audio-to-video` | An MP3 as an MP4 for YouTube: a colour, a picture or a waveform under it | A `color` source, a looped image or `showwaves` as the picture, `-tune stillimage` at 5 fps for a still, the sound copied where the MP4 holds it |
+| `/add-subtitles` | An SRT, VTT or ASS file inside an MP4, MOV, MKV or WebM as a track that can be switched off | The file written into the core as a second input and mapped in as MOV text, SRT, ASS or WebVTT by container, with everything else copied |
 
 Every tool is one configuration of the same machinery: a catalogue of formats in `lib/engine/`,
 a page shell in `components/ToolApp.tsx`, and an entry in the registry in `lib/tools.ts` that
@@ -114,6 +127,8 @@ components/
   tools/MergeVideosApp.tsx      the merger: a list of clips to order, one join, one output
   tools/ConvertSubtitlesApp.tsx the subtitle converter: files parsed on arrival, outputs derived live
   tools/MergeSubtitlesApp.tsx   the subtitle merger: one second-language file, every first-language file merged with it
+  tools/SplitPartsApp.tsx       the equal-parts splitter, which serves the video route and the audio route
+  ui/FileField.tsx   a file chooser inside a settings panel, for the tools that take a second file
   FileCard.tsx       a file in the queue: outputs, progress, preview, clip panel
   *.module.css       plain CSS modules; no utility-class framework
 lib/useConversionQueue.ts   sequential job runner, progress + cancellation, per-tool options
@@ -124,6 +139,7 @@ lib/mediaTypes.ts    the cheap first pass: is this even a media file, and what a
 lib/persist.ts       remembering a tool's settings between visits, without a hydration mismatch
 lib/subtitles/       SRT, WebVTT and ASS parsers and writers, retiming and merging; no WebAssembly
 lib/download.ts      hands a text output to the browser as a file, for the tools with no engine
+lib/chosenFile.ts    a second file read whole for a scratch file: its bytes, a key, its image type
 public/fonts/        DejaVu Sans, the one font the burn-in tool has, with its licence
 lib/engine/
   types.ts           the engine contract, and the OutputFormat shape every tool's catalogue uses
@@ -138,6 +154,16 @@ lib/engine/
   chapters.ts        chapter markers from a typed list: parsed, written as ffmetadata, mapped in with every stream copied
   split.ts           one stream-copy format per chapter, for cutting a file at its markers
   tracks.ts          one stream-copy format per audio track, into the container its codec belongs in
+  soundtrack.ts      audio added under a video, replacing or mixed; the sound moved to fix sync; where a re-encoded soundtrack lands
+  level.ts           volume by decibels or to the peak, and fades; the sound re-encoded, the picture copied or faded with it
+  tempo.ts           the atempo chain on the sound alone
+  loop.ts            a file repeated a number of times or out to a length, every stream copied
+  animated.ts        an animated GIF as an MP4 or WebM
+  softsubs.ts        a subtitle file muxed in as a track, as whatever the container wants
+  tags.ts            title, artist and the rest, and a cover, with every stream copied
+  pieces.ts          one stream-copy format per equal part, from the length and a rule
+  visualize.ts       an audio file under a colour, an image or a waveform, as an MP4
+  cut.ts             the extractor's catalogue insisting on a range, for the audio trimmer
   merge.ts           the merger's decision - copy or re-encode, and why - and both command lines
   trim.ts            pure trim logic - ranges, timecodes, silence parsing
   probe.ts           pure parsers for ffmpeg's stderr, audio and video streams alike
@@ -455,6 +481,77 @@ The extractor of every audio track is the same shape: one copy per track, named 
 language, into the container its codec belongs in; the probe now reads a track's language and
 title along with its codec.
 
+### Soundtracks, levels and loops
+
+Adding audio to a video is the first tool to take a second media file. The video is mounted and
+read in place as always; the audio file is read whole in the browser and written into the core as
+a scratch file, the way the burn-in tool's font is, which is why it is capped at 200 MB where the
+video has no cap. The picture is copied; the new track is encoded into whatever the container
+takes (AAC, or Opus for a WebM), padded with `apad` when it is shorter than the picture and cut
+by `-shortest` when it is longer, or looped without end by `-stream_loop -1` and cut the same
+way. Mixing keeps the original at its level and runs the new track through `volume` into `amix`
+with `duration=first` and `normalize=0`, so the original is not halved by the mix. A silent video
+asked for a mix gets the track outright, and the row says so.
+
+Fixing sync is a pure stream copy that reads the file twice. `-itsoffset` delays one input, and
+which input depends on the sign: sound that has to come later is the second read delayed; sound
+that has to come earlier is the *picture* delayed, which is the same relative shift with every
+timestamp still positive. The MP4 muxer writes the offset as an edit list and Matroska as a start
+time, and the integration test reads both back to within a frame. A drift - in step at the start
+and out by the end - is a different fault, and the page says so.
+
+Volume is one filter, except for "as loud as possible", which is `volumedetect` in an analysis
+pass and the gain worked out from the peak it printed, through the same `refine` hook the loudness
+normaliser uses; the file lands with its loudest sample at -1 dBFS, the most gain it can take
+without clipping. Fades are `afade` on the sound and, when the picture goes too, `fade` on a
+re-encoded picture, both measured from the range's length since the seek is before the input.
+The audio speed tool is the video one's `atempo` chain alone. All of these write an audio file
+back in its own format and copy a video's picture, through one helper that decides where a
+re-encoded soundtrack lands: the source's container when it holds the picture and AAC, a WebM
+with Opus, an MP4 when the picture fits, and Matroska otherwise.
+
+The loop is `-stream_loop` with every stream copied; ffmpeg reads the input again from the start
+and carries the timestamps on, so the seam is wherever the file itself begins and ends. A loop to
+a length is `-stream_loop -1` cut by `-t`. The GIF converter is the same trick pointed at a GIF,
+which is a video stream to ffmpeg: a GIF's MIME type says image, so `looksLikeMedia` now names it
+as media, and the plan steadies a slow frame rate to 30, makes the edges even and forces 4:2:0,
+the three things a GIF needs that a camera clip does not. The equal-parts splitter is the chapter
+splitter with the cuts worked out from the length and a rule instead of read from the file, still
+one stream-copy format per piece, still labelled by its range once the file has been read.
+
+### Tags, subtitle tracks and audio as video
+
+The tag editor is the second plan that reads the "Output options" switch itself: off, the file's
+tags stay and the typed ones are written over them; on, the file is cleared first and only the
+typed ones remain. It is also the one tool where the switch starts off, and it keeps the switch
+under a key of its own: on by default it would throw away the album and the year of a file
+someone only meant to retitle, and the switch is otherwise one setting shared and remembered
+across every tool. ffmpeg maps the generic names onto whatever the format uses, so the plan speaks
+in `title`, `artist`, `album_artist`, `date`, `genre`, `track` and `comment` and the muxer
+translates to ID3 frames, iTunes atoms or Vorbis comments. A cover is a second input mapped in
+with `-disposition:v:0 attached_pic`, which the MP3, MP4 and FLAC muxers all turn into a picture
+block; an MP3 also gets the picture's ID3 type set and is written as ID3v2.3, which Windows and
+older players read where 2.4 they do not. Ogg, WAV and video files have no place for a cover and
+say so. A file's own cover, when no new one is chosen, is a video stream and rides along.
+
+Adding subtitles as a track is the soft version of burning in, and costs a stream copy rather
+than an encode. The subtitle file is read in the browser into cues, as the burn-in tool reads it,
+and written for ffmpeg as whatever the video's container wants: an SRT fed to `-c:s mov_text` for
+MP4 and MOV, the SRT or the ASS file's own text copied for Matroska, WebVTT for WebM. The new
+track is mapped first among the subtitles so its language, its name and its default flag can be
+set on `s:0`; MP4 and MOV name a track by its handler and Matroska by a title, so the plan sets
+whichever the container reads. Text tracks the video already carries ride along; an image-based
+one cannot travel with a text track into a container that only takes text, and is left out with
+a note on the row.
+
+Audio to video exists because the sites people want to put a recording on only take video. The
+picture is a `color` source, an image looped with `-loop 1` and fitted into the frame with black
+bars, or `showwaves` drawn from the sound; the sound is copied where the MP4 holds it (MP3, AAC)
+and made AAC otherwise; `-shortest` ends the picture with the sound. A still is written at 5
+frames a second with `-tune stillimage`, which every player and upload form accepts and keeps an
+hour of podcast to a few minutes of encoding on one WebAssembly thread; the waveform runs at 25
+and costs about real time.
+
 ### Cancelling one format
 
 Each output is a format *and* a range, and each can be cancelled on its own. Cancelling one that is
@@ -658,8 +755,13 @@ parse fails in seconds rather than in a browser; they are skipped where ffmpeg i
 sheet, loudness, subtitle, burn-in, audio compression, channel, waveform, chapter, chapter-split and
 audio-track plans, running the
 loudness plan's two passes the way the engine does and measuring the result with `ebur128`, and
-writing a plan's scratch files where that ffmpeg can read them. The subtitle library is pure and
-its tests round-trip every format.
+writing a plan's scratch files where that ffmpeg can read them. `tests/soundtrack.integration.test.ts`
+covers the batch after that - audio added, looped and mixed under a video, the sound moved each
+way and read back from the edit list, a peak lift measured with `volumedetect`, fades measured
+quiet at both ends, a loop three times over and out to a minute, a GIF to MP4 and WebM, a subtitle
+file muxed into an MP4, an MKV and a WebM, tags and covers into an MP3 and a FLAC, equal parts,
+an MP3 under a colour, an image and a waveform, and a range cut out by copy. The subtitle library
+is pure and its tests round-trip every format.
 The browser scripts need ffmpeg and ffprobe on `PATH`, plus a Chromium: one Playwright can find
 on its own (`npx playwright install chromium`), or any Chrome/Chromium binary named in
 `CHROMIUM_PATH`.
@@ -749,6 +851,20 @@ calling large-file support universal.
   audio converter for an M4A or MP3.
 - Vocal removal is a centre cut, not a separation model: it takes out whatever is identical in
   both channels, which on many mixes includes the bass and the drums, and does nothing to mono.
+- The audio file added to a video, a cover picture and a backdrop image are read whole into
+  memory and written into the core, so they are capped (200 MB, 10 MB and 20 MB); the video or
+  audio file in the queue is mounted and has no such cap.
+- The sync fix moves the sound by one fixed amount. Sound that drifts - in step at the start and
+  out by the end - runs at a different rate from the picture, and needs a stretch this does not do.
+- A loop's seam is wherever the file itself begins and ends; the loop copies the streams and
+  cannot smooth it. To loop part of a file, cut that part out with the trimmer first.
+- A cover picture goes only where the format has a place for one: MP3, M4A and FLAC. Ogg and WAV
+  have none and are refused; Matroska's attachments are a different mechanism and not written.
+- Subtitles added as a track go into MP4 and MOV as MOV text, which keeps italics and little else
+  of an ASS file's styling; an MKV keeps the ASS as it is. A container with no place for a text
+  track, such as AVI, comes back as an MKV.
+- A still backdrop under audio is written at 5 frames a second. Every player and upload form
+  tested accepts it; a site that insists on 24 or more wants the waveform, which runs at 25.
 - Cancelling terminates the ffmpeg worker, since ffmpeg blocks its worker while running and cannot
   be interrupted cooperatively. See [Cancelling one format](#cancelling-one-format) for why that is
   survivable. The engine restarts on the next job; the core is already cached, so this costs a

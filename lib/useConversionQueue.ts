@@ -218,6 +218,19 @@ export interface QueueOptions {
    * does not read well after a verb. Overrides `verb`.
    */
   phase?: (output: { label: string; trim: TrimRange | null }) => string;
+  /**
+   * Where the "remove metadata" switch starts for this tool, when it should
+   * not start where every other tool's does.
+   *
+   * The switch is one setting shared by every tool, on by default, and
+   * remembered across them: a visitor who turns it off on the converter
+   * finds it off on the compressor. The tag editor is the exception: its
+   * switch means "clear the file's other tags first", and on by default it
+   * would throw away the album and the year of a file someone only meant to
+   * retitle. A tool that sets this keeps the switch under its own key, so
+   * neither its default nor the visitor's choice on it leaks into the rest.
+   */
+  stripMetadataDefault?: boolean;
 }
 
 /** The audio extractor's configuration, and the default. */
@@ -399,6 +412,13 @@ interface QueueStore {
  */
 export const DEFAULT_STRIP_METADATA = true;
 
+/** Where a tool's strip switch is remembered: shared, unless the tool has a default of its own. */
+export function stripMetadataKey(options: Pick<QueueOptions, "key" | "stripMetadataDefault">): string {
+  return options.stripMetadataDefault === undefined
+    ? storageKey("strip-metadata")
+    : storageKey("strip-metadata", options.key ?? "default");
+}
+
 const stores = new Map<string, QueueStore>();
 
 function getStore(key: string, options: QueueOptions): QueueStore {
@@ -409,7 +429,7 @@ function getStore(key: string, options: QueueOptions): QueueStore {
       options,
       selectedFormats: [...options.defaultFormatIds],
       trimSettings: DEFAULT_TRIM_SETTINGS,
-      stripMetadata: DEFAULT_STRIP_METADATA,
+      stripMetadata: options.stripMetadataDefault ?? DEFAULT_STRIP_METADATA,
       hydrated: false,
       pumping: false,
       activeJobId: null,
@@ -1203,7 +1223,7 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
       if (known.length > 0) store.selectedFormats = known;
     }
 
-    const strip = readStored(storageKey("strip-metadata"), isBoolean);
+    const strip = readStored(stripMetadataKey(options), isBoolean);
     if (strip !== null) store.stripMetadata = strip;
 
     const trim = readStored(storageKey("trim", options.key ?? "default"), isTrimSettings);
@@ -1221,8 +1241,8 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
 
   useEffect(() => {
     if (!store.hydrated) return;
-    writeStored(storageKey("strip-metadata"), stripMetadata);
-  }, [stripMetadata, store]);
+    writeStored(stripMetadataKey(options), stripMetadata);
+  }, [options, stripMetadata, store]);
 
   useEffect(() => {
     if (!store.hydrated) return;
