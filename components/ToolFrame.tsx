@@ -4,6 +4,7 @@ import { CORE_VERSION, FFMPEG_VERSION } from "@/lib/engine/constants";
 import { formatBytes } from "@/lib/format-utils";
 import type { ToolMeta } from "@/lib/tools";
 
+import { ToolImage } from "./ToolImage";
 import styles from "./ToolFrame.module.css";
 
 /** Files this large rely on the WORKERFS mount path rather than an in-memory copy. */
@@ -29,8 +30,18 @@ export function ToolFrame({ tool, lead, children, footer }: ToolFrameProps) {
   return (
     <main className={styles.page}>
       <header className={styles.header}>
-        <h1 className={styles.title}>{tool.name}</h1>
-        <p className={styles.tagline}>{lead}</p>
+        <div className={styles.headerText}>
+          <h1 className={styles.title}>{tool.name}</h1>
+          <p className={styles.tagline}>{lead}</p>
+        </div>
+        {/*
+          * Beside the title rather than above it, and kept small at every
+          * width: the thing a visitor came here to do is the drop zone below,
+          * and a banner would push it off a laptop screen to decorate a page
+          * nobody reads. It comes after the text in the markup because it is
+          * decorative - the name and the lead are what should be read first.
+          */}
+        <ToolImage tool={tool} className={styles.image} priority />
       </header>
 
       <div className={styles.stack}>{children}</div>
