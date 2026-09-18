@@ -1,8 +1,8 @@
 /**
- * Browser verification of the no-engine tools added in the fourth batch:
- * the PDF extractor, reorderer, flattener and booklet maker, the CSV, JSON,
- * notebook and text-file converters, the passphrase sealer, the file
- * comparer, the picture merger and the palette extractor.
+ * Browser verification of the no-engine tools added in the fourth, fifth
+ * and sixth batches: the PDF page tools, the CSV, JSON, workbook and
+ * text-file converters, the passphrase sealer, the comparers, the picture
+ * tools, the identifier, the splitters and joiners, and the archivers.
  *
  * Builds nothing itself: run `npm run build` first. Serves the static
  * export, makes its own fixtures in Node (PDFs through pdf-lib, PNGs written
@@ -19,10 +19,10 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { crc32, deflateSync, gzipSync, inflateSync } from "node:zlib";
+import { crc32, deflateSync, gunzipSync, gzipSync, inflateSync } from "node:zlib";
 
 import { strToU8, unzipSync, zipSync } from "fflate";
-import { degrees, PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { degrees, PDFDict, PDFDocument, PDFName, StandardFonts, rgb } from "pdf-lib";
 import { chromium } from "playwright-core";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -137,12 +137,36 @@ function decodePng(bytes) {
     height,
     pixel: (x, y) => {
       const base = (y * stride + x * channels);
-      return channels >= 3 ? [out[base], out[base + 1], out[base + 2]] : [out[base], out[base], out[base]];
+      return channels === 4 ? [out[base], out[base + 1], out[base + 2], out[base + 3]] : channels === 3 ? [out[base], out[base + 1], out[base + 2], 255] : [out[base], out[base], out[base], channels === 2 ? out[base + 1] : 255];
     },
   };
 }
 
-const near = (pixel, wanted, tolerance = 12) => pixel.every((value, index) => Math.abs(value - wanted[index]) <= tolerance);
+const near = (pixel, wanted, tolerance = 12) => wanted.every((value, index) => Math.abs(pixel[index] - value) <= tolerance);
+
+/** The entries of a plain TAR: name, size and bytes, read block by block. */
+function tarEntries(bytes) {
+  const entries = [];
+  let at = 0;
+  while (at + 512 <= bytes.length) {
+    const block = bytes.subarray(at, at + 512);
+    if (block.every((byte) => byte === 0)) break;
+    const name = block.toString("latin1", 0, 100).replace(/\0.*$/, "");
+    const size = parseInt(block.toString("latin1", 124, 136).replace(/\0.*$/, "").trim(), 8);
+    const type = String.fromCharCode(block[156]);
+    entries.push({ name, size, type, bytes: bytes.subarray(at + 512, at + 512 + size) });
+    at += 512 + Math.ceil(size / 512) * 512;
+  }
+  return entries;
+}
+
+/** How many XObjects a page's resources name, or 0. */
+async function xobjectsOnPage(bytes, index) {
+  const document = await PDFDocument.load(bytes);
+  const resources = document.getPage(index).node.Resources();
+  const xobjects = resources?.lookupMaybe(PDFName.of("XObject"), PDFDict);
+  return xobjects ? xobjects.keys().length : 0;
+}
 
 /** A workbook as Excel writes one: shared strings, a date style, two sheets. */
 function excelFixture() {
@@ -210,6 +234,46 @@ async function numberedPdf() {
   return document.save();
 }
 
+/** Four pages: text, blank, text, and one with a single speck. */
+async function blanksPdf() {
+  const document = await PDFDocument.create();
+  const font = await document.embedFont(StandardFonts.Helvetica);
+  for (let index = 0; index < 4; index += 1) {
+    const page = document.addPage([300, 400]);
+    if (index % 2 === 0) page.drawText(`Page ${index + 1} has words on it`, { x: 30, y: 200, size: 18, font });
+    if (index === 3) page.drawRectangle({ x: 150, y: 200, width: 1, height: 1, color: rgb(0, 0, 0) });
+  }
+  return document.save();
+}
+
+/** Pages of a width each, for reading an order off a collation. */
+async function widthsPdf(widths) {
+  const document = await PDFDocument.create();
+  for (const width of widths) document.addPage([width, 400]);
+  return document.save();
+}
+
+/** Six pages each carrying its own picture of noise, so the file is heavy and no page shares another's bytes. */
+async function heavyPdf() {
+  const document = await PDFDocument.create();
+  for (let index = 0; index < 6; index += 1) {
+    const noise = pseudoRandom(200 * 200 * 3, 11 + index);
+    const picture = png(200, 200, (x, y) => [noise[(y * 200 + x) * 3], noise[(y * 200 + x) * 3 + 1], noise[(y * 200 + x) * 3 + 2], 255]);
+    const embedded = await document.embedPng(picture);
+    document.addPage([300, 300]).drawImage(embedded, { x: 50, y: 50, width: 200, height: 200 });
+  }
+  return document.save();
+}
+
+/** A page of lines of text. */
+async function linesPdf(lines) {
+  const document = await PDFDocument.create();
+  const font = await document.embedFont(StandardFonts.Helvetica);
+  const page = document.addPage([300, 400]);
+  lines.forEach((line, index) => page.drawText(line, { x: 30, y: 350 - index * 30, size: 14, font }));
+  return document.save();
+}
+
 async function formPdf() {
   const document = await PDFDocument.create();
   const page = document.addPage([300, 300]);
@@ -271,6 +335,16 @@ async function ensureFixtures() {
     workbook: write("book.xlsx", excelFixture()),
     tarball: write("bundle.tar.gz", gzipSync(tarFixture())),
     gz: write("notes.txt.gz", gzipSync(Buffer.from("plain gzip\n"))),
+    // A red square on white, for keying the white out.
+    logo: write("logo.png", png(100, 100, (x, y) => (x >= 30 && x < 70 && y >= 30 && y < 70 ? [255, 0, 0, 255] : [255, 255, 255, 255]))),
+    blanks: write("blanks.pdf", await blanksPdf()),
+    fronts: write("fronts.pdf", await widthsPdf([300, 310, 320])),
+    backs: write("backs.pdf", await widthsPdf([520, 510, 500])),
+    heavy: write("heavy.pdf", await heavyPdf()),
+    textA: write("textA.pdf", await linesPdf(["Alpha", "Beta", "Gamma"])),
+    textB: write("textB.pdf", await linesPdf(["Alpha", "Delta", "Gamma"])),
+    srt: write("talk.srt", "1\n00:00:00,000 --> 00:00:02,000\nHello there.\n\n2\n00:00:03,000 --> 00:00:04,000\nIt is <i>good</i> to see you\n\n3\n00:00:04,100 --> 00:00:06,000\nagain.\n"),
+    words: write("words.txt", "pear\nApple\n\nitem10\nitem2\napple\npear\n"),
   };
 }
 
@@ -339,7 +413,7 @@ async function main() {
     log("\nIndex:");
     await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "networkidle" });
     const links = await page.locator("main a[href^='/']").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("href")));
-    for (const slug of ["extract-pdf-pages", "reorder-pdf-pages", "flatten-pdf", "pdf-booklet", "convert-csv", "json-to-csv", "format-json", "clean-notebook", "convert-text-file", "encrypt-file", "compare-files", "merge-images", "extract-colours", "rotate-image", "pad-image", "adjust-image", "svg-to-png", "resize-pdf-pages", "crop-pdf", "extract-pdf-images", "csv-to-excel", "excel-to-csv", "profile-csv", "clean-csv", "identify-file", "split-file", "join-files", "extract-tar"]) {
+    for (const slug of ["extract-pdf-pages", "reorder-pdf-pages", "flatten-pdf", "pdf-booklet", "convert-csv", "json-to-csv", "format-json", "clean-notebook", "convert-text-file", "encrypt-file", "compare-files", "merge-images", "extract-colours", "rotate-image", "pad-image", "adjust-image", "svg-to-png", "resize-pdf-pages", "crop-pdf", "extract-pdf-images", "csv-to-excel", "excel-to-csv", "profile-csv", "clean-csv", "identify-file", "split-file", "join-files", "extract-tar", "round-image", "split-image", "compare-images", "make-transparent", "remove-blank-pages", "collate-scans", "split-pdf-by-size", "add-image-to-pdf", "compare-pdfs", "add-pdf-bookmarks", "merge-csv", "split-csv", "sort-csv", "csv-to-markdown", "csv-to-sql", "excel-to-json", "json-to-excel", "subtitles-to-text", "sort-lines", "rename-files", "create-tar"]) {
       check(`index links to /${slug}`, links.includes(`/${slug}`));
     }
     check("the Data category is on the index", (await page.locator("main").getByRole("heading", { name: "Data" }).count()) === 1);
@@ -750,6 +824,244 @@ async function main() {
     const notes = await downloadNamed(gzCard, "notes.txt");
     check("a plain gzip gives its one file back", notes.bytes.toString("utf8") === "plain gzip\n" && /gzip file/.test(await gzCard.innerText()));
     await shot("extract-tar");
+
+
+    // ---- Batch six: pictures ----------------------------------------------
+    log("\nRound image - corners, then a circle:");
+    await open("round-image");
+    await drop(fixtures.red);
+    const roundCard = cardFor("red.png");
+    await roundCard.getByText("Done", { exact: true }).waitFor({ timeout: 30_000 });
+    const rounded = decodePng((await downloadNamed(roundCard, "red-rounded.png")).bytes);
+    check("the rounded picture keeps its size with see-through corners and a red middle", rounded.width === 200 && rounded.height === 100 && rounded.pixel(1, 1)[3] === 0 && near(rounded.pixel(100, 50), [255, 0, 0, 255]), `${rounded.width}x${rounded.height}, corner alpha ${rounded.pixel(1, 1)[3]}, middle ${rounded.pixel(100, 50)}`);
+    await openSettings(/^Shape & border/);
+    await page.getByRole("radio", { name: /^A circle/ }).click();
+    await drop(fixtures.red);
+    const circleCard = page.locator("li", { hasText: "red.png" }).nth(1);
+    await circleCard.getByText("Done", { exact: true }).waitFor({ timeout: 30_000 });
+    const circle = decodePng((await downloadNamed(circleCard, "red-circle.png")).bytes);
+    check("the circle is cut from a centred square", circle.width === 100 && circle.height === 100 && circle.pixel(3, 3)[3] === 0 && near(circle.pixel(50, 50), [255, 0, 0, 255]), `${circle.width}x${circle.height}, corner alpha ${circle.pixel(3, 3)[3]}`);
+    await shot("round-image");
+
+    log("\nSplit image - 3 x 3 square tiles from a 200x100:");
+    await open("split-image");
+    await drop(fixtures.red);
+    const tilesCard = cardFor("red.png");
+    await tilesCard.getByText("Done", { exact: true }).waitFor({ timeout: 30_000 });
+    check("nine tiles, and a note about the crop", /9 tiles/.test(await tilesCard.innerText()) && /cropped to 99x99/.test(await tilesCard.innerText()), (await tilesCard.innerText()).slice(0, 300));
+    const tile = decodePng((await downloadNamed(tilesCard, "red-r3c3.png")).bytes);
+    check("the last tile is 33x33 and red", tile.width === 33 && tile.height === 33 && near(tile.pixel(10, 10), [255, 0, 0]), `${tile.width}x${tile.height}`);
+    await shot("split-image");
+
+    log("\nCompare images - all red against half red, half blue:");
+    await open("compare-images");
+    await drop([fixtures.red, fixtures.halves]);
+    await page.getByRole("button", { name: "Compare the two pictures" }).click();
+    const diffImageLink = page.getByRole("link", { name: "Download red-vs-halves.png" });
+    await diffImageLink.waitFor({ timeout: 30_000 });
+    const diffImage = decodePng((await download(diffImageLink)).bytes);
+    check("half the pixels differ, boxed to the right half", /10,000 of 20,000 pixels differ: 50% of the pixels/.test(await page.locator("main").innerText()) && /within 100x100 from \(100, 0\)/.test(await page.locator("main").innerText()), (await page.locator("main").innerText()).slice(0, 600));
+    check("the picture is faded on the left and red on the right", near(diffImage.pixel(50, 50), [201, 201, 201]) && near(diffImage.pixel(150, 50), [225, 30, 30]), `${diffImage.pixel(50, 50)} and ${diffImage.pixel(150, 50)}`);
+    await shot("compare-images");
+
+    log("\nMake transparent - white keyed out around a red square:");
+    await open("make-transparent");
+    await drop(fixtures.logo);
+    const keyCard = cardFor("logo.png");
+    await keyCard.getByText("Done", { exact: true }).waitFor({ timeout: 30_000 });
+    const keyed = decodePng((await downloadNamed(keyCard, "logo-transparent.png")).bytes);
+    check("the background is see-through and the square stays", keyed.pixel(5, 5)[3] === 0 && near(keyed.pixel(50, 50), [255, 0, 0, 255]) && /84% of the pixels made see-through/.test(await keyCard.innerText()), `${keyed.pixel(5, 5)} ${keyed.pixel(50, 50)}; ${(await keyCard.innerText()).slice(0, 200)}`);
+    await shot("make-transparent");
+
+    // ---- Batch six: documents ---------------------------------------------
+    log("\nRemove blank pages - four pages, two of them blank:");
+    await open("remove-blank-pages");
+    await drop(fixtures.blanks);
+    const blanksCard = cardFor("blanks.pdf");
+    await blanksCard.getByText("Done", { exact: true }).waitFor({ timeout: 120_000 });
+    check("names pages 2 and 4", /2 blank pages removed: pages 2 and 4/.test(await blanksCard.innerText()), (await blanksCard.innerText()).slice(0, 300));
+    const unblanked = await PDFDocument.load((await downloadNamed(blanksCard, "blanks-no-blank-pages.pdf")).bytes);
+    check("two pages are left", unblanked.getPageCount() === 2, String(unblanked.getPageCount()));
+    await shot("remove-blank-pages");
+
+    log("\nCollate scans - fronts and reversed backs:");
+    await open("collate-scans");
+    await drop([fixtures.fronts, fixtures.backs]);
+    await page.getByRole("button", { name: "Collate the two files" }).click();
+    const collatedLink = page.getByRole("link", { name: "Download fronts-collated.pdf" });
+    await collatedLink.waitFor({ timeout: 30_000 });
+    const collatedWidths = await pdfWidths((await download(collatedLink)).bytes);
+    check("front, back, front, back with the backs read from the end", JSON.stringify(collatedWidths) === "[300,500,310,510,320,520]", JSON.stringify(collatedWidths));
+    await shot("collate-scans");
+
+    log("\nSplit PDF by size - six heavy pages under 0.4 MB each:");
+    await open("split-pdf-by-size");
+    await page.getByRole("radio", { name: /^Custom/ }).click();
+    await page.getByRole("spinbutton", { name: "Megabytes" }).fill("0.4");
+    await drop(fixtures.heavy);
+    const heavyCard = cardFor("heavy.pdf");
+    await heavyCard.getByText("Done", { exact: true }).waitFor({ timeout: 120_000 });
+    const heavyText = await heavyCard.innerText();
+    const pieceCount = Number(/(\d+) pieces under/.exec(heavyText)?.[1] ?? 0);
+    check("more than one piece", pieceCount >= 2, heavyText.slice(0, 300));
+    let heavyPages = 0;
+    let heavyOver = false;
+    for (let index = 1; index <= pieceCount; index += 1) {
+      const piece = await downloadNamed(heavyCard, `heavy-part-${index}.pdf`);
+      heavyPages += (await PDFDocument.load(piece.bytes)).getPageCount();
+      if (piece.bytes.length > 0.4 * 1024 * 1024) heavyOver = true;
+    }
+    check("every piece is under the limit and the pages add up to six", heavyPages === 6 && !heavyOver, `${heavyPages} pages, over: ${heavyOver}`);
+    await shot("split-pdf-by-size");
+
+    log("\nAdd image to PDF - a picture on the last page:");
+    await open("add-image-to-pdf");
+    await page.locator("#add-image-to-pdf-picture").setInputFiles(fixtures.red);
+    await page.getByRole("radio", { name: /^The last page/ }).click();
+    await drop(fixtures.numbered);
+    const stampCard = cardFor("numbered.pdf");
+    await stampCard.getByText("Done", { exact: true }).waitFor({ timeout: 30_000 });
+    const stampedBytes = (await downloadNamed(stampCard, "numbered-stamped.pdf")).bytes;
+    check("the last page carries the picture and the first does not", (await xobjectsOnPage(stampedBytes, 4)) === 1 && (await xobjectsOnPage(stampedBytes, 0)) === 0 && /red.png at the bottom right of 1 page/.test(await stampCard.innerText()), (await stampCard.innerText()).slice(0, 300));
+    await shot("add-image-to-pdf");
+
+    log("\nCompare PDFs - one line changed:");
+    await open("compare-pdfs");
+    await drop([fixtures.textA, fixtures.textB]);
+    await page.getByRole("button", { name: "Compare the two PDFs" }).click();
+    const pdfDiffLink = page.getByRole("link", { name: "Download textA-vs-textB.diff" });
+    await pdfDiffLink.waitFor({ timeout: 60_000 });
+    const pdfDiff = (await download(pdfDiffLink)).bytes.toString("utf8");
+    check("the diff shows the changed line", pdfDiff.includes("-Beta") && pdfDiff.includes("+Delta") && pdfDiff.includes(" Alpha"), JSON.stringify(pdfDiff.slice(0, 300)));
+    check("says one line each way", /1 line added, 1 removed/.test(await page.locator("main").innerText()));
+    await shot("compare-pdfs");
+
+    log("\nAdd PDF bookmarks - three, one nested:");
+    await open("add-pdf-bookmarks");
+    await page.getByLabel("Bookmark list").fill("1 One\n3 Three\n  4 Four");
+    await drop(fixtures.numbered);
+    const bookmarkCard = cardFor("numbered.pdf");
+    await bookmarkCard.getByText("Done", { exact: true }).waitFor({ timeout: 30_000 });
+    const bookmarked = await PDFDocument.load((await downloadNamed(bookmarkCard, "numbered-bookmarked.pdf")).bytes);
+    const outlines = bookmarked.catalog.lookupMaybe(PDFName.of("Outlines"), PDFDict);
+    check("the outline is written and the viewer opens on it", outlines?.get(PDFName.of("Count"))?.toString() === "3" && bookmarked.catalog.get(PDFName.of("PageMode"))?.toString() === "/UseOutlines" && /3 bookmarks, 1 nested/.test(await bookmarkCard.innerText()), (await bookmarkCard.innerText()).slice(0, 300));
+    await shot("add-pdf-bookmarks");
+
+    // ---- Batch six: data --------------------------------------------------
+    log("\nMerge CSV - two files with different headers:");
+    await open("merge-csv");
+    await drop([fixtures.csv, fixtures.messy]);
+    await page.getByRole("button", { name: "Merge the files" }).click();
+    const mergedCsvLink = page.getByRole("link", { name: "Download sample-merged.csv" });
+    await mergedCsvLink.waitFor({ timeout: 30_000 });
+    const mergedCsv = (await download(mergedCsvLink)).bytes.toString("utf8").split("\r\n");
+    check("columns matched by name, the new one appended", mergedCsv[0] === "name,note,n,city" && mergedCsv[1] === '"Smith, John","He said ""hi""",1,' && mergedCsv[4] === '" Ada ",,,Oslo' && mergedCsv.length === 9, JSON.stringify(mergedCsv));
+    check("says a column was added", /1 column not in the first file was added at the end: city/.test(await page.locator("main").innerText()));
+    await shot("merge-csv");
+
+    log("\nSplit CSV - every 2 rows:");
+    await open("split-csv");
+    await page.getByRole("radio", { name: /^Custom/ }).click();
+    await page.getByRole("spinbutton", { name: "Rows" }).fill("2");
+    await drop(fixtures.csv);
+    const splitCsvCard = cardFor("sample.csv");
+    await splitCsvCard.getByText("Done", { exact: true }).waitFor({ timeout: 30_000 });
+    const partOne = (await downloadNamed(splitCsvCard, "sample-part-1.csv")).bytes.toString("utf8");
+    const partTwo = (await downloadNamed(splitCsvCard, "sample-part-2.csv")).bytes.toString("utf8");
+    check("the header is on both pieces and the rows are whole", partOne === 'name,note,n\r\n"Smith, John","He said ""hi""",1\r\nplain,"two\nlines",2\r\n' && partTwo === "name,note,n\r\nlast,,3\r\n", JSON.stringify([partOne, partTwo]));
+    await shot("split-csv");
+
+    log("\nSort CSV - by n, descending:");
+    await open("sort-csv");
+    await page.getByRole("textbox", { name: "Name or number" }).fill("n");
+    await page.getByRole("radio", { name: /^Descending/ }).click();
+    await drop(fixtures.csv);
+    const sortCsvCard = cardFor("sample.csv");
+    await sortCsvCard.getByText("Done", { exact: true }).waitFor({ timeout: 30_000 });
+    const sortedCsv = (await downloadNamed(sortCsvCard, "sample-sorted.csv")).bytes.toString("utf8").split("\r\n");
+    check("the rows come out 3, 2, 1 under the header", sortedCsv[0] === "name,note,n" && sortedCsv[1] === "last,,3" && sortedCsv[3] === '"Smith, John","He said ""hi""",1', JSON.stringify(sortedCsv));
+    check("says how it sorted", /as numbers, descending/.test(await sortCsvCard.innerText()), (await sortCsvCard.innerText()).slice(0, 300));
+    await shot("sort-csv");
+
+    log("\nCSV to Markdown:");
+    await open("csv-to-markdown");
+    await drop(fixtures.csv);
+    const markdownCard = cardFor("sample.csv");
+    await markdownCard.getByText("Done", { exact: true }).waitFor({ timeout: 30_000 });
+    const markdown = (await downloadNamed(markdownCard, "sample.md")).bytes.toString("utf8");
+    check("a padded table with the number column aligned right", markdown.startsWith("| name        | note         |   n |\n| ----------- | ------------ | --: |\n| Smith, John | He said \"hi\" |   1 |\n| plain       | two<br>lines |   2 |"), JSON.stringify(markdown));
+    await shot("csv-to-markdown");
+
+    log("\nCSV to SQL:");
+    await open("csv-to-sql");
+    await drop(fixtures.csv);
+    const sqlCard = cardFor("sample.csv");
+    await sqlCard.getByText("Done", { exact: true }).waitFor({ timeout: 30_000 });
+    const sql = (await downloadNamed(sqlCard, "sample.sql")).bytes.toString("utf8");
+    check("a typed CREATE TABLE and the rows as an INSERT", sql.includes('CREATE TABLE "sample" (\n  "name" TEXT,\n  "note" TEXT,\n  "n" INTEGER\n);') && sql.includes("('Smith, John', 'He said \"hi\"', 1),") && sql.includes("('last', NULL, 3);"), sql.slice(0, 300));
+    await shot("csv-to-sql");
+
+    log("\nExcel to JSON:");
+    await open("excel-to-json");
+    await drop(fixtures.workbook);
+    const jsonBookCard = cardFor("book.xlsx");
+    await jsonBookCard.getByText("Done", { exact: true }).waitFor({ timeout: 30_000 });
+    const peopleJson = JSON.parse((await downloadNamed(jsonBookCard, "book.json")).bytes.toString("utf8"));
+    check("the sheet with rows comes out keyed by its header, dates as dates", JSON.stringify(peopleJson) === JSON.stringify([{ Name: "Ada", When: "2024-01-01" }, { Name: "Bob", When: "2024-01-01 12:00:00" }]) && /1 empty sheet was skipped/.test(await jsonBookCard.innerText()), JSON.stringify(peopleJson));
+    await shot("excel-to-json");
+
+    log("\nJSON to Excel:");
+    await open("json-to-excel");
+    await drop(fixtures.records);
+    const excelRecordsCard = cardFor("records.json");
+    await excelRecordsCard.getByText("Done", { exact: true }).waitFor({ timeout: 30_000 });
+    const recordsBook = unzipSync((await downloadNamed(excelRecordsCard, "records.xlsx")).bytes);
+    const recordsSheet = Buffer.from(recordsBook["xl/worksheets/sheet1.xml"]).toString("utf8");
+    check("the workbook has the flattened columns and typed cells", recordsSheet.includes("address.city") && recordsSheet.includes('<c r="A2"><v>1</v></c>') && recordsSheet.includes("x; y"), recordsSheet.slice(0, 300));
+    await shot("json-to-excel");
+
+    log("\nSubtitles to text - paragraphs:");
+    await open("subtitles-to-text");
+    await drop(fixtures.srt);
+    const srtCard = cardFor("talk.srt");
+    await srtCard.getByText("Done", { exact: true }).waitFor({ timeout: 30_000 });
+    const transcriptText = (await downloadNamed(srtCard, "talk-transcript.txt")).bytes.toString("utf8");
+    check("the cues run into paragraphs without markup", transcriptText === "Hello there.\n\nIt is good to see you again.\n", JSON.stringify(transcriptText));
+    check("counts cues and words", /3 cues, 9 words/.test(await srtCard.innerText()), (await srtCard.innerText()).slice(0, 300));
+    await shot("subtitles-to-text");
+
+    log("\nSort lines:");
+    await open("sort-lines");
+    await drop(fixtures.words);
+    const wordsCard = cardFor("words.txt");
+    await wordsCard.getByText("Done", { exact: true }).waitFor({ timeout: 30_000 });
+    const sortedWords = (await downloadNamed(wordsCard, "words-sorted.txt")).bytes.toString("utf8");
+    check("A to Z with numbers in order, the blank line dropped", sortedWords === "Apple\napple\nitem2\nitem10\npear\npear\n" && /1 blank line dropped/.test(await wordsCard.innerText()), JSON.stringify(sortedWords));
+    await shot("sort-lines");
+
+    // ---- Batch six: files -------------------------------------------------
+    log("\nRename files - numbered:");
+    await open("rename-files");
+    await page.getByRole("radio", { name: /^Numbered/ }).click();
+    await drop([fixtures.red, fixtures.blue]);
+    await page.getByRole("button", { name: "Rename the files" }).click();
+    const renamedLink = page.getByRole("link", { name: "Download renamed-files.zip" });
+    await renamedLink.waitFor({ timeout: 30_000 });
+    const renamedZip = unzipSync((await download(renamedLink)).bytes);
+    check("the ZIP holds the files under their new names, bytes untouched", JSON.stringify(Object.keys(renamedZip)) === '["01-red.png","02-blue.png"]' && Buffer.from(renamedZip["01-red.png"]).equals(readFileSync(fixtures.red)), JSON.stringify(Object.keys(renamedZip)));
+    check("lists what became what", /red.png -> 01-red.png/.test(await page.locator("main").innerText()));
+    await shot("rename-files");
+
+    log("\nCreate TAR - gzipped:");
+    await open("create-tar");
+    await drop([fixtures.old, fixtures.new]);
+    await page.getByRole("button", { name: "Create the archive" }).click();
+    const tarLink = page.getByRole("link", { name: "Download archive.tar.gz" });
+    await tarLink.waitFor({ timeout: 30_000 });
+    const tarBytes = gunzipSync((await download(tarLink)).bytes);
+    const entries = tarEntries(tarBytes);
+    check("the archive holds both files as tar writes them", entries.map((entry) => `${entry.name}:${entry.size}:${entry.type}`).join(",") === "old.txt:10:0,new.txt:12:0" && entries[1].bytes.toString("utf8") === "a\nB\nc\nd\ne\nf\n" && tarBytes.length === 512 * 6, `${entries.map((entry) => entry.name).join(",")}, ${tarBytes.length} bytes`);
+    await shot("create-tar");
 
     log("\nPage:");
     check("no uncaught page errors", pageErrors.length === 0, pageErrors.slice(0, 3).join(" | "));

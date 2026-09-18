@@ -102,7 +102,26 @@ export type ToolIconName =
   | "sparkles"
   | "scansearch"
   | "combine"
-  | "package";
+  | "package"
+  | "squircle"
+  | "tiles"
+  | "compare"
+  | "bucket"
+  | "blankpages"
+  | "collate"
+  | "filestack"
+  | "imageplus"
+  | "difftext"
+  | "bookmark"
+  | "rows"
+  | "rowsplit"
+  | "sortaz"
+  | "tableprops"
+  | "database"
+  | "textquote"
+  | "updown"
+  | "folderpen"
+  | "packageplus";
 
 export interface ToolMeta {
   /** URL segment. Verb-object, lowercase, hyphenated, and permanent once shipped. */
@@ -1204,6 +1223,258 @@ export const TOOLS: readonly ToolMeta[] = [
     category: "files",
     icon: "package",
     accepts: "TAR and gzip files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "round-image",
+    name: "Round image corners",
+    tagline: "Rounded corners or a circle, with a border, see-through around the edge, in bulk.",
+    description:
+      "Round the corners of pictures, or cut them to a circle for a profile picture, entirely in your browser, with a border in a colour you choose and the corners see-through in PNG or WebP, as many at once as you like. Nothing is uploaded.",
+    category: "images",
+    icon: "squircle",
+    accepts: "Image files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "split-image",
+    name: "Split image into tiles",
+    tagline: "Nine squares for a profile grid, three across for a carousel, or any grid, numbered.",
+    description:
+      "Split a picture into tiles entirely in your browser: nine squares for a profile grid, three across for a carousel, halves, quarters or any grid up to ten by ten, numbered so they post or print in order, in the picture's own format. Nothing is uploaded.",
+    category: "images",
+    icon: "tiles",
+    accepts: "Image files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "compare-images",
+    name: "Compare two images",
+    tagline: "Where two screenshots or two versions of a picture differ, pixel by pixel, in red.",
+    description:
+      "Compare two pictures entirely in your browser: every pixel that differs painted red over a faded copy of the first, with a count and the box the changes fall in, and a tolerance that ignores JPEG grain. Two screenshots, a design and its render, a photo before and after. Nothing is uploaded.",
+    category: "images",
+    icon: "compare",
+    accepts: "Two image files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "make-transparent",
+    name: "Make a colour transparent",
+    tagline: "A logo's white background, or any flat colour, made see-through as a PNG.",
+    description:
+      "Make one colour of a picture transparent entirely in your browser: a logo's white background, a scan's paper, a sticker's flat colour, keyed out to a PNG or WebP with a tolerance you choose, from the edges in or everywhere. Nothing is uploaded.",
+    category: "images",
+    icon: "bucket",
+    accepts: "Image files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "remove-blank-pages",
+    name: "Remove blank pages from PDF",
+    tagline: "The empty pages a scanner adds, found by measuring their ink and taken out.",
+    description:
+      "Remove the blank pages from a scanned PDF entirely in your browser: every page is drawn and its ink measured, so the backs of single-sided sheets and the separator pages go, at a sensitivity you choose, and the card names the pages removed. Nothing is uploaded.",
+    category: "documents",
+    icon: "blankpages",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "collate-scans",
+    name: "Collate double-sided scans",
+    tagline: "The fronts and the backs from a single-sided scanner, interleaved into one PDF.",
+    description:
+      "Collate two scans of a double-sided stack into one PDF entirely in your browser: the fronts from one pass and the backs from the other, which come out last page first, interleaved into reading order. Nothing is uploaded.",
+    category: "documents",
+    icon: "collate",
+    accepts: "Two PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "split-pdf-by-size",
+    name: "Split PDF by size",
+    tagline: "A PDF too large to attach, cut into PDFs that each fit under 10 MB, 25 MB or any limit.",
+    description:
+      "Split a PDF into pieces that each fit under a size entirely in your browser - 5 MB, 10 MB, 25 MB or a number you type - each a run of whole pages in order and a document that opens on its own, for the attachment limits of email and forms. Nothing is uploaded.",
+    category: "documents",
+    icon: "filestack",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "add-image-to-pdf",
+    name: "Add an image to PDF pages",
+    tagline: "A logo, a signature or a stamp on every page, the first, the last or the ones you name.",
+    description:
+      "Add a picture to a PDF's pages entirely in your browser: a logo, a scanned signature or a stamp placed at a corner or the centre of every page, the first, the last or the pages you name, at a size and opacity you choose, drawn into the page so it prints anywhere. Nothing is uploaded.",
+    category: "documents",
+    icon: "imageplus",
+    accepts: "PDF files, plus a picture",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "compare-pdfs",
+    name: "Compare two PDFs",
+    tagline: "The lines of text that changed between two versions of a PDF, page by page.",
+    description:
+      "Compare two PDFs entirely in your browser: the text is read off every page of each and the lines that changed come out as a unified diff with a page marker at each change, for a contract before and after a redline or a paper and its revision. Nothing is uploaded.",
+    category: "documents",
+    icon: "difftext",
+    accepts: "Two PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "add-pdf-bookmarks",
+    name: "Add bookmarks to PDF",
+    tagline: "A typed table of contents written into a PDF's side panel, nested if you like.",
+    description:
+      "Add bookmarks to a PDF entirely in your browser: type a table of contents as a page number and a title per line, indented to nest, and it is written into the document's outline, the list a viewer shows in its side panel and opens on. Nothing is uploaded.",
+    category: "documents",
+    icon: "bookmark",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "merge-csv",
+    name: "Merge CSV files",
+    tagline: "Several CSVs stacked into one, columns matched by name, the source file noted.",
+    description:
+      "Merge CSV files into one entirely in your browser: rows stacked in the order you put the files, headers matched by name so files whose columns differ in order still line up, a column a later file adds appended, and the file each row came from noted if you like. Nothing is uploaded.",
+    category: "data",
+    icon: "rows",
+    accepts: "CSV and TSV files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "split-csv",
+    name: "Split CSV into files",
+    tagline: "A large CSV in numbered files of 1,000, 10,000 or any number of rows, header on each.",
+    description:
+      "Split a CSV into files of so many rows entirely in your browser - 1,000, 10,000, 100,000 or a number you type - each with the header at the top so it opens and imports on its own, never cut inside a quoted cell. Nothing is uploaded.",
+    category: "data",
+    icon: "rowsplit",
+    accepts: "CSV and TSV files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "sort-csv",
+    name: "Sort a CSV",
+    tagline: "Rows in order by a column, as numbers or as text, header kept, empties last.",
+    description:
+      "Sort a CSV by a column entirely in your browser: name the column or its number and the rows come back in order, as numbers when they are numbers and as text otherwise, ascending or descending, the header kept at the top and empty cells last, for a file larger than a spreadsheet wants to open. Nothing is uploaded.",
+    category: "data",
+    icon: "sortaz",
+    accepts: "CSV and TSV files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "csv-to-markdown",
+    name: "CSV to Markdown table",
+    tagline: "A table for a README, an issue or a wiki, padded and aligned, or as HTML.",
+    description:
+      "Convert a CSV to a Markdown table entirely in your browser, ready to paste into a README, an issue, a pull request or a wiki, with the columns padded so it reads as a table in the source too and numbers aligned right, or to a plain HTML table for a page. Nothing is uploaded.",
+    category: "data",
+    icon: "tableprops",
+    accepts: "CSV and TSV files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "csv-to-sql",
+    name: "CSV to SQL",
+    tagline: "CREATE TABLE with types worked out, and INSERTs, for PostgreSQL, MySQL or SQLite.",
+    description:
+      "Convert a CSV to SQL entirely in your browser: a CREATE TABLE with a type worked out for every column and INSERT statements for the rows, names quoted and text escaped the way PostgreSQL, MySQL, SQLite or standard SQL want, ready to run. Nothing is uploaded.",
+    category: "data",
+    icon: "database",
+    accepts: "CSV and TSV files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "excel-to-json",
+    name: "Excel to JSON",
+    tagline: "Every sheet of an .xlsx as JSON records keyed by the header, or as JSON Lines.",
+    description:
+      "Convert an Excel workbook to JSON entirely in your browser: every sheet as an array of objects keyed by its header row, numbers as numbers and dates as dates, or as one object per line for tools that stream. Nothing is uploaded.",
+    category: "data",
+    icon: "braces",
+    accepts: "Excel .xlsx files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "json-to-excel",
+    name: "JSON to Excel",
+    tagline: "A JSON array, an API response or JSON Lines as an .xlsx that opens as a table.",
+    description:
+      "Convert JSON to an Excel workbook entirely in your browser: an array of objects, an API response with a list inside it, or JSON Lines, as an .xlsx with a column for every field, nested objects flattened into dotted names and numbers as numbers, that opens as a table without a wizard. Nothing is uploaded.",
+    category: "data",
+    icon: "sheet",
+    accepts: "JSON and JSON Lines files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "subtitles-to-text",
+    name: "Subtitles to transcript",
+    tagline: "The words of an SRT, VTT or ASS file as paragraphs, lines, timestamped notes or CSV.",
+    description:
+      "Turn a subtitle file into a transcript entirely in your browser: the words of an SRT, WebVTT or ASS file run into paragraphs where the speech pauses, one cue per line, with a timestamp before each cue for quoting, or as a CSV of start, end and text. Nothing is uploaded.",
+    category: "data",
+    icon: "textquote",
+    accepts: "Subtitle files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "sort-lines",
+    name: "Sort and dedupe lines",
+    tagline: "A text file's lines sorted, reversed, shuffled or by length, with duplicates removed.",
+    description:
+      "Sort the lines of a text file entirely in your browser - A to Z with numbers in order, reversed, shuffled or by length - with duplicate and blank lines removed if you like, for a word list, a log, a list of names or addresses or URLs. Nothing is uploaded.",
+    category: "data",
+    icon: "updown",
+    accepts: "Text files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "rename-files",
+    name: "Rename files in bulk",
+    tagline: "Files numbered, dated, found-and-replaced or re-cased by a pattern, back as a ZIP.",
+    description:
+      "Rename files in bulk entirely in your browser: numbered in order, dated, with a piece of the name found and replaced, in lower, upper or title case, by a pattern you choose, handed back as a ZIP with a list of what became what. Nothing is uploaded.",
+    category: "files",
+    icon: "folderpen",
+    accepts: "Any files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "create-tar",
+    name: "Create TAR or TAR.GZ",
+    tagline: "Files packed into the .tar.gz a server, a Docker build or a Unix colleague expects.",
+    description:
+      "Pack files into a .tar.gz or a .tar entirely in your browser, written the way tar writes it, with each file read a piece at a time and gzipped on the way through, for a Linux server, a Docker build, a package or a Unix colleague. Nothing is uploaded.",
+    category: "files",
+    icon: "packageplus",
+    accepts: "Any files",
     status: "live",
     engine: "browser",
   },

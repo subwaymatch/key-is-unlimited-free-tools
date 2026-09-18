@@ -100,6 +100,27 @@ The live tools, each on its own route:
 | `/split-file` | A file in numbered pieces of a chosen size | `Blob.slice`, which copies nothing, named .001, .002 the way `split` names them |
 | `/join-files` | The pieces back together, in number order | One `Blob` of the pieces sorted by their numbers |
 | `/extract-tar` | Every file in a .tar, .tar.gz, .tgz or .gz | A block-by-block TAR reader fed by fflate's streaming gunzip; long names and pax headers honoured |
+| `/round-image` | Corners rounded or the whole cut to a circle, with a border | A rounded path clipped on the canvas, drawn with arcs; the border stroked just inside the edge |
+| `/split-image` | A picture cut into a grid of numbered tiles, square if asked | Every edge on a whole pixel, the crop for square tiles centred; one canvas per tile |
+| `/compare-images` | Where two pictures differ, pixel by pixel | Both drawn at their own size, every channel compared against a tolerance; the first faded, the changes red |
+| `/make-transparent` | One colour keyed out to a PNG or WebP | A flood fill from the edges, or every pixel, within a distance on every channel; the pixels just past it faded |
+| `/remove-blank-pages` | A scan's empty pages found and removed | Each page drawn at 50 dpi by PDF.js and its dark pixels counted; pdf-lib removes the ones under the threshold |
+| `/collate-scans` | Fronts and backs from two scanner passes interleaved | The second file's pages read from its end, one after each of the first's, copied by pdf-lib |
+| `/split-pdf-by-size` | A PDF in pieces that each fit under a size | The longest run of pages that saves under the limit, found by writing candidates in a bisection |
+| `/add-image-to-pdf` | A logo, a signature or a stamp on chosen pages | The picture embedded once and drawn on each page, placed on the page as shown and turned with its `/Rotate` |
+| `/compare-pdfs` | The lines of text that changed between two PDFs | PDF.js reads the text off every page of each, and the file comparer's diff runs over the two |
+| `/add-pdf-bookmarks` | A typed table of contents written as the PDF's outline | The outline's linked dictionaries written with pdf-lib's low-level objects; `PageMode` set to open on it |
+| `/merge-csv` | Several CSVs as one, columns matched by name | Every file read whole, its header mapped onto the first file's columns and new ones appended |
+| `/split-csv` | A CSV in files of so many rows, header on each | The rows sliced after the parser has read them, so a quoted line break never cuts a row |
+| `/sort-csv` | Rows in order by a column | A stable sort by a number, a natural-order collator or a plain one, empty cells last |
+| `/csv-to-markdown` | A CSV as a Markdown or HTML table | Cells escaped, columns padded to their widest cell, numeric columns aligned right |
+| `/csv-to-sql` | CREATE TABLE and INSERTs for a CSV | A type inferred per column from its filled cells, identifiers cleaned and quoted, literals escaped per dialect |
+| `/excel-to-json` | Every sheet of an .xlsx as JSON records | The workbook reader's rows keyed by their header, typed the way the CSV converter types them |
+| `/json-to-excel` | JSON records as an .xlsx | The JSON-to-CSV flattening into rows, written by the workbook writer |
+| `/subtitles-to-text` | A subtitle file as a transcript | The subtitle parser's cues, markup stripped, run into paragraphs at pauses or written one to a line |
+| `/sort-lines` | A text file's lines sorted, deduplicated, reversed or shuffled | A collator with numeric order, a stable sort, and a Fisher-Yates shuffle |
+| `/rename-files` | Files renamed by a pattern, back as a ZIP | The pattern's tokens filled per file, names made unique, the files packed unchanged under the new names |
+| `/create-tar` | Files packed into a .tar or .tar.gz | A ustar header written by hand per file, GNU long-name entries where needed, fflate's streaming gzip on the way out |
 
 Every media tool is one configuration of the same machinery: a catalogue of formats in
 `lib/engine/`, a page shell in `components/ToolApp.tsx`, and an entry in the registry in
@@ -838,6 +859,37 @@ entries and pax path records, skips what a browser cannot hold, and is fed by ff
 streaming gunzip for a .tar.gz; a .gz whose first inflated block is not a TAR header is one
 plain file, and comes back as that.
 
+The sixth batch is built from the same parts again, most of it arithmetic over what the earlier
+batches already read. Rounding corners is a path of four arcs clipped on the canvas, with the
+border stroked just inside it; tiling is a grid of whole-pixel edges with the crop for square
+tiles centred; comparing two pictures is one pass over both `ImageData`s with a tolerance, the
+first faded to grey and every changed pixel painted red; keying a colour out is a flood fill from
+the picture's edges, or a plain pass, over pixels within a distance on every channel, with the
+pixels just past the distance faded rather than cut. The blank-page remover draws each page at
+50 dpi through the same PDF.js path the crop tool uses and counts the pixels darker than a
+threshold that lets scanner haze through; collating is an order worked out from two page counts
+and copied by pdf-lib; splitting by size writes candidate runs of pages and bisects on the count,
+since a shared font or picture is written once per piece and no sum of pages predicts the file.
+Stamping a picture places it on the page as its viewer shows it and turns the anchor back into
+the page's own coordinates, the crop tool's inset mapping run the other way, tested for every
+rotation. Bookmarks are the one thing pdf-lib has no API for, and an outline turns out to be a
+linked list of dictionaries - title, parent, previous, next, first and last child, a destination -
+written with its low-level objects and hung off the catalog with `PageMode` set to open on it.
+
+The table tools all read a CSV whole through the streaming parser and then work on rows: merging
+maps each file's header onto the first file's columns by name and appends what is new; splitting
+slices rows the parser has already read, so a quoted line break never cuts one; sorting is a stable
+sort by a number, a natural-order collator or a plain one, with empty cells last; the Markdown
+and HTML writers escape and pad; the SQL writer infers a type per column from its filled cells,
+cleans and quotes the identifiers, and escapes the literals the way each dialect wants. Excel to
+JSON and JSON to Excel are the workbook reader and writer joined to the CSV tools' record and
+flattening code. The transcript is the subtitle parser's cues with the markup stripped and the
+gaps read: two seconds, or most of a second after a full stop, starts a paragraph. Renaming fills
+a pattern's tokens per file, makes the names unique, and packs the files unchanged under the new
+names, since a browser cannot rename a file where it sits; the TAR writer is the reader's mirror,
+a ustar header per file with GNU long-name entries where the name fits neither the field nor the
+prefix, fed through fflate's streaming gzip when asked.
+
 ### Cancelling one format
 
 Each output is a format *and* a range, and each can be cancelled on its own. Cancelling one that is
@@ -1028,7 +1080,7 @@ npm test                                                    # unit tests, plus t
 NEXT_PUBLIC_FFMPEG_CORE_BASE_URL=/core npm run build
 node scripts/verify-e2e.mjs                                 # the audio extractor in a browser
 node scripts/verify-video-tools.mjs                         # the video tools and the subtitle converter in a browser
-node scripts/verify-plain-tools.mjs                         # the PDF, data, file and image tools of the fourth and fifth batches, no ffmpeg needed
+node scripts/verify-plain-tools.mjs                         # the PDF, data, file and image tools of the fourth, fifth and sixth batches, no ffmpeg needed
 node scripts/verify-large-file.mjs                          # >2 GiB input
 ```
 
@@ -1069,7 +1121,13 @@ insets for every rotation, the content-bounds scan and PDF.js's three pixel layo
 written and read back through fflate plus a sheet written the way Excel writes one, the
 profiler and the cleaner, the signature table on a few dozen byte patterns, the piece naming and
 ordering, and a TAR built in Node with a long name and a pax header read back in every chunk
-size, gzipped and plain. The canvas and PDF.js's renderer
+size, gzipped and plain. The sixth batch adds the rounding, tiling, diff and keying arithmetic on
+hand-built pixel arrays, the ink share and blank thresholds, the collation order for equal and
+unequal counts, the size bisection against a fake writer and a real document, the stamp placement
+for every rotation, the outline parser on numbered and contents-page lines and the outline written
+and walked back with pdf-lib, the table merge, split, sort and record code, the Markdown, HTML and
+SQL writers, the transcript styles, the line sorter, the rename patterns, and a TAR written and
+read back through the reader, gzipped and plain. The canvas and PDF.js's renderer
 only exist in a browser, and the pages built on them are driven through Chromium by hand-run
 scripts before a release.
 The browser scripts need ffmpeg and ffprobe on `PATH`, plus a Chromium: one Playwright can find
@@ -1118,7 +1176,16 @@ a CSV written as a workbook and its cells read out of the ZIP, and a hand-writte
 with shared strings and a date style read back as two CSVs with the dates as dates; a CSV
 profiled and a messy one cleaned; a PNG called .jpg named for what it is; a 2.5 MB file split
 into 1 MB pieces, the pieces dropped out of order and joined back to the same bytes; and a
-.tar.gz and a plain .gz unpacked.
+.tar.gz and a plain .gz unpacked. The sixth batch's cases follow: a picture rounded and cut to a
+circle with see-through corners, cut into nine square tiles, compared with a half-changed copy
+and the changed half found red, and a red square keyed out of its white background; four pages
+with two blank ones cut to two, fronts and reversed backs collated into the right order, six heavy
+pages split under 0.4 MB with the pages adding up, a picture stamped on the last page only, two
+one-line-different PDFs diffed, and three bookmarks written and counted back; two CSVs with
+different headers merged, a CSV split every two rows with the header on both pieces, sorted by
+a column descending, written as a Markdown table and as SQL, a workbook read as JSON and an API
+response written as a workbook, an SRT run into paragraphs, and a word list sorted; and two
+files renamed by number into a ZIP and packed into a .tar.gz that is read back block by block.
 
 `verify-e2e.mjs` drives a real Chromium through the audio extractor's seven cases - an MP4 with AAC, a video with no
 audio track, an MKV with 5.1 FLAC, a hand-set 1s-3s clip, an 8s file padded with two seconds of
