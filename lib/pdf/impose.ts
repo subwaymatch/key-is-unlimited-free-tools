@@ -135,7 +135,7 @@ export function imposePlan(faces: readonly PageFace[], settings: ImposeSettings)
       const height = size.height * scale;
       const left = column * cellWidth + (cellWidth - width) / 2;
       const bottom = sheetHeight - (row + 1) * cellHeight + (cellHeight - height) / 2;
-      draws.push(placeRotated(page, face, scale, left, bottom, width, height));
+      draws.push(drawInBox(page, face, scale, left, bottom, width, height));
     });
     return { width: sheetWidth, height: sheetHeight, draws };
   });
@@ -148,9 +148,9 @@ export function imposePlan(faces: readonly PageFace[], settings: ImposeSettings)
  * height. pdf-lib draws an embedded page by translating to (x, y), then
  * rotating counter-clockwise, then scaling, so a page stored with a
  * clockwise quarter turn is drawn rotated by -90 from the box's top-left
- * corner, and so on round.
+ * corner, and so on round. The page-resize tool draws with it too.
  */
-function placeRotated(page: number, face: PageFace, scale: number, left: number, bottom: number, width: number, height: number): Draw {
+export function drawInBox(page: number, face: PageFace, scale: number, left: number, bottom: number, width: number, height: number): Draw {
   const drawWidth = face.width * scale;
   const drawHeight = face.height * scale;
   switch (face.rotation) {

@@ -85,6 +85,21 @@ The live tools, each on its own route:
 | `/compare-files` | A unified diff of two text files, or where two binaries differ | Patience diff over unique lines with Myers in the gaps, written as `diff -u` writes it |
 | `/merge-images` | Pictures side by side, stacked or in a grid, as one picture | Every picture scaled to the row's height, the column's width or the grid's cell, drawn on one canvas |
 | `/extract-colours` | The colours a picture is made of, as swatches and hex codes | Median cut over a 200-pixel sample, the boxes' averages and shares; the strip drawn on a canvas |
+| `/rotate-image` | A quarter turn either way, a half turn, a mirror or a flip, in bulk | One `setTransform` on the canvas, on the picture as its orientation tag shows it |
+| `/pad-image` | A picture fitted to 1:1, 4:5, 16:9 or 9:16 without cropping | The smallest frame of the shape around the picture, on white, black, nothing or the picture drawn tiny and back up as a blur |
+| `/adjust-image` | Black and white, sepia, negative, lighter, darker, more or less contrast | One pass over the pixels of an `ImageData` |
+| `/svg-to-png` | An SVG as a PNG, JPEG or WebP at a chosen width | The root's size set from its viewBox, the browser's own renderer through an `Image`, drawn to a canvas |
+| `/resize-pdf-pages` | Every page on A4, Letter, A5, A3, Legal or Tabloid, fitted and centred | Each page embedded as a form and drawn into the paper by pdf-lib, turned by its own `/Rotate` |
+| `/crop-pdf` | Margins trimmed to the content, or millimetres off each edge | PDF.js draws each page small to find the ink; pdf-lib sets the page boxes through the page's turn |
+| `/extract-pdf-images` | Every picture placed in a PDF as a file of its own | PDF.js's operator list, each image object drawn to a canvas from its bitmap or its raw bytes |
+| `/csv-to-excel` | A CSV as an .xlsx, numbers typed, leading zeros kept | The five XML parts of a workbook written by hand, every cell inline, zipped by fflate |
+| `/excel-to-csv` | Every sheet of an .xlsx as a CSV, dates as dates | The workbook unzipped and its XML read cell by cell; a number in a date style turned back into one |
+| `/profile-csv` | Every column's type, empties, range, distinct values and commonest values | One streamed pass, distinct values counted to a cap |
+| `/clean-csv` | Cells trimmed, duplicate rows removed, empty rows and columns dropped | The rows in memory, each step counted |
+| `/identify-file` | What a file is from its first bytes, whatever its name | A hundred signatures, the ZIP's entry names for Office and EPUB, the first lines of a text file |
+| `/split-file` | A file in numbered pieces of a chosen size | `Blob.slice`, which copies nothing, named .001, .002 the way `split` names them |
+| `/join-files` | The pieces back together, in number order | One `Blob` of the pieces sorted by their numbers |
+| `/extract-tar` | Every file in a .tar, .tar.gz, .tgz or .gz | A block-by-block TAR reader fed by fflate's streaming gunzip; long names and pax headers honoured |
 
 Every media tool is one configuration of the same machinery: a catalogue of formats in
 `lib/engine/`, a page shell in `components/ToolApp.tsx`, and an entry in the registry in
@@ -779,6 +794,50 @@ draws them on one canvas, scaling the whole down when it would pass the 16,384-p
 browser allows; the palette is median cut over a 200-pixel sample of the picture, with
 transparent pixels left out and the boxes' averages and shares as the swatches.
 
+The fifth batch is more of the same, and the last of what the canvas, pdf-lib, PDF.js and
+fflate can do without a new runtime. Turning a picture is one `setTransform` on the canvas,
+worked out for the five turns and checked on the corners; padding to a shape is the crop tool's
+opposite, the smallest frame of the shape around the whole picture, with the blurred-background
+look made by drawing the picture at a twenty-fourth of its size and back up again, which every
+browser smooths into a blur and needs no `filter` support; the adjustments are one pass over an
+`ImageData`. An SVG is drawn by the browser itself: the root's width and height are set from its
+own size or viewBox, the text goes through an `Image` and onto a canvas, and what comes out is
+what a page would show, fonts and all, without anything the SVG references by URL.
+
+Resizing PDF pages reuses the booklet maker's embed-and-draw: each page becomes a form object
+drawn into the paper size asked for, scaled to fit inside a margin, turned by its own `/Rotate`,
+centred. Cropping sets the page boxes rather than redrawing, which is what a viewer's own crop
+does; the interesting part is the turn, since a page stored with a quarter turn shows its left
+edge at the top, and `unrotatedInsets` maps what comes off each shown edge onto the stored
+ones, tested for every rotation. Trimming to the content draws each page at 36 dpi with PDF.js
+and finds the box around every pixel darker than a threshold that lets a scan's grey paper
+through. Extracting images walks PDF.js's operator list for the paint-image operators and takes
+each image object once: a browser-decoded `ImageBitmap` drawn straight to a canvas, or raw bytes
+in one of PDF.js's three layouts expanded to RGBA, the one-bit layout with its rows padded to a
+byte. PDF.js hands its bytes to a worker, which detaches the buffer, so a tool that also needs
+pdf-lib to save the same document gives PDF.js a copy.
+
+An .xlsx is a ZIP of XML, and the two spreadsheet tools write and read the handful of parts
+that matter without a library: the writer puts every cell inline, typed as a number or a boolean
+where JSON would give it back unchanged and as text otherwise, so leading zeros survive; the
+reader takes the shared-strings table, inline strings, numbers, booleans and errors, and turns
+a number whose cell style is a date format - a built-in id or a custom code with day, month,
+year, hour or second in it - back into a date, through Excel's phantom 29th of February 1900
+and the 1904 system both. The profiler is one streamed pass with distinct values counted to a
+cap of twenty thousand; the cleaner holds the rows and counts every change it makes.
+
+Identifying a file is a table of about a hundred signatures with their offsets - a TAR says
+"ustar" at byte 257, an ISO says "CD001" at 32769 - with a closer look where several formats
+share one: a ZIP's entry names, read from both ends of the file, say Word, Excel, PowerPoint,
+EPUB, JAR or APK, an `ftyp` brand says MP4, MOV, M4A, HEIC or AVIF, a RIFF form says WebP, WAV
+or AVI. What matches nothing and has no zero bytes is text, and its first lines say what sort.
+Splitting is `Blob.slice`, which copies nothing, and joining is one `Blob` of the pieces sorted
+by the numbers in their names, with a missing or repeated number said. The TAR reader takes the
+archive block by block as it arrives, holding one file's bytes at a time, honours GNU long-name
+entries and pax path records, skips what a browser cannot hold, and is fed by fflate's
+streaming gunzip for a .tar.gz; a .gz whose first inflated block is not a TAR header is one
+plain file, and comes back as that.
+
 ### Cancelling one format
 
 Each output is a format *and* a range, and each can be cancelled on its own. Cancelling one that is
@@ -969,7 +1028,7 @@ npm test                                                    # unit tests, plus t
 NEXT_PUBLIC_FFMPEG_CORE_BASE_URL=/core npm run build
 node scripts/verify-e2e.mjs                                 # the audio extractor in a browser
 node scripts/verify-video-tools.mjs                         # the video tools and the subtitle converter in a browser
-node scripts/verify-plain-tools.mjs                         # the PDF, data, file and image tools of the fourth batch, no ffmpeg needed
+node scripts/verify-plain-tools.mjs                         # the PDF, data, file and image tools of the fourth and fifth batches, no ffmpeg needed
 node scripts/verify-large-file.mjs                          # >2 GiB input
 ```
 
@@ -1004,7 +1063,13 @@ markless UTF-16; the diff by applying its edits to random inputs and checking th
 against `diff -u`'s form; the sealer round-tripped at every chunk boundary and then flipped,
 swapped, shortened and given the wrong passphrase; the composition and palette arithmetic; and
 the booklet order, the imposition geometry and the page order, flatten and form summary against
-documents pdf-lib makes in Node. The canvas and PDF.js's renderer
+documents pdf-lib makes in Node. The fifth batch adds the turn matrices checked on the corners,
+the padding and adjustment arithmetic, the SVG size reader, the page-resize plan and the crop
+insets for every rotation, the content-bounds scan and PDF.js's three pixel layouts, a workbook
+written and read back through fflate plus a sheet written the way Excel writes one, the
+profiler and the cleaner, the signature table on a few dozen byte patterns, the piece naming and
+ordering, and a TAR built in Node with a long name and a pax header read back in every chunk
+size, gzipped and plain. The canvas and PDF.js's renderer
 only exist in a browser, and the pages built on them are driven through Chromium by hand-run
 scripts before a release.
 The browser scripts need ffmpeg and ffprobe on `PATH`, plus a Chromium: one Playwright can find
@@ -1042,7 +1107,18 @@ read back as JSON and TSV, an API response's list as CSV with dotted names, a mi
 formatted and a broken one located by line and column, a notebook stripped, a Windows-1252 CRLF
 file rewritten as UTF-8 LF, a 2.5 MB file encrypted, decrypted back to the same bytes and
 refused with the wrong passphrase, two texts diffed, two PNGs merged into one of the right
-size, and a half-red, half-blue picture's palette read as two colours at half each.
+size, and a half-red, half-blue picture's palette read as two colours at half each. The fifth
+batch's cases follow in the same run, with the PNGs that come back decoded in the script so a
+pixel can be checked: a picture turned right, padded square on white with the picture in the
+middle, and greyed to the grey of its brightness; an SVG drawn at 512 wide with its shapes
+where they should be; the five odd pages put on A4; a document trimmed to its content and
+then cropped 50 mm off the top, with the page stored sideways losing the 50 mm off its stored
+left; a PNG and a JPEG placed in a PDF and taken out again at their stored sizes and colours;
+a CSV written as a workbook and its cells read out of the ZIP, and a hand-written workbook
+with shared strings and a date style read back as two CSVs with the dates as dates; a CSV
+profiled and a messy one cleaned; a PNG called .jpg named for what it is; a 2.5 MB file split
+into 1 MB pieces, the pieces dropped out of order and joined back to the same bytes; and a
+.tar.gz and a plain .gz unpacked.
 
 `verify-e2e.mjs` drives a real Chromium through the audio extractor's seven cases - an MP4 with AAC, a video with no
 audio track, an MKV with 5.1 FLAC, a hand-set 1s-3s clip, an 8s file padded with two seconds of

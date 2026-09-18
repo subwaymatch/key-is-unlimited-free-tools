@@ -89,7 +89,20 @@ export type ToolIconName =
   | "lock"
   | "diff"
   | "collage"
-  | "palette";
+  | "palette"
+  | "turn"
+  | "frame"
+  | "contrast"
+  | "shapes"
+  | "proportions"
+  | "pictures"
+  | "sheet"
+  | "grid"
+  | "chart"
+  | "sparkles"
+  | "scansearch"
+  | "combine"
+  | "package";
 
 export interface ToolMeta {
   /** URL segment. Verb-object, lowercase, hyphenated, and permanent once shipped. */
@@ -1011,6 +1024,186 @@ export const TOOLS: readonly ToolMeta[] = [
     category: "images",
     icon: "palette",
     accepts: "Image files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "rotate-image",
+    name: "Rotate or flip image",
+    tagline: "A quarter turn either way, upside down, mirrored or flipped, in bulk.",
+    description:
+      "Rotate pictures a quarter turn either way or a half, or mirror or flip them, entirely in your browser, as many at once as you like, in the format they came in. A photo that only looked upright by its orientation tag is written upright for good. Nothing is uploaded.",
+    category: "images",
+    icon: "turn",
+    accepts: "Image files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "pad-image",
+    name: "Fit image to a shape without cropping",
+    tagline: "Square, 4:5 or 16:9 with the whole picture kept: bars, or a blurred background.",
+    description:
+      "Fit pictures to a shape without cropping entirely in your browser: square, 4:5, 16:9 or 9:16 with the whole picture in the middle and the rest white, black, transparent or a blurred blow-up of the picture itself, the way feeds show a photo of the wrong shape. Nothing is uploaded.",
+    category: "images",
+    icon: "frame",
+    accepts: "Image files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "adjust-image",
+    name: "Black and white, sepia and adjustments",
+    tagline: "Grayscale, sepia, negative, lighter, darker, more or less contrast, in bulk.",
+    description:
+      "Make pictures black and white, sepia or negative, or a fifth lighter or darker, or give them more or less contrast, entirely in your browser, as many at once as you like, in the format they came in. Nothing is uploaded.",
+    category: "images",
+    icon: "contrast",
+    accepts: "Image files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "svg-to-png",
+    name: "SVG to PNG",
+    tagline: "An SVG drawn as a PNG, JPEG or WebP at any width, on any background.",
+    description:
+      "Convert an SVG to a PNG, JPEG or WebP entirely in your browser, drawn at the width you choose on a transparent, white or black background by the browser's own renderer, the one that draws it on a page. Nothing is uploaded.",
+    category: "images",
+    icon: "shapes",
+    accepts: "SVG files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "resize-pdf-pages",
+    name: "Resize PDF pages",
+    tagline: "Every page on A4, Letter, A5 or A3, scaled to fit and centred.",
+    description:
+      "Resize a PDF's pages entirely in your browser: every page drawn onto A4, Letter, A5, A3, Legal or Tabloid paper, scaled to fit and centred, so a document of odd or mixed page sizes prints as one. Nothing is uploaded.",
+    category: "documents",
+    icon: "proportions",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "crop-pdf",
+    name: "Crop PDF margins",
+    tagline: "White margins trimmed to the content, or millimetres off each edge.",
+    description:
+      "Crop the margins of a PDF entirely in your browser: each page trimmed to its own content, for reading a paper on a phone or an e-reader, or the millimetres you type taken off each edge of every page. Nothing is redrawn, and nothing is uploaded.",
+    category: "documents",
+    icon: "crop",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "extract-pdf-images",
+    name: "Extract images from PDF",
+    tagline: "Every picture placed in a PDF, as a PNG or JPEG of its own, page by page.",
+    description:
+      "Extract the images from a PDF entirely in your browser: every picture placed in it comes out as a PNG or JPEG of its own at the size it was stored, page by page, from a report's photos to a paper's figures. Nothing is uploaded.",
+    category: "documents",
+    icon: "pictures",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "csv-to-excel",
+    name: "CSV to Excel",
+    tagline: "A CSV or TSV as an .xlsx that opens as a proper table, accents and zeros intact.",
+    description:
+      "Convert a CSV or TSV to an Excel workbook entirely in your browser: an .xlsx that Excel, Numbers and Google Sheets open as a table without a wizard, with the delimiter and encoding worked out, numbers as numbers and leading zeros kept. Nothing is uploaded.",
+    category: "data",
+    icon: "sheet",
+    accepts: "CSV and TSV files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "excel-to-csv",
+    name: "Excel to CSV",
+    tagline: "Every sheet of an .xlsx as a CSV, with dates as dates.",
+    description:
+      "Convert an Excel workbook to CSV entirely in your browser: every sheet as a file of its own, with dates written as dates rather than the serial numbers Excel keeps underneath, ready for anything that reads plain text. Nothing is uploaded.",
+    category: "data",
+    icon: "grid",
+    accepts: "Excel .xlsx files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "profile-csv",
+    name: "Profile a CSV",
+    tagline: "Every column's type, empties, range, distinct values and commonest values.",
+    description:
+      "Profile a CSV entirely in your browser before trusting it: every column's type, how many cells are empty, the range of the numbers, how many distinct values there are and which come up most, in one pass over a file of any size. Nothing is uploaded.",
+    category: "data",
+    icon: "chart",
+    accepts: "CSV and TSV files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "clean-csv",
+    name: "Clean a CSV",
+    tagline: "Trim cells, remove duplicate rows, drop empty rows and columns.",
+    description:
+      "Clean a CSV entirely in your browser: cells trimmed of stray spaces, duplicate rows removed, empty rows and empty columns dropped and every row made the same width, written back with the delimiter it came with. Nothing is uploaded.",
+    category: "data",
+    icon: "sparkles",
+    accepts: "CSV and TSV files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "identify-file",
+    name: "Identify a file",
+    tagline: "What a file really is, from its first bytes rather than its name.",
+    description:
+      "Identify a file entirely in your browser from its first bytes rather than its name - a hundred signatures for pictures, video, audio, documents, archives, fonts and programs, and the first lines of a text file - with a hex dump of the start for anything unknown. Nothing is uploaded.",
+    category: "files",
+    icon: "scansearch",
+    accepts: "Any file",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "split-file",
+    name: "Split a file into pieces",
+    tagline: "A large file in numbered pieces of 10 MB, 25 MB, 100 MB or any size.",
+    description:
+      "Split a file into numbered pieces of a size you choose entirely in your browser, to send one at a time past an email, chat or upload limit and join again at the other end, here or with one command. Nothing is uploaded, and nothing is copied.",
+    category: "files",
+    icon: "parts",
+    accepts: "Any file",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "join-files",
+    name: "Join file pieces",
+    tagline: "The numbered pieces of a split file back together, in order.",
+    description:
+      "Join the pieces of a split file back into one entirely in your browser: .001, .002, .part1 or .z01 pieces from any splitter, put in order by their numbers whatever order they arrived in, with a missing or repeated piece pointed out. Nothing is uploaded.",
+    category: "files",
+    icon: "combine",
+    accepts: "The pieces of one file",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "extract-tar",
+    name: "Extract TAR and GZ",
+    tagline: "Every file inside a .tar, .tar.gz, .tgz or .gz, a click away.",
+    description:
+      "Unpack a .tar, a .tar.gz, a .tgz or a plain .gz entirely in your browser: every file inside listed and a click away, or all of them at once as a ZIP, the archive read and inflated a piece at a time so its size is no object. Nothing is uploaded, and nothing is installed.",
+    category: "files",
+    icon: "package",
+    accepts: "TAR and gzip files",
     status: "live",
     engine: "browser",
   },
