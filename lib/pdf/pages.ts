@@ -7,7 +7,7 @@
  * catalogue). It is pulled in on first use, so the pages that do not need
  * it never load it.
  */
-import type { PDFDocument as PDFDocumentType } from "pdf-lib";
+import type { PDFDocument as PDFDocumentType, PDFObject as PDFObjectType, PDFPage as PDFPageType } from "pdf-lib";
 
 import { PlainError } from "../plainQueue";
 import { describeRange, pageIndices, type PageRange } from "./ranges";
@@ -120,13 +120,146 @@ function copyMetadata(from: PDFDocumentType, to: PDFDocumentType): void {
   if (created && !Number.isNaN(created.getTime())) to.setCreationDate(created);
 }
 
-/** A new document of the pages a range list names, in that order. */
-export async function extractPages(source: PDFDocumentType, ranges: readonly PageRange[]): Promise<Uint8Array> {
+/** A new document of these pages, 0-based, in this order; a page named twice comes out twice. */
+export async function pagesInOrder(source: PDFDocumentType, indices: readonly number[]): Promise<Uint8Array> {
   const { PDFDocument } = await pdfLib();
   const out = await PDFDocument.create();
-  const pages = await out.copyPages(source, pageIndices(ranges));
+  copyMetadata(source, out);
+  const pages = await out.copyPages(source, [...indices]);
   for (const page of pages) out.addPage(page);
   return out.save();
+}
+
+/** A new document of the pages a range list names, in that order. */
+export async function extractPages(source: PDFDocumentType, ranges: readonly PageRange[]): Promise<Uint8Array> {
+  return pagesInOrder(source, pageIndices(ranges));
+}
+
+/** The 0-based indices of every page, last first. */
+export function reversedOrder(count: number): number[] {
+  return Array.from({ length: count }, (_, index) => count - 1 - index);
+}
+
+/**
+ * The order typed, then every page not named, in its own order.
+ *
+ * "3, 1" on a five-page document is pages 3, 1, 2, 4, 5: the typed pages
+ * move to the front and nothing is lost, which is what moving a page means.
+ */
+export function typedOrder(count: number, typed: readonly number[]): { order: number[]; appended: number } {
+  const order: number[] = [];
+  const seen = new Set<number>();
+  for (const index of typed) {
+    if (index < 0 || index >= count || seen.has(index)) continue;
+    seen.add(index);
+    order.push(index);
+  }
+  let appended = 0;
+  for (let index = 0; index < count; index += 1) {
+    if (seen.has(index)) continue;
+    order.push(index);
+    appended += 1;
+  }
+  return { order, appended };
+}
+
+/** Whether an order is the one the document already has. */
+export function isIdentityOrder(order: readonly number[]): boolean {
+  return order.every((index, position) => index === position);
+}
+
+/* ---- Forms and annotations ---------------------------------------------- */
+
+export interface FormSummary {
+  fields: number;
+  /** "text field", "check box" and so on, with how many of each. */
+  kinds: { kind: string; count: number }[];
+  /** Every annotation on every page: widgets, links, comments, stamps. */
+  annotations: number;
+}
+
+/** What a document carries that flattening would bake in or take out. */
+export async function describeForm(source: PDFDocumentType): Promise<FormSummary> {
+  const lib = await pdfLib();
+  const counts = new Map<string, number>();
+  let fields = 0;
+  try {
+    for (const field of source.getForm().getFields()) {
+      fields += 1;
+      const kind =
+        field instanceof lib.PDFTextField ? "text field"
+        : field instanceof lib.PDFCheckBox ? "check box"
+        : field instanceof lib.PDFRadioGroup ? "radio group"
+        : field instanceof lib.PDFDropdown ? "dropdown"
+        : field instanceof lib.PDFOptionList ? "option list"
+        : field instanceof lib.PDFButton ? "button"
+        : field instanceof lib.PDFSignature ? "signature"
+        : "field";
+      counts.set(kind, (counts.get(kind) ?? 0) + 1);
+    }
+  } catch {
+    // A form dictionary pdf-lib cannot read: there are no fields it can flatten.
+  }
+  let annotations = 0;
+  for (const page of source.getPages()) annotations += liveAnnotations(source, page).length;
+  return { fields, kinds: [...counts.entries()].map(([kind, count]) => ({ kind, count })), annotations };
+}
+
+/**
+ * The entries of a page's annotation array that still point at something.
+ *
+ * pdf-lib's flatten deletes a widget's object but can leave its reference in
+ * the page's array, which viewers skip over and a count would not.
+ */
+function liveAnnotations(source: PDFDocumentType, page: PDFPageType): PDFObjectType[] {
+  const annots = page.node.Annots();
+  if (!annots) return [];
+  const live: PDFObjectType[] = [];
+  for (let index = 0; index < annots.size(); index += 1) {
+    const entry = annots.get(index);
+    if (source.context.lookup(entry) !== undefined) live.push(entry);
+  }
+  return live;
+}
+
+export interface FlattenSettings {
+  /** Draw every form field's value into its page and remove the field. */
+  fields: boolean;
+  /** Remove every annotation left: links, comments, stamps, and any field not flattened. */
+  annotations: boolean;
+}
+
+/** The document with its fields baked in and its annotations gone, as asked. */
+export async function flattenPdf(source: PDFDocumentType, settings: FlattenSettings): Promise<Uint8Array> {
+  const { PDFName } = await pdfLib();
+  if (settings.fields) {
+    try {
+      source.getForm().flatten();
+    } catch (error) {
+      throw new PlainError(
+        "This form could not be flattened.",
+        `pdf-lib gave up on one of its fields: ${error instanceof Error ? error.message : String(error)}. Removing the annotations instead takes the fields out without drawing their values.`,
+        { cause: error },
+      );
+    }
+  }
+  if (settings.annotations) {
+    for (const page of source.getPages()) page.node.delete(PDFName.of("Annots"));
+    source.catalog.delete(PDFName.of("AcroForm"));
+  } else if (settings.fields) {
+    // What flattening deleted is still named in the page arrays; write them without it.
+    const { PDFArray } = await pdfLib();
+    for (const page of source.getPages()) {
+      const live = liveAnnotations(source, page);
+      if (live.length === 0) page.node.delete(PDFName.of("Annots"));
+      else if (live.length !== page.node.Annots()?.size()) {
+        const array = PDFArray.withContext(source.context);
+        for (const entry of live) array.push(entry);
+        page.node.set(PDFName.of("Annots"), array);
+      }
+    }
+  }
+  return source.save();
 }
 
 /** One document per range. */
