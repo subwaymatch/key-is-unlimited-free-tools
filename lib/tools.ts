@@ -76,7 +76,20 @@ export type ToolIconName =
   | "code"
   | "text"
   | "erase"
-  | "copies";
+  | "copies"
+  | "pages"
+  | "reorder"
+  | "flatten"
+  | "booklet"
+  | "table"
+  | "spreadsheet"
+  | "braces"
+  | "notebook"
+  | "textfile"
+  | "lock"
+  | "diff"
+  | "collage"
+  | "palette";
 
 export interface ToolMeta {
   /** URL segment. Verb-object, lowercase, hyphenated, and permanent once shipped. */
@@ -842,6 +855,162 @@ export const TOOLS: readonly ToolMeta[] = [
     category: "files",
     icon: "copies",
     accepts: "Any files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "extract-pdf-pages",
+    name: "Extract PDF pages",
+    tagline: "The pages you name, in the order you name them, as a new PDF.",
+    description:
+      "Extract pages from a PDF entirely in your browser: type the pages or ranges the way a print dialog takes them, and get a new document of just those pages, in that order, with nothing re-drawn. Nothing is uploaded.",
+    category: "documents",
+    icon: "pages",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "reorder-pdf-pages",
+    name: "Reorder PDF pages",
+    tagline: "Reverse a PDF, or put its pages in the order you type.",
+    description:
+      "Reorder the pages of a PDF entirely in your browser: reverse them, for a scan that went through backwards, or type the order you want, with the pages you do not name following in their own. Nothing is re-drawn, and nothing is uploaded.",
+    category: "documents",
+    icon: "reorder",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "flatten-pdf",
+    name: "Flatten PDF",
+    tagline: "Bake a filled form's fields into the pages, and take annotations off.",
+    description:
+      "Flatten a PDF form entirely in your browser: what was typed and ticked is drawn into the pages so it shows the same everywhere and cannot be edited, and comments, highlights, stamps and links can be removed too. Nothing is uploaded.",
+    category: "documents",
+    icon: "flatten",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "pdf-booklet",
+    name: "PDF booklet and pages per sheet",
+    tagline: "Two or four pages on each sheet, or a booklet that folds in half.",
+    description:
+      "Lay a PDF's pages onto sheets entirely in your browser: two or four to a sheet to save paper, or paired in booklet order so double-sided sheets fold in half into a book with the pages in sequence. Nothing is uploaded.",
+    category: "documents",
+    icon: "booklet",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "convert-csv",
+    name: "Convert CSV",
+    tagline: "CSV or TSV to JSON, JSON Lines, tabs or the other delimiter, any size.",
+    description:
+      "Convert a CSV or TSV file to JSON, JSON Lines, tab-separated or CSV with another delimiter entirely in your browser: read in pieces, so a multi-gigabyte export works, with quoted fields handled and the delimiter and encoding worked out for you. Nothing is uploaded.",
+    category: "data",
+    icon: "table",
+    accepts: "CSV and TSV files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "json-to-csv",
+    name: "JSON to CSV",
+    tagline: "A JSON array, an API response or JSON Lines as a spreadsheet-ready CSV.",
+    description:
+      "Turn JSON into CSV or TSV entirely in your browser: an array of objects, an API response with a list inside it, or JSON Lines, with a column for every field and nested objects flattened into dotted names, ready to open in a spreadsheet. Nothing is uploaded.",
+    category: "data",
+    icon: "spreadsheet",
+    accepts: "JSON and JSON Lines files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "format-json",
+    name: "Format JSON",
+    tagline: "Indent a JSON file for reading, minify it, sort its keys, or find where it broke.",
+    description:
+      "Format a JSON file entirely in your browser: indented by two spaces, four or a tab for reading, or minified to one line, with the keys sorted if you like, and a file that does not parse told where it broke by line and column. Nothing is uploaded.",
+    category: "data",
+    icon: "braces",
+    accepts: "JSON files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "clean-notebook",
+    name: "Clean Jupyter notebook",
+    tagline: "Strip outputs, execution counts and scratch metadata from an .ipynb.",
+    description:
+      "Clean a Jupyter notebook entirely in your browser: outputs emptied, execution counts reset and the metadata front ends write for themselves dropped, leaving the code and text, a fraction of the size, ready to commit. Nothing is uploaded.",
+    category: "data",
+    icon: "notebook",
+    accepts: "Jupyter notebook files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "convert-text-file",
+    name: "Convert text encoding and line endings",
+    tagline: "See a text file's encoding and line endings, and rewrite them.",
+    description:
+      "See what encoding and line endings a text file has and convert them entirely in your browser: to UTF-8 with or without a byte-order mark or to UTF-16, with LF or CRLF line endings, trailing spaces stripped and a final newline added if you like. Nothing is uploaded.",
+    category: "files",
+    icon: "textfile",
+    accepts: "Text files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "encrypt-file",
+    name: "Encrypt or decrypt a file",
+    tagline: "Seal a file of any size with a passphrase, and open it again here.",
+    description:
+      "Encrypt a file with a passphrase entirely in your browser, with AES-256-GCM and a key derived by PBKDF2 from the browser's own Web Crypto, block by block so any size works and any change is caught; drop the result back with the passphrase to decrypt it. Nothing is uploaded.",
+    category: "files",
+    icon: "lock",
+    accepts: "Any file",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "compare-files",
+    name: "Compare two files",
+    tagline: "A unified diff of two versions of a text file, or where two binaries differ.",
+    description:
+      "Compare two files entirely in your browser: a unified diff of the lines that changed between two versions of a text file, in the form patch and every code host read, or for binary files whether they match and where they first differ. Nothing is uploaded.",
+    category: "files",
+    icon: "diff",
+    accepts: "Two files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "merge-images",
+    name: "Merge images",
+    tagline: "Pictures side by side, stacked, or in a grid, as one picture.",
+    description:
+      "Merge pictures into one entirely in your browser: side by side at the same height, one above another at the same width, or in a grid, with a gap and a background you choose, as JPEG, PNG or WebP. Nothing is uploaded.",
+    category: "images",
+    icon: "collage",
+    accepts: "Image files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "extract-colours",
+    name: "Extract colours from an image",
+    tagline: "The colours a picture is made of, as swatches and hex codes.",
+    description:
+      "Extract the colour palette of a picture entirely in your browser: its five, eight or twelve main colours by share, as a strip of labelled swatches and as hex codes with CSS variables ready to paste. Nothing is uploaded.",
+    category: "images",
+    icon: "palette",
+    accepts: "Image files",
     status: "live",
     engine: "browser",
   },
