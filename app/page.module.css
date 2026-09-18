@@ -65,6 +65,32 @@
   background: var(--muted);
 }
 
+/*
+ * The featured image, on the cards that have one.
+ *
+ * The drawing is transparent and sits on a tinted plate rather than on the
+ * page: against the bare background the blue has nothing to sit against and
+ * the card loses its edge, and the same plate is what gives an illustrated
+ * group a consistent silhouette whatever shape the drawing inside it is.
+ *
+ * `aspect-ratio` with `width: 100%` holds the space from the first paint, so a
+ * row of cards does not resettle as the files arrive.
+ */
+.image {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 2;
+  object-fit: contain;
+  margin-bottom: 0.625rem;
+  padding: 0.5rem;
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+
+.card:hover .image {
+  background: var(--secondary-hover);
+}
+
 .cardHead {
   display: flex;
   align-items: center;

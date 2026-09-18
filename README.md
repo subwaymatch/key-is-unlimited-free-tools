@@ -194,6 +194,10 @@ lib/pdf/
 lib/zip/archive.ts   ZIPs written and read through fflate, streamed
 public/fonts/        DejaVu Sans, the one font the burn-in and watermark tools have, with its licence
 public/pdfjs/        PDF.js's worker, fonts, CMaps and decoders, copied in at build time (gitignored)
+public/tool-images/  the featured image for the tools that have one: transparent 1200x800 WebP
+components/ToolImage.tsx     a tool's featured image, or nothing when it has none yet
+scripts/tool-image-prompts.mjs  what each featured image is a drawing of
+scripts/generate-tool-images.mjs  draws one through the image API and normalises it into the asset
 lib/engine/
   types.ts           the engine contract, and the OutputFormat shape every tool's catalogue uses
   ffmpegEngine.ts    ffmpeg.wasm implementation - mount, probe, run a plan (one pass or two), scan, merge
@@ -899,6 +903,39 @@ The class worker is a module worker, so `importScripts` is unavailable and it fa
 `(await import(coreURL)).default`. For the UMD core that is `undefined`, and the assignment then
 clobbers the global the UMD bundle had just set - surfacing as `failed to import ffmpeg-core.js`.
 The `dist/esm` build has a real default export and must be used.
+
+### Featured images
+
+Seventeen tools carry a featured image: a 3D isometric drawing in the mark's own blues, shown on
+the index card and beside the title on the tool's own page. They are drawn by
+`scripts/generate-tool-images.mjs` through OpenAI's GPT Image 2.5, and committed, because the same
+prompt draws something different every time and there is nothing to be gained from redrawing them.
+
+```bash
+OPENAI_API_KEY=... node scripts/generate-tool-images.mjs            # only the missing ones
+OPENAI_API_KEY=... node scripts/generate-tool-images.mjs --force    # redraw everything
+OPENAI_API_KEY=... node scripts/generate-tool-images.mjs crop-image # redraw one, or a few
+```
+
+Two decisions are load-bearing:
+
+**The background is transparent, and has to stay that way.** One file serves the light theme and
+the dark one, with no `prefers-color-scheme` swap and no second asset to keep in step. A white
+plate behind the drawing would be invisible in one theme and a glaring slab in the other, so most
+of `STYLE` in `scripts/tool-image-prompts.mjs` is spent forbidding the backdrop, glow, shadow and
+gradient wash the model adds unless told not to.
+
+**Nothing ships as it arrives.** The model frames each drawing differently - one comes back as a
+wide thin band, the next as a tall block - and a grid of cards is exactly where that shows. The
+script reads the alpha channel to find where the drawing actually starts, scales it to fill a
+fixed box and centres it, so seventeen separate generations end up looking like one set. Every
+image is 1200x800 and under 150 KiB, which `tests/toolImages.test.ts` asserts along with the three
+things that have to agree: the `image: true` flag in the registry, the prompt, and the file on
+disk.
+
+Adding one is a prompt in `scripts/tool-image-prompts.mjs`, `image: true` on the tool in
+`lib/tools.ts`, and a run of the script. The other forty-six tools have no image yet and render
+the text-only card they always did.
 
 ## Verification
 

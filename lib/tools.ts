@@ -103,6 +103,20 @@ export interface ToolMeta {
    * structured data states. Defaults to "ffmpeg", which most tools are.
    */
   engine?: "ffmpeg" | "browser";
+  /**
+   * Whether this tool has a featured image at `/tool-images/<slug>.webp`.
+   *
+   * A flag rather than a path, because there is only ever one place an image
+   * can live and one name it can have; see `toolImage`. Absent means the tool
+   * has none yet, and every surface that shows one degrades to the text-only
+   * card it already had.
+   *
+   * The images are drawn by `scripts/generate-tool-images.mjs`, which holds the
+   * prompt for each one. A test asserts the two lists match and that the file
+   * is actually on disk, so a flag cannot outrun its image or the other way
+   * round.
+   */
+  image?: boolean;
 }
 
 export const CATEGORY_LABELS: Record<ToolCategory, string> = {
@@ -237,6 +251,7 @@ export const TOOLS: readonly ToolMeta[] = [
     accepts: "Subtitle files",
     status: "live",
     engine: "browser",
+    image: true,
   },
   {
     slug: "resize-video",
@@ -303,6 +318,7 @@ export const TOOLS: readonly ToolMeta[] = [
     icon: "captions",
     accepts: "Video files",
     status: "live",
+    image: true,
   },
   {
     slug: "burn-subtitles",
@@ -314,6 +330,7 @@ export const TOOLS: readonly ToolMeta[] = [
     icon: "burn",
     accepts: "Video files",
     status: "live",
+    image: true,
   },
   {
     slug: "compress-audio",
@@ -370,6 +387,7 @@ export const TOOLS: readonly ToolMeta[] = [
     accepts: "Subtitle files",
     status: "live",
     engine: "browser",
+    image: true,
   },
   {
     slug: "split-chapters",
@@ -535,6 +553,7 @@ export const TOOLS: readonly ToolMeta[] = [
     icon: "softsubs",
     accepts: "Video files, plus a subtitle file",
     status: "live",
+    image: true,
   },
   {
     slug: "convert-image",
@@ -547,6 +566,7 @@ export const TOOLS: readonly ToolMeta[] = [
     accepts: "Image files",
     status: "live",
     engine: "browser",
+    image: true,
   },
   {
     slug: "compress-image",
@@ -559,6 +579,7 @@ export const TOOLS: readonly ToolMeta[] = [
     accepts: "Image files",
     status: "live",
     engine: "browser",
+    image: true,
   },
   {
     slug: "resize-image",
@@ -571,6 +592,7 @@ export const TOOLS: readonly ToolMeta[] = [
     accepts: "Image files",
     status: "live",
     engine: "browser",
+    image: true,
   },
   {
     slug: "remove-image-metadata",
@@ -583,6 +605,7 @@ export const TOOLS: readonly ToolMeta[] = [
     accepts: "JPEG, PNG and WebP files",
     status: "live",
     engine: "browser",
+    image: true,
   },
   {
     slug: "images-to-pdf",
@@ -667,6 +690,7 @@ export const TOOLS: readonly ToolMeta[] = [
     accepts: "Any file",
     status: "live",
     engine: "browser",
+    image: true,
   },
   {
     slug: "create-zip",
@@ -679,6 +703,7 @@ export const TOOLS: readonly ToolMeta[] = [
     accepts: "Any files",
     status: "live",
     engine: "browser",
+    image: true,
   },
   {
     slug: "extract-zip",
@@ -691,6 +716,7 @@ export const TOOLS: readonly ToolMeta[] = [
     accepts: "ZIP files",
     status: "live",
     engine: "browser",
+    image: true,
   },
   {
     slug: "merge-audio",
@@ -736,6 +762,7 @@ export const TOOLS: readonly ToolMeta[] = [
     accepts: "Image files",
     status: "live",
     engine: "browser",
+    image: true,
   },
   {
     slug: "watermark-image",
@@ -748,6 +775,7 @@ export const TOOLS: readonly ToolMeta[] = [
     accepts: "Image files, plus a logo",
     status: "live",
     engine: "browser",
+    image: true,
   },
   {
     slug: "favicon",
@@ -760,6 +788,7 @@ export const TOOLS: readonly ToolMeta[] = [
     accepts: "Image files",
     status: "live",
     engine: "browser",
+    image: true,
   },
   {
     slug: "image-to-base64",
@@ -772,6 +801,7 @@ export const TOOLS: readonly ToolMeta[] = [
     accepts: "Image files up to 10 MB",
     status: "live",
     engine: "browser",
+    image: true,
   },
   {
     slug: "pdf-to-images",
@@ -844,6 +874,7 @@ export const TOOLS: readonly ToolMeta[] = [
     accepts: "Any files",
     status: "live",
     engine: "browser",
+    image: true,
   },
   {
     slug: "transcribe-video",
@@ -921,6 +952,30 @@ export function relatedTools(slug: string, limit = 6): ToolMeta[] {
 
 export function toolPath(tool: ToolMeta): string {
   return `/${tool.slug}`;
+}
+
+/**
+ * The intrinsic size of every featured image, which is the same for all of
+ * them by construction: `scripts/generate-tool-images.mjs` crops and re-centres
+ * each drawing into this exact box.
+ *
+ * Stated here so the markup can give the browser a width and a height and
+ * reserve the space before the file arrives. Without them a grid of cards
+ * jumps as each image lands, which is the layout shift Core Web Vitals
+ * measures and a visitor feels.
+ */
+export const TOOL_IMAGE_WIDTH = 1200;
+export const TOOL_IMAGE_HEIGHT = 800;
+
+/**
+ * Where a tool's featured image lives, or nothing if it has none yet.
+ *
+ * Only seventeen of the tools are drawn so far, so every caller has to handle
+ * the absent case; returning undefined rather than a path to a missing file is
+ * what makes that impossible to forget.
+ */
+export function toolImage(tool: ToolMeta): string | undefined {
+  return tool.image ? `/tool-images/${tool.slug}.webp` : undefined;
 }
 
 /**

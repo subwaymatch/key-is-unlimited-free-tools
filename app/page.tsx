@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { ToolIcon } from "@/components/ToolIcon";
+import { ToolImage } from "@/components/ToolImage";
 import { PROMISE, PROMISE_QUALIFIER, PROMISE_REASON } from "@/lib/site";
 import { CATEGORY_LABELS, liveToolsByCategory, toolPath } from "@/lib/tools";
 
@@ -31,6 +32,12 @@ export default function Page() {
             {tools.map((tool) => (
               <li key={tool.slug}>
                 <Link href={toolPath(tool)} className={styles.card}>
+                  {/*
+                    * Only the drawn tools have one, so a group is either
+                    * illustrated throughout or not at all - which is why the
+                    * pilot covers whole categories rather than a scattering.
+                    */}
+                  <ToolImage tool={tool} className={styles.image} />
                   <span className={styles.cardHead}>
                     <ToolIcon name={tool.icon} className={styles.icon} />
                     <span className={styles.name}>{tool.name}</span>

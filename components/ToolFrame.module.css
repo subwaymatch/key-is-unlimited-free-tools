@@ -13,6 +13,39 @@
 
 .header {
   margin-bottom: 2rem;
+  display: flex;
+  /*
+   * Top-aligned, not centred. The lead runs to two lines on a laptop and to
+   * nine on a phone, and centring leaves the image floating against the middle
+   * of a wall of text down there. Aligned to the top it sits beside the title,
+   * which is what it illustrates.
+   */
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.headerText {
+  /* min-width: 0 lets a long title wrap instead of forcing the row wider. */
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/*
+ * The featured image, on the tools that have one.
+ *
+ * A share of the column rather than a fixed width, so it shrinks with the
+ * title on a phone instead of squeezing it. The plate behind it matches the
+ * index card's, so the same drawing reads the same way in both places.
+ */
+.image {
+  flex: 0 0 auto;
+  width: min(13rem, 38%);
+  height: auto;
+  aspect-ratio: 3 / 2;
+  object-fit: contain;
+  padding: 0.5rem;
+  border-radius: var(--radius);
+  background: var(--muted);
 }
 
 .title {
