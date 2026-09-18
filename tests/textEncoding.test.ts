@@ -15,6 +15,11 @@ import {
 
 const utf8 = (text: string) => new TextEncoder().encode(text);
 
+// An accented letter and a Chinese character, spelt as code points so this
+// file stays ASCII as the policy asks: e with an acute accent, and "shadow".
+const E_ACUTE = String.fromCharCode(0xe9);
+const SHADOW = String.fromCharCode(0x5f71);
+
 function utf16le(text: string, bom = true): Uint8Array {
   const out = new Uint8Array((bom ? 2 : 0) + text.length * 2);
   let at = 0;
@@ -39,13 +44,13 @@ describe("detecting an encoding", () => {
 
   it("tells ASCII, UTF-8, UTF-16 without a mark and Windows-1252 apart", () => {
     expect(detectEncoding(utf8("plain text\n"))).toMatchObject({ encoding: "utf-8", bom: false, label: "ASCII, which is also UTF-8" });
-    expect(detectEncoding(utf8("café\n"))).toMatchObject({ encoding: "utf-8", label: "UTF-8" });
+    expect(detectEncoding(utf8(`caf${E_ACUTE}\n`))).toMatchObject({ encoding: "utf-8", label: "UTF-8" });
     expect(detectEncoding(utf16le("hello there", false))).toMatchObject({ encoding: "utf-16le", bom: false, sure: false });
     expect(detectEncoding(new Uint8Array([0x63, 0x61, 0x66, 0xe9, 0x0a]))).toMatchObject({ encoding: "windows-1252", sure: false });
   });
 
   it("forgives a multi-byte sequence the sample cut in half", () => {
-    const bytes = utf8("café 影");
+    const bytes = utf8(`caf${E_ACUTE} ${SHADOW}`);
     expect(isValidUtf8(bytes.subarray(0, bytes.length - 1))).toBe(true);
     expect(isValidUtf8(bytes.subarray(0, bytes.length - 2))).toBe(true);
     expect(isValidUtf8(new Uint8Array([0x41, 0xff, 0x42]))).toBe(false);
@@ -60,7 +65,7 @@ describe("detecting an encoding", () => {
 
 describe("decoding and encoding", () => {
   it("decodes chunks split inside a character", async () => {
-    const bytes = utf8("aéb影c");
+    const bytes = utf8(`a${E_ACUTE}b${SHADOW}c`);
     async function* chunks() {
       yield bytes.subarray(0, 2);
       yield bytes.subarray(2, 5);
@@ -68,7 +73,7 @@ describe("decoding and encoding", () => {
     }
     const parts: string[] = [];
     for await (const part of decodeChunks(chunks(), "utf-8")) parts.push(part);
-    expect(parts.join("")).toBe("aéb影c");
+    expect(parts.join("")).toBe(`a${E_ACUTE}b${SHADOW}c`);
   });
 
   it("drops a byte-order mark on the way in and writes one on the way out when asked", async () => {
@@ -80,7 +85,7 @@ describe("decoding and encoding", () => {
     expect(parts.join("")).toBe("hi");
     expect(Array.from(encodeText("A", "utf-8"))).toEqual([0x41]);
     expect(Array.from(encodeText("A", "utf-8-bom"))).toEqual([0xef, 0xbb, 0xbf, 0x41]);
-    expect(Array.from(encodeText("Aé", "utf-16le"))).toEqual([0xff, 0xfe, 0x41, 0x00, 0xe9, 0x00]);
+    expect(Array.from(encodeText(`A${E_ACUTE}`, "utf-16le"))).toEqual([0xff, 0xfe, 0x41, 0x00, 0xe9, 0x00]);
   });
 });
 

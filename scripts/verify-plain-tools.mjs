@@ -383,7 +383,8 @@ async function main() {
     await latinCard.getByText("Done", { exact: true }).waitFor({ timeout: 30_000 });
     check("detects the encoding and the line endings", /Windows-1252/.test(await latinCard.innerText()) && /CRLF \(Windows\)/.test(await latinCard.innerText()), (await latinCard.innerText()).slice(0, 300));
     const converted = await downloadNamed(latinCard, "latin-lf.txt");
-    check("writes UTF-8 with LF", converted.bytes.equals(Buffer.from("café\nau lait\n", "utf8")), JSON.stringify(converted.bytes.toString("utf8")));
+    // "cafe au lait" with the accent as UTF-8 bytes, so this file stays ASCII.
+    check("writes UTF-8 with LF", converted.bytes.equals(Buffer.from([0x63, 0x61, 0x66, 0xc3, 0xa9, 0x0a, 0x61, 0x75, 0x20, 0x6c, 0x61, 0x69, 0x74, 0x0a])), JSON.stringify(converted.bytes.toString("utf8")));
     await shot("convert-text-file");
 
     // ---- Encrypt and decrypt --------------------------------------------

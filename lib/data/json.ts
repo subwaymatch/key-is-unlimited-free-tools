@@ -168,9 +168,22 @@ function offsetOf(text: string, line: number, column: number): number {
   return Math.min(text.length, at + column - 1);
 }
 
+/**
+ * The byte-order mark, spelt as a code point so this file stays ASCII.
+ *
+ * `TextDecoder` drops it, but `File.text()` keeps it, and `JSON.parse`
+ * refuses a document that starts with it.
+ */
+export const BOM = String.fromCharCode(0xfeff);
+
+/** The text without a leading byte-order mark. */
+export function stripBom(text: string): string {
+  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
 /** The value, or the problem worded for a card. */
 export function parseJson(text: string): { value: unknown } | { problem: JsonProblem } {
-  const clean = text.replace(/^﻿/, "");
+  const clean = stripBom(text);
   try {
     return { value: JSON.parse(clean) as unknown };
   } catch (error) {
@@ -180,7 +193,7 @@ export function parseJson(text: string): { value: unknown } | { problem: JsonPro
 
 /** Whether every non-empty line is a JSON value of its own: JSON Lines. */
 export function looksLikeJsonLines(text: string): boolean {
-  const lines = text.replace(/^﻿/, "").split(/\r?\n/).filter((line) => line.trim() !== "");
+  const lines = stripBom(text).split(/\r?\n/).filter((line) => line.trim() !== "");
   if (lines.length < 2) return false;
   return lines.slice(0, 5).every((line) => {
     try {
@@ -195,7 +208,7 @@ export function looksLikeJsonLines(text: string): boolean {
 /** Every line's value, with the line number of the first that does not read. */
 export function parseJsonLines(text: string): { values: unknown[] } | { problem: JsonProblem } {
   const values: unknown[] = [];
-  const lines = text.replace(/^﻿/, "").split(/\r?\n/);
+  const lines = stripBom(text).split(/\r?\n/);
   for (const [index, line] of lines.entries()) {
     if (line.trim() === "") continue;
     try {

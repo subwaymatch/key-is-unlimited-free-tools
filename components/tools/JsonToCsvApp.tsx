@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { csvLine, DELIMITERS, recordsOf, tabulate, type Delimiter } from "@/lib/data/csv";
-import { looksLikeJsonLines, parseJson, parseJsonLines, type JsonProblem } from "@/lib/data/json";
+import { BOM, looksLikeJsonLines, parseJson, parseJsonLines, type JsonProblem } from "@/lib/data/json";
 import { formatBytes } from "@/lib/format-utils";
 import { fileStem } from "@/lib/mediaTypes";
 import { storageKey, useStoredSettings } from "@/lib/persist";
@@ -81,7 +81,7 @@ export function JsonToCsvApp() {
         for (const row of rows) lines.push(csvLine(columns.map((column) => row.get(column) ?? ""), current.delimiter));
         const body = `${lines.join("\r\n")}\r\n`;
         const extension = current.delimiter === "\t" ? "tsv" : "csv";
-        const blob = new Blob(current.bom ? ["﻿", body] : [body], { type: `${extension === "tsv" ? "text/tab-separated-values" : "text/csv"};charset=utf-8` });
+        const blob = new Blob(current.bom ? [BOM, body] : [body], { type: `${extension === "tsv" ? "text/tab-separated-values" : "text/csv"};charset=utf-8` });
         const plain = values.filter((value) => value === null || typeof value !== "object" || Array.isArray(value)).length;
         return {
           facts: [`${values.length.toLocaleString("en")} ${values.length === 1 ? "record" : "records"} from ${from}`, `${columns.length} ${columns.length === 1 ? "column" : "columns"}`],

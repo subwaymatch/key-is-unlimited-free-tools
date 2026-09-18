@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-import { describeJson, formatJson, INDENT_OPTIONS, jsonDepth, looksLikeJsonLines, parseJson, sortKeysDeep, type JsonIndent } from "@/lib/data/json";
+import { describeJson, formatJson, INDENT_OPTIONS, jsonDepth, looksLikeJsonLines, parseJson, sortKeysDeep, stripBom, type JsonIndent } from "@/lib/data/json";
 import { formatBytes } from "@/lib/format-utils";
 import { fileStem } from "@/lib/mediaTypes";
 import { storageKey, useStoredSettings } from "@/lib/persist";
@@ -60,7 +60,7 @@ export function FormatJsonApp() {
         const value = current.sortKeys ? sortKeysDeep(parsed.value) : parsed.value;
         const output = formatJson(value, current.indent);
         const facts = [`${describeJson(parsed.value)}, ${jsonDepth(parsed.value)} ${jsonDepth(parsed.value) === 1 ? "level" : "levels"} deep`];
-        if (output === text.replace(/^﻿/, "")) {
+        if (output === stripBom(text)) {
           return { facts, outputs: [], nothing: { message: "This file is already written that way.", hint: "Valid JSON, and formatted exactly as asked." } };
         }
         const minified = current.indent === "none";

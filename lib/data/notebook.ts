@@ -11,7 +11,7 @@
  *
  * Pure: JSON text in, JSON text out, and the counts of what changed.
  */
-import { sortKeysDeep } from "./json";
+import { sortKeysDeep, stripBom } from "./json";
 
 export interface NotebookCleanOptions {
   /** Empty every code cell's outputs. */
@@ -70,7 +70,7 @@ interface Notebook {
 export function readNotebook(text: string): Notebook {
   let value: unknown;
   try {
-    value = JSON.parse(text.replace(/^﻿/, ""));
+    value = JSON.parse(stripBom(text));
   } catch (error) {
     throw new NotebookError("This file is not valid JSON.", error instanceof Error ? error.message : undefined);
   }

@@ -4,7 +4,8 @@ import { describeJson, formatJson, jsonDepth, locateJsonError, looksLikeJsonLine
 
 describe("reading JSON", () => {
   it("parses, dropping a byte-order mark", () => {
-    const result = parseJson('﻿{"a": 1}');
+    // The mark as a code point, so this file stays ASCII as the policy asks.
+    const result = parseJson(`${String.fromCharCode(0xfeff)}{"a": 1}`);
     expect("value" in result && result.value).toEqual({ a: 1 });
   });
 
