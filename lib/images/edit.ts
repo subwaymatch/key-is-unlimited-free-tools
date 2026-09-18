@@ -149,11 +149,32 @@ export function drawTextMark(canvas: AnyCanvas, text: string, style: MarkStyle):
 
 /** The sizes that go into the .ico, and the PNGs alongside it. */
 export const ICO_SIZES: readonly number[] = [16, 32, 48];
-export const FAVICON_PNGS: readonly { size: number; fileName: string; purpose: string }[] = [
-  { size: 180, fileName: "apple-touch-icon.png", purpose: "the icon iOS shows on the home screen" },
+
+export interface FaviconPng {
+  size: number;
+  fileName: string;
+  purpose: string;
+  /**
+   * Whether this one has to be painted onto a background.
+   *
+   * iOS does not composite a home-screen icon onto anything: it puts the
+   * PNG on the tile as it is, so a logo with a transparent background comes
+   * out on black. Every other icon here keeps its transparency, which is
+   * what a browser tab and an Android launcher both want.
+   */
+  flatten?: boolean;
+}
+
+export const FAVICON_PNGS: readonly FaviconPng[] = [
+  { size: 180, fileName: "apple-touch-icon.png", purpose: "the icon iOS shows on the home screen", flatten: true },
   { size: 192, fileName: "icon-192.png", purpose: "Android and the web app manifest" },
   { size: 512, fileName: "icon-512.png", purpose: "the manifest's large icon and splash" },
 ];
+
+/** Whether a string is a colour a canvas will take: "#fff" or "#ffffff". */
+export function isHexColour(value: string): boolean {
+  return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(value.trim());
+}
 
 /**
  * An .ico holding PNG entries: the header, a directory entry per picture,

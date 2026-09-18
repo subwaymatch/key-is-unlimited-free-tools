@@ -34,6 +34,14 @@ export function SiteHeader() {
     <header className={styles.header}>
       <div className={styles.inner}>
         <Link href="/" className={styles.wordmark}>
+          {/*
+           * The mark is decorative: the wordmark beside it already says the
+           * name, so a second copy in alt text would have a screen reader
+           * read "key.is key.is". Width and height are set so the row does
+           * not reflow while the file is on its way.
+           */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.svg" alt="" width={28} height={28} className={styles.mark} />
           {SITE_NAME}
         </Link>
 

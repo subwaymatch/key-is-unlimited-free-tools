@@ -120,6 +120,15 @@ export interface Job {
    */
   posterUrl?: string;
   /**
+   * Whether a frame has already been asked for, however that went.
+   *
+   * The thumbnail is taken once per file rather than once per run, and a
+   * frame that could not be taken has no URL to say so - so without this a
+   * file whose frame crashes the engine would be handed a new one, crash it
+   * again, and go round for ever.
+   */
+  posterTried?: boolean;
+  /**
    * Object URL of the source file itself, for a video preview to scrub
    * before anything has been produced. Only set when the browser says it can
    * play the container, and revoked with the job. It is a reference to the
@@ -659,16 +668,28 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
          * frame the card is already showing is pure waste.
          */
         const beforePoster = store.jobs.find((entry) => entry.id === jobId);
-        if (session.probe.hasVideo && !beforePoster?.posterUrl) {
+        if (session.probe.hasVideo && !beforePoster?.posterTried) {
+          patchJob(jobId, { posterTried: true });
           try {
             const poster = await session.poster();
             if (poster && !isCancelled()) {
               patchJob(jobId, { posterUrl: URL.createObjectURL(poster.blob) });
             }
           } catch (error) {
-            // Decoration only - unless the engine itself died taking the frame,
-            // in which case nothing after this would work either.
-            if (isFatal(error)) throw error;
+            /*
+             * Decoration only. A frame that could not be taken costs the card
+             * a picture and nothing else - even when taking it killed the
+             * engine, which a source with unusual pixel dimensions has been
+             * known to do in the mjpeg encoder. That is the same wasm trap the
+             * output loop already survives: mark the job for a fresh engine
+             * and hand it back to the pump with its outputs still pending, so
+             * the conversion someone actually asked for runs on the new one
+             * instead of failing with a crash it had no part in.
+             */
+            if (isFatal(error)) {
+              store.restart.add(jobId);
+              store.crashed.add(jobId);
+            }
           }
         }
         if (isCancelled()) throw new ExtractionError("Cancelled.");
@@ -677,8 +698,9 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
 
         // Automatic trimming has to happen here rather than at queue time: the
         // range is not knowable until the audio has been listened to, and the
-        // outputs waiting behind it inherit whatever the scan finds.
-        if (current?.autoTrim) {
+        // outputs waiting behind it inherit whatever the scan finds. Skipped
+        // when the engine is already being replaced: listening needs one.
+        if (current?.autoTrim && !store.restart.has(jobId)) {
           patchJob(jobId, { phase: "Listening for silence...", phaseRatio: 0 });
 
           let lastScanTick = 0;
@@ -711,7 +733,9 @@ export function useConversionQueue(options: QueueOptions = AUDIO_QUEUE_OPTIONS) 
          * they would sit at "Waiting" until the page was reloaded: the job
          * settles as done and the pump has nothing queued to pick up.
          */
-        for (;;) {
+        // A job whose engine died taking its thumbnail has nothing to run here;
+        // it leaves with its outputs pending and comes back on a new engine.
+        while (!store.restart.has(jobId)) {
           // Re-read the pending output each pass rather than iterating a snapshot:
           // an output can be cancelled, retried back into the queue, or added,
           // while the job it belongs to is still running.

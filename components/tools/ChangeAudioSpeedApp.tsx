@@ -85,7 +85,7 @@ export function ChangeAudioSpeedApp() {
   const toolSettings: ToolSettings = {
     title: "Speed",
     defaultOpen: true,
-    invalid: () => (customInvalid ? `A speed between ${MIN_SPEED_FACTOR}x and ${MAX_SPEED_FACTOR}x is needed before a file can be re-timed.` : null),
+    invalid: () => (customInvalid ? `A speed between ${MIN_SPEED_FACTOR}x and ${MAX_SPEED_FACTOR}x, and not 1x, is needed before a file can be re-timed.` : null),
     summary: () => (customInvalid ? "no speed chosen" : speed),
     render: () => (
       <fieldset className={styles.fieldset}>
@@ -123,7 +123,7 @@ export function ChangeAudioSpeedApp() {
               />
             </label>
             <p className={styles.panelNote}>
-              {customInvalid ? `Type a speed between ${MIN_SPEED_FACTOR} and ${MAX_SPEED_FACTOR}. Nothing will start until you do.` : `Using ${speed}.`}
+              {customInvalid ? `Type a speed between ${MIN_SPEED_FACTOR} and ${MAX_SPEED_FACTOR}. 1 is not a change, and re-encoding a file to the same length would only cost it quality. Nothing will start until you do.` : `Using ${speed}.`}
             </p>
           </div>
         )}

@@ -155,7 +155,7 @@ export function AudioToVideoApp() {
   return (
     <ToolApp
       tool={tool}
-      lead="Drop an MP3, a WAV, an M4A or any audio file and get it back as an MP4 for YouTube or a feed: the sound under a plain colour, a picture you choose, or a waveform drawn as it plays. The sound is copied as it is when the MP4 can hold it. Nothing is uploaded."
+      lead="Drop an MP3, a WAV, an M4A or any audio file and get it back as an MP4 for YouTube or a feed: the sound under a plain colour, a picture you choose, or a waveform drawn as it plays. An MP4 holds AAC, MP3, AC-3, E-AC-3 and ALAC, and those are copied across untouched; anything else - WAV, FLAC, Ogg, Opus - is made AAC, and the card says which happened. Nothing is uploaded."
       queue={queue}
       features={FEATURES}
       settings={toolSettings}

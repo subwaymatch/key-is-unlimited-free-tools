@@ -30,7 +30,7 @@ export function audioSpeedFormat(factor: number): OutputFormat {
   return {
     id: `audio-speed-${speed}`,
     label: speed,
-    blurb: factor === 1 ? "The same speed, re-encoded" : factor > 1 ? `${speed} faster, pitch kept` : `${speed} slower, pitch kept`,
+    blurb: factor > 1 ? `${speed} faster, pitch kept` : `${speed} slower, pitch kept`,
     lossless: false,
     requiredEncoder: "aac",
     plan(probe) {

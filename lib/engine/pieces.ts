@@ -10,10 +10,20 @@
 import { chapterContainer, copyMaps } from "./chapters";
 import { formatSeconds, formatTimecode } from "./trim";
 import type { FormatBlocker, OutputFormat, PlanContext, ProbeResult, TrimRange } from "./types";
-import { containerArgs, estimateCopyBytes, playbackWarning, sizeBlocker } from "./video";
+import { containerArgs, estimateCopyBytes, estimateEncodedBytes, H264_ENCODE, MP4, MP4_FASTSTART, playbackWarning, sizeBlocker } from "./video";
 
 /** Cut every so many seconds, or into so many pieces of equal length. */
 export type PieceRule = { kind: "length"; seconds: number } | { kind: "count"; count: number };
+
+/**
+ * How the cut lands.
+ *
+ * "fast" copies the streams, which can only begin on a keyframe, so a piece
+ * starts at or before its mark and neighbouring pieces overlap by up to the
+ * keyframe spacing. "exact" re-encodes the picture, which lands on the frame
+ * asked for and costs a full encode of every piece.
+ */
+export type PieceCut = "fast" | "exact";
 
 export const PIECE_LENGTHS: readonly { seconds: number; label: string }[] = [
   { seconds: 60, label: "1 minute" },
@@ -73,15 +83,24 @@ export function pieceRanges(durationSeconds: number | null, rule: PieceRule): Tr
   return ranges;
 }
 
-/** "Part 3 of 7: 20:00 to 30:00", to the second: a third of 6.03 s is not worth "0:02.01". */
-export function describePiece(ranges: readonly TrimRange[], index: number): string {
+/**
+ * "Part 3 of 7: 20:00 to 30:00", to the second: a third of 6.03 s is not
+ * worth "0:02.01".
+ *
+ * These are the marks the cut was asked for. A fast cut lands on the
+ * keyframe at or before its mark, so the file can begin earlier than this
+ * says; the engine measures what came out and the row says so.
+ */
+export function describePiece(ranges: readonly TrimRange[], index: number, cut: PieceCut = "fast"): string {
   const range = ranges[index];
   if (!range || range.endSeconds === null) return `Part ${index + 1}`;
-  return `Part ${index + 1} of ${ranges.length}: ${formatTimecode(Math.round(range.startSeconds))} to ${formatTimecode(Math.round(range.endSeconds))}`;
+  const marks = `${formatTimecode(Math.round(range.startSeconds))} to ${formatTimecode(Math.round(range.endSeconds))}`;
+  return `Part ${index + 1} of ${ranges.length}: ${cut === "exact" ? marks : `${marks} or a little before`}`;
 }
 
 /** One piece as one format, for a rule. */
-export function pieceFormat(index: number, rule: PieceRule): OutputFormat {
+export function pieceFormat(index: number, rule: PieceRule, cut: PieceCut = "fast"): OutputFormat {
+  if (cut === "exact") return exactPieceFormat(index, rule);
   return {
     id: `part-${index + 1}`,
     label: `Part ${index + 1}`,
@@ -124,38 +143,124 @@ export function pieceFormat(index: number, rule: PieceRule): OutputFormat {
         fileSuffix: `-part${String(index + 1).padStart(2, "0")}`,
         // Progress is measured against the whole file, and this is a piece of it.
         durationFactor: total ? length / total : 1,
+        // The keyframe the copy really started on is only knowable from the
+        // file that came out, so the engine measures it and the row says how
+        // much of the piece before it is a repeat of the one before.
+        verifyDuration: true,
+        requestedRange: range,
         warning: probe.hasVideo ? playbackWarning(probe.video?.codec) : undefined,
       };
     },
     blocker(probe, context): FormatBlocker | null {
-      if (!probe.durationSeconds) {
-        return {
-          message: "This file's length is unknown, so it cannot be cut into parts.",
-          hint: "The container does not report a duration. Converting it to MP4 or M4A first gives it one.",
-          retryable: false,
-        };
-      }
-      const ranges = pieceRanges(probe.durationSeconds, rule);
-      if (ranges.length < 2) {
-        return {
-          message: `This file is too short to cut ${describeRule(rule)}.`,
-          hint: `It is ${formatTimecode(probe.durationSeconds)} long, which makes one part. Choose a shorter length.`,
-          severity: "info",
-          retryable: false,
-        };
-      }
-      const range = ranges[index];
-      if (!range) {
-        return { message: `This file has no part ${index + 1}.`, hint: `Cut ${describeRule(rule)} it has ${ranges.length}.`, retryable: false };
-      }
+      const short = pieceBlocker(probe, rule, index);
+      if (short) return short;
+      const range = pieceRanges(probe.durationSeconds, rule)[index];
       return sizeBlocker(estimateCopyBytes(probe, { ...context, trim: range }), "This part");
     },
   };
 }
 
+/**
+ * One piece cut to the frame, by re-encoding it.
+ *
+ * `-ss` after `-i` decodes up to the mark and starts the output there, so
+ * the piece holds exactly its range and neighbouring pieces do not overlap.
+ * That is a decode of everything before the piece and an encode of the piece
+ * itself, which is why it is the mode someone chooses rather than the
+ * default. Always an MP4: H.264 and AAC are what comes out.
+ */
+function exactPieceFormat(index: number, rule: PieceRule): OutputFormat {
+  return {
+    id: `part-${index + 1}`,
+    label: `Part ${index + 1}`,
+    blurb: "This part as its own file, cut to the frame",
+    lossless: false,
+    requiredEncoder: "libx264",
+    describe(probe) {
+      return describePiece(pieceRanges(probe.durationSeconds, rule), index, "exact");
+    },
+    offer(probe) {
+      return pieceRanges(probe.durationSeconds, rule).length > index;
+    },
+    plan(probe: ProbeResult) {
+      const ranges = pieceRanges(probe.durationSeconds, rule);
+      const range = ranges[index] ?? { startSeconds: 0, endSeconds: probe.durationSeconds };
+      const end = range.endSeconds ?? probe.durationSeconds ?? 0;
+      const length = Math.max(0, end - range.startSeconds);
+      const total = probe.durationSeconds;
+      return {
+        args: [
+          // Output seeking: every frame up to the mark is decoded and thrown
+          // away, so the first frame written is the one asked for.
+          ...(range.startSeconds > 0 ? ["-ss", formatSeconds(range.startSeconds)] : []),
+          "-map",
+          "0:v:0",
+          "-map",
+          "0:a?",
+          "-sn",
+          "-dn",
+          "-t",
+          formatSeconds(length),
+          ...H264_ENCODE,
+          "-crf",
+          "20",
+          "-c:a",
+          "aac",
+          "-b:a",
+          "160k",
+          ...MP4_FASTSTART,
+        ],
+        ...MP4,
+        mode: "encode",
+        kind: "video",
+        fileSuffix: `-part${String(index + 1).padStart(2, "0")}`,
+        durationFactor: total ? length / total : 1,
+      };
+    },
+    blocker(probe, context): FormatBlocker | null {
+      const short = pieceBlocker(probe, rule, index);
+      if (short) return short;
+      if (!probe.hasVideo) {
+        return {
+          message: "An exact cut needs a picture to re-encode.",
+          hint: "This file has sound only, and sound is already cut to the frame. Choose the fast cut.",
+          severity: "info",
+          retryable: false,
+        };
+      }
+      const range = pieceRanges(probe.durationSeconds, rule)[index];
+      return sizeBlocker(estimateEncodedBytes(probe, { ...context, trim: range }, 160), "This part");
+    },
+  };
+}
+
+/** What stops any piece of this rule from being cut at all. */
+function pieceBlocker(probe: ProbeResult, rule: PieceRule, index: number): FormatBlocker | null {
+  if (!probe.durationSeconds) {
+    return {
+      message: "This file's length is unknown, so it cannot be cut into parts.",
+      hint: "The container does not report a duration. Converting it to MP4 or M4A first gives it one.",
+      retryable: false,
+    };
+  }
+  const ranges = pieceRanges(probe.durationSeconds, rule);
+  if (ranges.length < 2) {
+    return {
+      message: `This file is too short to cut ${describeRule(rule)}.`,
+      hint: `It is ${formatTimecode(probe.durationSeconds)} long, which makes one part. Choose a shorter length.`,
+      severity: "info",
+      retryable: false,
+    };
+  }
+  if (!ranges[index]) {
+    return { message: `This file has no part ${index + 1}.`, hint: `Cut ${describeRule(rule)} it has ${ranges.length}.`, retryable: false };
+  }
+  return null;
+}
+
 /** Every piece as a format; `offer` hides the ones a file does not make. */
-export function pieceFormats(rule: PieceRule): OutputFormat[] {
-  return Array.from({ length: MAX_PIECES }, (_, index) => pieceFormat(index, rule));
+export function pieceFormats(rule: PieceRule, cut: PieceCut = "fast"): OutputFormat[] {
+  return Array.from({ length: MAX_PIECES }, (_, index) => pieceFormat(index, rule, cut));
 }
 
 /** The formats a file gets on arrival: one per piece its length makes. */

@@ -118,7 +118,7 @@ export function AudioWaveformApp() {
         headline: "Drop audio files here",
         subhead: "The waveform is drawn automatically; the spectrogram from the card",
       }}
-      note="The waveform is the whole file's shape, mixed to mono, scaled to the width chosen; set markers on the card to draw a range instead. A spectrogram plots frequency against time on a log scale with its legend along the edges, which is the picture that shows a hum, a cut-off or a lossy encode at a glance."
+      note="The waveform is the whole file's shape, mixed to mono, scaled to the width chosen and to the file's own loudest moment, so a quiet recording draws a full picture rather than a line; the file itself is not changed. Set markers on the card to draw a range instead. A spectrogram plots frequency against time on a log scale with its legend along the edges, which is the picture that shows a hum, a cut-off or a lossy encode at a glance."
     />
   );
 }

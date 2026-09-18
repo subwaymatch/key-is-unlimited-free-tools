@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { describeRange, everyPages, pageIndices, parsePageRanges } from "@/lib/pdf/ranges";
+import { describeRange, everyPages, pageIndices, parsePageRanges, rangeSyntaxProblem } from "@/lib/pdf/ranges";
 
 describe("page ranges", () => {
   it("reads what a print dialog takes", () => {
@@ -37,5 +37,20 @@ describe("page ranges", () => {
       { from: 4, to: 6 },
       { from: 7, to: 7 },
     ]);
+  });
+});
+
+describe("range syntax, before a file is there", () => {
+  it("accepts every form the parser takes", () => {
+    for (const text of ["", "  ", "1-3, 5; 8-", "-3", "2", "3 - 4", "1,2,3"]) {
+      expect(rangeSyntaxProblem(text), text).toBeNull();
+    }
+  });
+
+  it("names what cannot be a range, so a typo never reaches a file", () => {
+    expect(rangeSyntaxProblem("abc")).toBe('"abc" is not a page or a range.');
+    expect(rangeSyntaxProblem("1-3, abc")).toBe('"abc" is not a page or a range.');
+    expect(rangeSyntaxProblem("5-2")).toBe('"5-2" ends before it starts.');
+    expect(rangeSyntaxProblem("0")).toBe('"0" starts before page 1.');
   });
 });

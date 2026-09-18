@@ -3,7 +3,7 @@
 import { ChevronDown, Download, DownloadCloud, X } from "lucide-react";
 import { useCallback, useState } from "react";
 
-import { downloadText } from "@/lib/download";
+import { archiveName, downloadAllAsZip, downloadText } from "@/lib/download";
 import { formatBytes } from "@/lib/format-utils";
 import { fileStem } from "@/lib/mediaTypes";
 import { storageKey, useStoredSettings } from "@/lib/persist";
@@ -173,14 +173,18 @@ export function MergeSubtitlesApp() {
       ? "Choose at least one output format below."
       : null;
 
+  const [packing, setPacking] = useState(false);
+
+  // One archive rather than a burst of clicks Chrome has to be asked about.
   const downloadAll = useCallback(() => {
-    let index = 0;
-    for (const entry of readyEntries) {
-      for (const output of outputsFor(entry).outputs) {
-        window.setTimeout(() => downloadText(output.fileName, output.text, output.mimeType), index * 250);
-        index += 1;
-      }
-    }
+    const files = readyEntries.flatMap((entry) =>
+      outputsFor(entry).outputs.map((output) => ({
+        fileName: output.fileName,
+        blob: new Blob([output.text], { type: `${output.mimeType};charset=utf-8` }),
+      })),
+    );
+    setPacking(true);
+    void downloadAllAsZip(files, archiveName(tool.slug)).finally(() => setPacking(false));
   }, [outputsFor, readyEntries]);
 
   return (
@@ -362,9 +366,9 @@ export function MergeSubtitlesApp() {
           {readyEntries.length * settings.targets.length > 1 && (
             <div className={toolStyles.totalRow}>
               <p className={toolStyles.total}>{readyEntries.length * settings.targets.length} files ready</p>
-              <Button onClick={downloadAll}>
+              <Button onClick={downloadAll} disabled={packing}>
                 <DownloadCloud aria-hidden="true" size={14} strokeWidth={2} />
-                Download all
+                {packing ? "Packing..." : "Download all as a ZIP"}
               </Button>
             </div>
           )}

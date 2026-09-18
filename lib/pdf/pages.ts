@@ -43,12 +43,26 @@ export async function pdfPageCount(bytes: Uint8Array): Promise<number> {
   return (await loadPdf(bytes)).getPageCount();
 }
 
-/** Everything a document can say about itself in one line: "12 pages, A4". */
+/**
+ * Everything a document can say about itself in one line: "12 pages, A4".
+ *
+ * A document whose pages are not all the same size says so and names them,
+ * rather than describing the whole file by whatever its first page happens
+ * to be: a file of A4 landscape, A4 and tabloid is not "3 pages, A4
+ * landscape".
+ */
 export function describePdf(document: PDFDocumentType): string {
   const count = document.getPageCount();
-  const first = document.getPage(0);
-  const { width, height } = first.getSize();
-  return `${count} ${count === 1 ? "page" : "pages"}, ${describePageSize(width, height)}`;
+  const pages = `${count} ${count === 1 ? "page" : "pages"}`;
+  const sizes: string[] = [];
+  for (const page of document.getPages()) {
+    const { width, height } = page.getSize();
+    const size = describePageSize(width, height);
+    if (!sizes.includes(size)) sizes.push(size);
+  }
+  if (sizes.length === 1) return `${pages}, ${sizes[0]}`;
+  const named = sizes.slice(0, 3).join(", ");
+  return `${pages}, mixed sizes: ${sizes.length > 3 ? `${named} and ${sizes.length - 3} more` : named}`;
 }
 
 /** "A4", "Letter", "210 x 297 mm": the size of a page in words. */
@@ -60,20 +74,50 @@ export function describePageSize(widthPoints: number, heightPoints: number): str
   if (Math.abs(short - 216) <= 2 && Math.abs(long - 279) <= 2) return `Letter${orientation}`;
   if (Math.abs(short - 148) <= 2 && Math.abs(long - 210) <= 2) return `A5${orientation}`;
   if (Math.abs(short - 297) <= 2 && Math.abs(long - 420) <= 2) return `A3${orientation}`;
+  if (Math.abs(short - 216) <= 2 && Math.abs(long - 356) <= 2) return `Legal${orientation}`;
+  if (Math.abs(short - 279) <= 2 && Math.abs(long - 432) <= 2) return `Tabloid${orientation}`;
   return `${mm(widthPoints)} x ${mm(heightPoints)} mm`;
 }
 
-/** One document from several, in order. */
+/**
+ * One document from several, in order, keeping the first one's metadata.
+ *
+ * Every other PDF tool here hands back a file that still says who wrote it
+ * and what it is called; a merge that quietly replaced the title and author
+ * with pdf-lib's own producer line was the odd one out. The first file is
+ * the one the merged document is named after everywhere else on the card,
+ * so it is the one whose metadata carries over.
+ */
 export async function mergePdfs(sources: readonly Uint8Array[], report?: (index: number) => void): Promise<Uint8Array> {
   const { PDFDocument } = await pdfLib();
   const merged = await PDFDocument.create();
   for (const [index, bytes] of sources.entries()) {
     report?.(index);
     const source = await loadPdf(bytes);
+    if (index === 0) copyMetadata(source, merged);
     const pages = await merged.copyPages(source, source.getPageIndices());
     for (const page of pages) merged.addPage(page);
   }
   return merged.save();
+}
+
+/** The Info fields one document states, written onto another. */
+function copyMetadata(from: PDFDocumentType, to: PDFDocumentType): void {
+  const title = from.getTitle();
+  const author = from.getAuthor();
+  const subject = from.getSubject();
+  const keywords = from.getKeywords();
+  const creator = from.getCreator();
+  const producer = from.getProducer();
+  const created = from.getCreationDate();
+  if (title) to.setTitle(title);
+  if (author) to.setAuthor(author);
+  if (subject) to.setSubject(subject);
+  // getKeywords gives back the one string the file stores; setKeywords wants the words.
+  if (keywords) to.setKeywords(keywords.split(/[,;]+/).map((word) => word.trim()).filter(Boolean));
+  if (creator) to.setCreator(creator);
+  if (producer) to.setProducer(producer);
+  if (created && !Number.isNaN(created.getTime())) to.setCreationDate(created);
 }
 
 /** A new document of the pages a range list names, in that order. */

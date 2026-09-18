@@ -171,8 +171,11 @@ function OutputRow({
    * where the card stops claiming otherwise.
    */
   const actual = result?.actualTrim ?? null;
+  // A split piece carries its range in the plan rather than in the trim
+  // panel, so what it asked for comes back with the result.
+  const asked = trim ?? result?.requestedTrim ?? null;
   const overshootSeconds =
-    actual && trim ? Math.max(0, trim.startSeconds - actual.startSeconds) : 0;
+    actual && asked ? Math.max(0, asked.startSeconds - actual.startSeconds) : 0;
 
   const isInfo = output.error?.severity === "info";
   const canRetry = output.status === "cancelled" || output.error?.retryable !== false;
@@ -268,9 +271,15 @@ function OutputRow({
 
       {output.status === "done" && actual && overshootSeconds > 0 && (
         <p className={styles.rowNoteMessage}>
-          {`The cut starts at ${formatTimecode(actual.startSeconds)}, ${formatDuration(
-            overshootSeconds,
-          )} before the marker: a copied stream can only begin on a keyframe. Use the precise cut to land on the frame.`}
+          {trim
+            ? `The cut starts at ${formatTimecode(actual.startSeconds)}, ${formatDuration(
+                overshootSeconds,
+              )} before the marker: a copied stream can only begin on a keyframe. Use the precise cut to land on the frame.`
+            : `This file holds ${formatTimecode(actual.startSeconds)} to ${formatTimecode(
+                actual.endSeconds ?? 0,
+              )}, ${formatDuration(
+                overshootSeconds,
+              )} more than the part asked for: a copied stream can only begin on a keyframe, so it repeats the end of the part before. Cut to the frame instead to stop the overlap.`}
         </p>
       )}
 

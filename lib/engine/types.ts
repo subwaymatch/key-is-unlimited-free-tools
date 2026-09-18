@@ -224,6 +224,16 @@ export interface FormatPlan {
    * output can, and one probe of a file already in memory is cheap.
    */
   verifyDuration?: boolean;
+  /**
+   * The range of the source this plan means to cover, when the range is the
+   * plan's own rather than the trim panel's.
+   *
+   * A split piece carries its cut in its own arguments, so the engine has
+   * nothing to measure the finished file against unless the plan says what
+   * was asked for. Given one, `verifyDuration` reports the range the piece
+   * really holds and the card stops claiming the range it does not.
+   */
+  requestedRange?: TrimRange;
   /** True when the plan already drops metadata, so the engine does not repeat it. */
   stripsMetadata?: boolean;
   /**
@@ -409,6 +419,12 @@ export interface ExtractOutput {
    * nearest keyframe was genuinely earlier than the marker.
    */
   actualTrim?: TrimRange | null;
+  /**
+   * The range the plan asked for, for an output whose range is not the trim
+   * panel's: one piece of a split. Null for everything else, where `trim`
+   * already says it.
+   */
+  requestedTrim?: TrimRange | null;
   /** Carried over from the plan: something true about the file, once it exists. */
   warning?: string;
 }

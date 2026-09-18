@@ -32,8 +32,11 @@ describe("equal parts", () => {
     ]);
     expect(pieceRanges(null, { kind: "count", count: 4 })).toEqual([]);
     expect(pieceRanges(100_000, { kind: "length", seconds: 1 })).toHaveLength(MAX_PIECES);
-    expect(describePiece(pieceRanges(600, { kind: "length", seconds: 250 }), 2)).toBe("Part 3 of 3: 8:20 to 10:00");
-    expect(describePiece(pieceRanges(6.03, { kind: "count", count: 3 }), 1)).toBe("Part 2 of 3: 0:02 to 0:04");
+    // A fast cut lands on a keyframe, so the label says the marks are what
+    // the piece is cut at and not to the frame what it holds.
+    expect(describePiece(pieceRanges(600, { kind: "length", seconds: 250 }), 2)).toBe("Part 3 of 3: 8:20 to 10:00 or a little before");
+    expect(describePiece(pieceRanges(6.03, { kind: "count", count: 3 }), 1)).toBe("Part 2 of 3: 0:02 to 0:04 or a little before");
+    expect(describePiece(pieceRanges(600, { kind: "length", seconds: 250 }), 2, "exact")).toBe("Part 3 of 3: 8:20 to 10:00");
   });
 
   it("offers one format per piece and labels each by its range", () => {
@@ -42,7 +45,30 @@ describe("equal parts", () => {
     expect(pieceFormatIds(rule)(probe())).toEqual(["part-1", "part-2", "part-3"]);
     expect(pieceFormat(2, rule).offer?.(probe(), context())).toBe(true);
     expect(pieceFormat(3, rule).offer?.(probe(), context())).toBe(false);
-    expect(pieceFormat(1, rule).describe?.(probe())).toBe("Part 2 of 3: 4:10 to 8:20");
+    expect(pieceFormat(1, rule).describe?.(probe())).toBe("Part 2 of 3: 4:10 to 8:20 or a little before");
+  });
+
+  it("asks the engine what range a copied piece really holds", () => {
+    const rule = { kind: "length" as const, seconds: 250 };
+    const plan = pieceFormat(1, rule).plan(probe(), context());
+    expect(plan.verifyDuration).toBe(true);
+    expect(plan.requestedRange).toEqual({ startSeconds: 250, endSeconds: 500 });
+  });
+
+  it("cuts to the frame by re-encoding, seeking after the input", () => {
+    const rule = { kind: "length" as const, seconds: 250 };
+    const format = pieceFormat(1, rule, "exact");
+    const plan = format.plan(probe(), context());
+    expect(plan.mode).toBe("encode");
+    expect(plan.extension).toBe("mp4");
+    // Output seeking, so the piece begins on the frame asked for, and no
+    // range to verify because there is no keyframe to snap to.
+    expect(plan.inputArgs ?? []).toEqual([]);
+    expect(joined(plan.args)).toContain("-ss 250");
+    expect(joined(plan.args)).toContain("-t 250");
+    expect(joined(plan.args)).toContain("-c:v libx264");
+    expect(plan.verifyDuration).toBeUndefined();
+    expect(format.describe?.(probe())).toBe("Part 2 of 3: 4:10 to 8:20");
   });
 
   it("copies a piece's range, seeking before the input", () => {

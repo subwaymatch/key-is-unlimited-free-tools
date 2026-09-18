@@ -87,6 +87,26 @@ function escapeMetadata(value: string): string {
   return value.replace(/([=;#\\])/g, "\\$1").replace(/\n/g, "\\\n");
 }
 
+/** The title given to the stretch before the first chapter, when one is written. */
+export const LEAD_IN_TITLE = "Start";
+
+/**
+ * A chapter covering the gap before the first one, or the list unchanged.
+ *
+ * An MP4 or a MOV carries chapters twice: in Nero's `chpl` atom, which can
+ * start wherever it likes, and in a QuickTime text track, which is a track
+ * and therefore covers the timeline from zero. ffmpeg writes no lead-in
+ * sample and no edit list for the text track, so a first chapter at 0:02
+ * comes back covering 0:00 to 0:04 in every player that reads the track -
+ * QuickTime, the Apple apps - while the `chpl` readers see it correctly.
+ * One chapter over the gap makes both of them say the same thing.
+ */
+export function withLeadIn(chapters: readonly ChapterEntry[], title = LEAD_IN_TITLE): ChapterEntry[] {
+  const first = chapters[0];
+  if (!first || first.startSeconds <= 0) return [...chapters];
+  return [{ startSeconds: 0, title }, ...chapters];
+}
+
 /**
  * The ffmetadata file for a list: each chapter runs to the next one's start,
  * the last to the end of the file. Chapters at or past the end are left out,
@@ -124,10 +144,10 @@ export function copyMaps(probe: ProbeResult): string[] {
  * change, and the source's own tags are kept or dropped by the switch, which
  * this plan reads itself since the engine's stripping would undo its chapters.
  */
-export function chaptersFormat(text: string): OutputFormat {
+export function chaptersFormat(text: string, leadIn = true): OutputFormat {
   const parsed = parseChapterList(text);
   return {
-    id: `chapters-${textFingerprint(text)}`,
+    id: `chapters-${textFingerprint(text)}${leadIn ? "" : "-gap"}`,
     label: `${parsed.chapters.length} ${parsed.chapters.length === 1 ? "chapter" : "chapters"}`,
     blurb: "Every stream copied as it is, with the chapter markers written into the container",
     lossless: true,
@@ -136,6 +156,11 @@ export function chaptersFormat(text: string): OutputFormat {
       const container = chapterContainer(probe, context);
       const duration = probe.durationSeconds ?? Number.MAX_SAFE_INTEGER;
       const strip = context?.stripMetadata ?? false;
+      // The QuickTime text track covers the timeline from zero whether or
+      // not the first chapter does, so an MP4 or a MOV is given the gap as
+      // a chapter of its own rather than letting its first one stretch back.
+      const wantsLeadIn = leadIn && (container.extension === "mp4" || container.extension === "m4v" || container.extension === "mov" || container.extension === "m4a");
+      const list = wantsLeadIn ? withLeadIn(parsed.chapters) : parsed.chapters;
       const dropped = parsed.chapters.filter((chapter) => chapter.startSeconds >= duration).length;
       return {
         args: [
@@ -152,7 +177,7 @@ export function chaptersFormat(text: string): OutputFormat {
           ...(strip ? ["-fflags", "+bitexact"] : []),
           ...containerArgs(container),
         ],
-        scratchFiles: [{ path: CHAPTERS_PATH, contents: chaptersMetadata(parsed.chapters, duration) }],
+        scratchFiles: [{ path: CHAPTERS_PATH, contents: chaptersMetadata(list, duration) }],
         ...container,
         mode: "copy",
         kind: probe.hasVideo && probe.video ? "video" : "audio",
@@ -163,6 +188,11 @@ export function chaptersFormat(text: string): OutputFormat {
             dropped > 0
               ? `${dropped} ${dropped === 1 ? "chapter starts" : "chapters start"} at or after the end of the file and ${dropped === 1 ? "was" : "were"} left out.`
               : null,
+            list.length > parsed.chapters.length
+              ? `The first chapter starts after the beginning of the file, so an opening chapter called "${LEAD_IN_TITLE}" was written over the gap: a QuickTime chapter track has to cover the file from the start, and without it players that read one would show your first chapter from 0:00.`
+              : !leadIn && parsed.chapters[0] && parsed.chapters[0].startSeconds > 0 && (container.extension === "mp4" || container.extension === "mov" || container.extension === "m4a")
+                ? "The first chapter starts after the beginning of the file. Players that read the QuickTime chapter track, such as QuickTime itself, will show it from 0:00; those that read the Nero chapter list will show it where you put it."
+                : null,
             probe.hasVideo ? playbackWarning(probe.video?.codec) : null,
           ]
             .filter((line): line is string => line !== null)

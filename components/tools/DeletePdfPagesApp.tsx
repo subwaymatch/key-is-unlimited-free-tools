@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { PDF_ACCEPT, pdfBlob, pdfName, rejectNonPdf } from "@/lib/pdf/files";
 import { describePdf, loadPdf, removePages } from "@/lib/pdf/pages";
-import { describeRange, pageIndices, parsePageRanges } from "@/lib/pdf/ranges";
+import { describeRange, pageIndices, parsePageRanges, rangeSyntaxProblem } from "@/lib/pdf/ranges";
 import { storageKey, useStoredSettings } from "@/lib/persist";
 import { PlainError, type PlainQueueOptions } from "@/lib/plainQueue";
 import { requireTool } from "@/lib/tools";
@@ -28,6 +28,7 @@ export function DeletePdfPagesApp() {
   useStoredSettings(storageKey("settings", "delete-pdf-pages"), settings, setSettings, isDeleteSettings);
 
   const invalid = settings.ranges.trim() === "";
+  const unreadable = rangeSyntaxProblem(settings.ranges);
 
   const queue = useMemo<PlainQueueOptions<DeleteSettings>>(
     () => ({
@@ -65,13 +66,13 @@ export function DeletePdfPagesApp() {
   const toolSettings: PlainSettings = {
     title: "Pages to remove",
     defaultOpen: true,
-    invalid: () => (invalid ? "Type the pages to remove before adding a PDF." : null),
+    invalid: () => (invalid ? "Type the pages to remove before adding a PDF." : unreadable),
     summary: () => settings.ranges.trim() || "none yet",
     render: () => (
       <fieldset className={styles.fieldset}>
         <legend className={styles.legend}>Remove</legend>
         <p className={styles.intro}>Pages are numbered from 1, the way a viewer shows them. Ranges take the print dialog&apos;s forms: 2, 5-7, 10-, -1.</p>
-        <input type="text" value={settings.ranges} placeholder="2, 5-7" aria-invalid={invalid} aria-label="Pages to remove" onChange={(event) => setSettings({ ranges: event.target.value })} className={styles.input} style={{ width: "20rem" }} />
+        <input type="text" value={settings.ranges} placeholder="2, 5-7" aria-invalid={invalid || unreadable !== null} aria-label="Pages to remove" onChange={(event) => setSettings({ ranges: event.target.value })} className={styles.input} style={{ width: "20rem" }} />
       </fieldset>
     ),
   };

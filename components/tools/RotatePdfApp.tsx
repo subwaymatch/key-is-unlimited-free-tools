@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { PDF_ACCEPT, pdfBlob, pdfName, rejectNonPdf } from "@/lib/pdf/files";
 import { describePdf, loadPdf, rotatePages } from "@/lib/pdf/pages";
-import { pageIndices, parsePageRanges } from "@/lib/pdf/ranges";
+import { pageIndices, parsePageRanges, rangeSyntaxProblem } from "@/lib/pdf/ranges";
 import { storageKey, useStoredSettings } from "@/lib/persist";
 import { PlainError, type PlainQueueOptions } from "@/lib/plainQueue";
 import { requireTool } from "@/lib/tools";
@@ -50,6 +50,7 @@ export function RotatePdfApp() {
   useStoredSettings(storageKey("settings", "rotate-pdf"), settings, setSettings, isRotateSettings);
 
   const rangesInvalid = settings.pages === "some" && settings.ranges.trim() === "";
+  const rangesUnreadable = settings.pages === "some" ? rangeSyntaxProblem(settings.ranges) : null;
 
   const queue = useMemo<PlainQueueOptions<RotateSettings>>(
     () => ({
@@ -84,7 +85,7 @@ export function RotatePdfApp() {
   const toolSettings: PlainSettings = {
     title: "Turn & pages",
     defaultOpen: true,
-    invalid: () => (rangesInvalid ? "Name at least one page before adding a PDF." : null),
+    invalid: () => (rangesInvalid ? "Name at least one page before adding a PDF." : rangesUnreadable),
     summary: () => `${describeTurn(settings.degrees)}, ${settings.pages === "all" ? "every page" : settings.ranges.trim() || "no pages yet"}`,
     render: () => (
       <>
@@ -99,7 +100,7 @@ export function RotatePdfApp() {
             <div className={styles.panel}>
               <label>
                 <span className={styles.fieldLabel}>Pages to turn</span>
-                <input type="text" value={settings.ranges} placeholder="2, 5-7" aria-invalid={rangesInvalid} onChange={(event) => setSettings((previous) => ({ ...previous, ranges: event.target.value }))} className={styles.input} style={{ width: "20rem" }} />
+                <input type="text" value={settings.ranges} placeholder="2, 5-7" aria-invalid={rangesInvalid || rangesUnreadable !== null} onChange={(event) => setSettings((previous) => ({ ...previous, ranges: event.target.value }))} className={styles.input} style={{ width: "20rem" }} />
               </label>
             </div>
           )}

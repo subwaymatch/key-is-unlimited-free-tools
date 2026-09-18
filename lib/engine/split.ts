@@ -115,8 +115,11 @@ export function chapterFormat(index: number): OutputFormat {
         fileSuffix: chapterSuffix(chapter, index),
         // Progress is measured against the whole file, and this is a piece of it.
         durationFactor: total ? length / total : 1,
-        // The keyframe snap is said once, in the page's note, rather than under
-        // every one of an audiobook's forty pieces.
+        // The page's note explains the keyframe snap; this is what it cost
+        // this piece, measured from the file that came out, so a card does
+        // not claim a range the file does not hold.
+        verifyDuration: true,
+        requestedRange: { startSeconds: chapter.startSeconds, endSeconds: end },
         warning: probe.hasVideo ? playbackWarning(probe.video?.codec) : undefined,
       };
     },

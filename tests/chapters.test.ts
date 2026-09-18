@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { CHAPTERS_PATH, chaptersFormat, chaptersMetadata, parseChapterList } from "@/lib/engine/chapters";
+import { CHAPTERS_PATH, chaptersFormat, chaptersMetadata, LEAD_IN_TITLE, parseChapterList, withLeadIn } from "@/lib/engine/chapters";
 import type { AudioStreamInfo, PlanContext, ProbeResult, VideoStreamInfo } from "@/lib/engine/types";
 
 function probe(
@@ -123,5 +123,40 @@ describe("the chapters format", () => {
     expect(chaptersFormat("10:00 Late").blocker!(probe(null, {}, 100), context())?.message).toMatch(/after the end/);
     expect(format.blocker!(probe(null, { codec: "mp3" }), context("mp3"))).toBeNull();
     expect(format.blocker!(probe(), context())).toBeNull();
+  });
+});
+
+describe("the gap before the first chapter", () => {
+  it("covers it with one chapter, and leaves a list that starts at zero alone", () => {
+    expect(withLeadIn([{ startSeconds: 2, title: "Intro" }])).toEqual([
+      { startSeconds: 0, title: LEAD_IN_TITLE },
+      { startSeconds: 2, title: "Intro" },
+    ]);
+    const atZero = [{ startSeconds: 0, title: "Intro" }];
+    expect(withLeadIn(atZero)).toEqual(atZero);
+    expect(withLeadIn([])).toEqual([]);
+  });
+
+  it("writes it into an MP4's metadata, and says so", () => {
+    const format = chaptersFormat("0:02 Intro\n0:04 Part two");
+    const plan = format.plan(probe({ codec: "h264" }, {}, 6), context("mp4"));
+    const written = String(plan.scratchFiles?.[0].contents);
+    // The QuickTime chapter track covers the file from zero whatever the
+    // list says, so the list is given something to put there.
+    expect(written).toContain(`title=${LEAD_IN_TITLE}`);
+    expect(written).toContain("START=0\nEND=2000");
+    expect(written).toContain("START=2000\nEND=4000");
+    expect(plan.warning).toMatch(/opening chapter/);
+  });
+
+  it("leaves the gap when asked, and warns instead", () => {
+    const plan = chaptersFormat("0:02 Intro", false).plan(probe({ codec: "h264" }, {}, 6), context("mp4"));
+    expect(String(plan.scratchFiles?.[0].contents)).not.toContain(`title=${LEAD_IN_TITLE}`);
+    expect(plan.warning).toMatch(/QuickTime chapter track/);
+  });
+
+  it("leaves an MP3 alone: it has one chapter list, not two", () => {
+    const plan = chaptersFormat("0:02 Intro").plan(probe(null, { codec: "mp3" }, 6), context("mp3"));
+    expect(String(plan.scratchFiles?.[0].contents)).not.toContain(`title=${LEAD_IN_TITLE}`);
   });
 });

@@ -104,18 +104,46 @@ export function CompressImageApp() {
       reject: rejectNonImage,
       preview: true,
       run: async (file, current, report) => {
-        if (file.size <= current.targetBytes && sameFormatMime(file) === current.mime) {
-          return { outputs: [], nothing: { message: `This picture is already under ${formatBytes(current.targetBytes)}.`, hint: `It is ${formatBytes(file.size)}. Choose a smaller size to shrink it further.` } };
+        /*
+         * A picture already under the target is left alone, whatever format
+         * it is in. Re-encoding a 154-byte PNG as a JPEG makes it 1 KB, and
+         * a compressor that hands back a larger file and calls it done is
+         * not telling the truth about what it did. A different format is
+         * what Convert image is for.
+         */
+        if (file.size <= current.targetBytes) {
+          return {
+            outputs: [],
+            nothing: {
+              message: `This picture is already under ${formatBytes(current.targetBytes)}.`,
+              hint: `It is ${formatBytes(file.size)}, so it is handed back untouched. Choose a smaller size to shrink it further${sameFormatMime(file) === current.mime ? "" : `, or use Convert image to write it as ${MIME_LABELS[current.mime]}`}.`,
+            },
+          };
         }
         report("Decoding...", null);
         const result = await compressUnder(file, current, (phase) => report(phase, null));
         const scaled = result.size.width !== result.source.width;
+        // Quality and scaling can still leave a picture larger than it was:
+        // a screenshot in a PNG that JPEG has nothing to gain on, say.
+        if (result.blob.size >= file.size) {
+          return {
+            facts: [describeSize(result.source)],
+            outputs: [],
+            nothing: {
+              message: "Compressing this picture would make it larger.",
+              hint: `The smallest ${MIME_LABELS[current.mime]} under ${formatBytes(current.targetBytes)} came out at ${formatBytes(result.blob.size)}, against ${formatBytes(file.size)} for the original, so the original is the smaller file. It is handed back untouched.`,
+            },
+          };
+        }
         return {
           facts: [describeSize(result.source)],
           outputs: [
             {
               label: MIME_LABELS[current.mime],
-              fileName: pictureName(file, current.mime, "-compressed"),
+              // The target in the name, so compressing one picture to 100 KB
+              // and then to 500 KB does not put two files of the same name
+              // in the downloads folder.
+              fileName: pictureName(file, current.mime, `-${Math.round(current.targetBytes / 1000)}kb`),
               blob: result.blob,
               kind: "image",
               note: `${describeSize(result.size)}${scaled ? " (scaled down)" : ""}, quality ${Math.round(result.quality * 100)}, ${formatBytes(result.blob.size)} from ${formatBytes(file.size)}`,

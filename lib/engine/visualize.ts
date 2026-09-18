@@ -90,7 +90,7 @@ export function audioVideoFormat(settings: AudioVideoSettings, image: BackdropIm
   return {
     id: `audio-video-${backdrop}-${settings.size}`,
     label,
-    blurb: `${size.label}, H.264, ${still ? "a still picture" : "the waveform drawn as it plays"}, the sound copied or made AAC`,
+    blurb: `${size.label}, H.264, ${still ? "a still picture" : "the waveform drawn as it plays"}, the sound copied where an MP4 holds it and made AAC where it does not`,
     lossless: false,
     requiredEncoder: "libx264",
     plan(probe: ProbeResult, context?: PlanContext) {
@@ -145,6 +145,18 @@ export function audioVideoFormat(settings: AudioVideoSettings, image: BackdropIm
         mode: "encode",
         kind: "video",
         fileSuffix: "-video",
+        /*
+         * What happened to the sound, said on the row.
+         *
+         * The page promises the sound is copied when the MP4 can hold it,
+         * which is AAC, MP3, AC-3, E-AC-3 and ALAC; a WAV, a FLAC, an Ogg or
+         * an Opus file has to become AAC. Someone who dropped an MP3 and got
+         * an AAC track back had no way to tell which of those had happened,
+         * so the row now says.
+         */
+        warning: copyAudio
+          ? undefined
+          : `The sound was re-encoded as AAC at 192 kb/s: an MP4 cannot hold ${audioCodec ? audioCodec.toUpperCase() : "this format"}. AAC, MP3, AC-3, E-AC-3 and ALAC are copied as they are.`,
       };
     },
     blocker(probe, context: PlanContext): FormatBlocker | null {

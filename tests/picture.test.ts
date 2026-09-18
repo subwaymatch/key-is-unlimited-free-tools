@@ -117,9 +117,25 @@ describe("the resizer", () => {
     const blocker = resizeFormat({ target: 1080, aspect: "keep" }).blocker!(small, context());
     expect(blocker?.severity).toBe("info");
     expect(blocker?.message).toMatch(/already fits within 1080p/);
-    // A crop changes the shape, so it is always worth offering.
-    expect(resizeFormat({ target: 1080, aspect: "1:1" }).offer!(small, context())).toBe(true);
+    /*
+     * A crop makes the frame smaller, so what is on offer depends on the
+     * frame after the crop: 1280x720 cut square is 720x720, which is already
+     * inside 1080p and is not inside 480p.
+     */
+    expect(resizeFormat({ target: 1080, aspect: "1:1" }).offer!(small, context())).toBe(false);
+    expect(resizeFormat({ target: 480, aspect: "1:1" }).offer!(small, context())).toBe(true);
     expect(resizeFormat({ target: "half", aspect: "keep" }).offer!(small, context())).toBe(true);
+    // A crop always has work to do, so it is never refused as a note.
+    expect(resizeFormat({ target: 1080, aspect: "1:1" }).blocker!(small, context())?.severity).not.toBe("info");
+  });
+
+  it("labels a crop by the size it really produces", () => {
+    const clip = probe({ width: 854, height: 480 });
+    // 854x480 cut to 4:5 is 384x480, which no height from 480p up can shrink.
+    expect(resizeFormat({ target: 1080, aspect: "4:5" }).describe!(clip)).toBe("384x480, 4:5");
+    // 240p is 240 on the short side, and the cropped frame is portrait.
+    expect(resizeFormat({ target: 240, aspect: "4:5" }).describe!(clip)).toBe("240p, 4:5: 240x300");
+    expect(resizeFormat({ target: 360, aspect: "keep" }).describe!(clip)).toBe("360p: 640x360");
   });
 
   it("names the fractions", () => {

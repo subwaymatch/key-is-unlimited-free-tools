@@ -414,7 +414,10 @@ length, with Opus below 64 kbps and mono below 32. The channel tool is `-ac` and
 offers only what applies to the file's channels, so a mono file is offered stereo and a stereo file
 its sides, and vocal removal is the old centre cut, offered honestly as something that works on
 some mixes and not on others. The waveform is `showwavespic` on a mono mix, on a transparent
-background; the spectrogram is `showspectrumpic` with its legend. All of them write an audio file
+background, drawn to the file's own peak: `showwavespic` plots absolute amplitude, so a recording
+that peaks at -18 dBFS would otherwise fill an eighth of the height, and a first `volumedetect`
+pass supplies the gain the second one draws with. The spectrogram is `showspectrumpic` with its
+legend. All of them write an audio file
 back in its own format.
 
 ### Pictures and frames
@@ -692,7 +695,13 @@ each browser and used a Map method a year-old Chromium did not have, which the b
 as a failed card on the first document; the legacy build carries the polyfills and supports
 browsers about two years back, which is the promise the rest of the site makes. A page is rendered to an
 `OffscreenCanvas` at 72, 150 or 300 dpi and encoded by the canvas; text comes back in reading
-order with a line break where the text moves down. The scan compressor redraws every page at a
+order with a line break where the text moves down. The render loop is driven from a
+`MessageChannel` rather than from PDF.js's own `requestAnimationFrame`: PDF.js draws a page in
+slices and asks for the next one through a frame, which Chrome does not run for a minimized
+window or a background tab, so a card sat at "Drawing page 1 of 5" for as long as the tab was
+hidden. `RenderTask.onContinue` is the library's own hook for supplying the tick, and a posted
+message is an ordinary task - not a frame, and not a timer with the one-second floor Chrome puts
+on those in the background. The scan compressor redraws every page at a
 chosen dpi as a JPEG and rebuilds the document at each page's own size in points, which is the
 right tool for a scan and the wrong one for a document that is already text, so a result no
 smaller than the source is reported as a note rather than written.
@@ -995,22 +1004,32 @@ calling large-file support universal.
   WebAssembly thread to offer.
 - The subtitle converter keeps italics, bold and underline and drops everything else: fonts,
   colours, positions, karaoke timing. SRT cannot express them and a file that depended on them
-  would not look the same anywhere else.
+  would not look the same anywhere else. The exception is ASS or SSA written back as ASS, which
+  keeps the source's own `[Script Info]`, styles and override tags and rewrites only the times.
 - Subtitle extraction reads text tracks only. Blu-ray and DVD subtitles are bitmaps, and turning
   them into text is OCR, which is a different tool; they are refused with a reason.
 - Burned-in subtitles are set in DejaVu Sans, the one font the site ships, which covers Latin,
-  Greek and Cyrillic and not Chinese, Japanese, Korean or Arabic; a font for those is tens of
-  megabytes and would need its own download step. An ASS file's own fonts are replaced by it.
+  Greek, Cyrillic, Hebrew, Arabic, Armenian and Georgian, and not Chinese, Japanese, Korean, Thai
+  or the Indic scripts; a font for those is tens of megabytes and would need its own download
+  step. A file the font cannot draw is flagged in the panel before anything is encoded, since
+  finding out afterwards costs a full re-encode; `/add-subtitles` is the way round it, because a
+  text track keeps the text and the player supplies the font. An ASS file's own fonts are
+  replaced by it.
 - The subtitle merger's combined layout pairs cues by overlap, so it is right when both files were
   timed to the same cut of the video and wrong when one runs early or late; shift that one with
   the converter first. The stacked layout's position tag is honoured by VLC, mpv, the browsers and
   most players, and a player that ignores it shows both languages at the bottom.
 - Chapter markers go only where the container has a place for them: MP4, MOV, M4A, MKV, WebM, MP3
-  and Ogg. WAV and FLAC have none and are refused with a reason rather than converted.
+  and Ogg. WAV and FLAC have none and are refused with a reason rather than converted. An MP4
+  carries them twice over - a Nero `chpl` list, which may start after 0:00, and a QuickTime text
+  track, which covers the file from the start whatever the list says - so a first chapter that
+  starts later is given an opening chapter over the gap, unless the panel says to leave it.
 - A video split at its chapters is cut by stream copy, so each piece starts on the keyframe before
-  its chapter and can begin a few seconds early; the sound is cut to the frame. A cut to the frame
-  would be a re-encode of every piece, which is the precise cut on the trimmer, one chapter at a
-  time.
+  its chapter and can begin a few seconds early; the sound is cut to the frame. Each row reports
+  the range its file really holds, measured from the finished piece, so a card never claims a
+  range the file does not have. `/split-video` additionally offers a cut on the frame, which
+  re-encodes every piece to H.264 in an MP4 and is as slow as any encode; the chapter splitter
+  does not, and the precise cut on the trimmer is the way to do it one chapter at a time.
 - The track extractor copies; a track in a codec no container of its own will hold (TrueHD, DTS)
   comes out in a Matroska audio file, which fewer players open. Extract it and drop it on the
   audio converter for an M4A or MP3.
@@ -1038,6 +1057,8 @@ calling large-file support universal.
 - PDFs and ZIPs are worked on in memory, since pdf-lib and fflate build their output there; a
   multi-gigabyte one needs that much room in the browser. ZIPs are classic ZIP, up to 4 GB per
   file and in all: ZIP64 is neither written nor read. Password-protected PDFs and ZIPs are refused.
+  "Download all" writes one of these archives rather than firing a download per file, which is
+  what made Chrome ask whether the site may save several at once.
 - Merging or splitting PDFs copies pages, not documents: bookmarks and form fields do not carry
   over, and fonts and images do.
 - Compressing a PDF redraws every page as a picture, so the text of the result cannot be selected
@@ -1053,6 +1074,8 @@ calling large-file support universal.
 - Joining audio files by copy needs the same codec, sample rate and channel layout; anything else
   is resampled to 48 kHz and re-encoded into the first file's format, and the summary says why.
 - The favicon writer squares a picture about its centre; a wide logo is cropped, not padded.
+  Transparency is kept everywhere but `apple-touch-icon.png`, which is painted onto a colour
+  because iOS composites nothing behind a home-screen icon and a transparent logo lands on black.
 - Cancelling terminates the ffmpeg worker, since ffmpeg blocks its worker while running and cannot
   be interrupted cooperatively. See [Cancelling one format](#cancelling-one-format) for why that is
   survivable. The engine restarts on the next job; the core is already cached, so this costs a

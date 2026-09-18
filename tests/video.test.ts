@@ -553,11 +553,26 @@ describe("a file that is already small enough", () => {
   const format = compressFormat({ ...DEFAULT_COMPRESS_SETTINGS, targetBytes: 25_000_000 });
 
   it("is a note, not a failure, and not worth retrying", () => {
-    const blocker = format.blocker!(probe(), context(5_000_000));
+    // 20 MB against a 25 MB target: nothing to do, and 8, 10 and 16 MB are
+    // all on offer below it, so the card has somewhere to send them.
+    const blocker = format.blocker!(probe(), context(20_000_000));
     expect(blocker?.message).toMatch(/already under 25 MB/);
     expect(blocker?.severity).toBe("info");
     expect(blocker?.retryable).toBe(false);
-    expect(blocker?.hint).toMatch(/smaller size/);
+    expect(blocker?.hint).toMatch(/Pick a smaller size below/);
+  });
+
+  it("does not send anyone to a smaller size when there is none", () => {
+    /*
+     * A 5 MB file is under every preset this tool has, so its card shows no
+     * chips at all. "Pick a smaller size below" with nothing below it was
+     * the dead end this replaces.
+     */
+    const blocker = format.blocker!(probe(), context(5_000_000));
+    expect(blocker?.severity).toBe("info");
+    expect(blocker?.hint).not.toMatch(/smaller size below/);
+    expect(blocker?.hint).toMatch(/under every size this tool offers/);
+    expect(blocker?.hint).toMatch(/the smallest is 8 MB/);
   });
 
   it("is not offered as a chip, while the smaller sizes are", () => {
