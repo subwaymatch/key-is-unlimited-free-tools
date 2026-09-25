@@ -121,7 +121,27 @@ export type ToolIconName =
   | "textquote"
   | "updown"
   | "folderpen"
-  | "packageplus";
+  | "packageplus"
+  | "filelock"
+  | "unlock"
+  | "clipboard"
+  | "book"
+  | "mailopen"
+  | "inbox"
+  | "databasezap"
+  | "link"
+  | "comparearrows"
+  | "sigma"
+  | "mask"
+  | "codexml"
+  | "brackets"
+  | "route"
+  | "mappinoff"
+  | "network"
+  | "filebadge"
+  | "keyround"
+  | "pentool"
+  | "idcard";
 
 export interface ToolMeta {
   /** URL segment. Verb-object, lowercase, hyphenated, and permanent once shipped. */
@@ -169,9 +189,9 @@ export const CATEGORY_BLURBS: Record<ToolCategory, string> = {
   audio: "Extract, convert, clean up and reshape sound, whole or clipped.",
   subtitles: "Convert, merge, extract and burn in captions.",
   images: "Resize, convert, crop, clean and combine pictures, in bulk.",
-  documents: "Merge, split, stamp, shrink and tidy PDFs page by page.",
-  files: "Hash, zip, tar, split, rename and seal any file.",
-  data: "CSV, JSON, Excel and text, converted, cleaned and profiled.",
+  documents: "Merge, split, lock and tidy PDFs, and open e-mails and e-books.",
+  files: "Hash, zip, split and seal files, and check them for secrets.",
+  data: "CSV, JSON, XML, Excel, SQLite and GPS files, converted and cleaned.",
 };
 
 /** Display order for category groupings. */
@@ -1489,6 +1509,246 @@ export const TOOLS: readonly ToolMeta[] = [
     category: "files",
     icon: "packageplus",
     accepts: "Any files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "protect-pdf",
+    name: "Password-protect a PDF",
+    tagline: "A PDF that asks for a password, encrypted with AES-256, printing and copying optional.",
+    description:
+      "Password-protect a PDF entirely in your browser: every page, picture and piece of text encrypted with AES-256 under a password you choose, the handler every current reader opens, with printing, copying and editing forbidden if you like. Nothing is uploaded, so the password and the document never leave your device.",
+    category: "documents",
+    icon: "filelock",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "unlock-pdf",
+    name: "Unlock a PDF",
+    tagline: "A PDF's password taken off, with the password, or its printing and copying lock lifted.",
+    description:
+      "Unlock a PDF entirely in your browser: give the password once and get a copy that opens without one, or drop a PDF that opens freely but will not print or copy and get one that does. Every standard encryption is read: RC4, AES-128 and AES-256. Nothing is uploaded.",
+    category: "documents",
+    icon: "unlock",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "pdf-form-data",
+    name: "Extract PDF form data",
+    tagline: "What was typed into filled PDF forms, one row per form, as a spreadsheet.",
+    description:
+      "Extract the data from filled PDF forms entirely in your browser: drop one form or fifty and get a CSV and JSON with a row per form and a column per field, check boxes as Yes or No and choices as chosen, XFA forms included. Nothing is uploaded.",
+    category: "documents",
+    icon: "clipboard",
+    accepts: "Filled PDF forms",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "epub-to-text",
+    name: "EPUB to text",
+    tagline: "An e-book's chapters as one text file in reading order, or as Markdown.",
+    description:
+      "Convert an EPUB to text entirely in your browser: every chapter in the book's own reading order as one plain text file with a blank line between paragraphs, or as Markdown with its headings, lists and emphasis kept, with the word count on the card. Nothing is uploaded.",
+    category: "documents",
+    icon: "book",
+    accepts: "EPUB files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "extract-email",
+    name: "Open an .eml e-mail",
+    tagline: "A saved e-mail's attachments as files, its text, and its HTML as a page to open.",
+    description:
+      "Open an .eml file entirely in your browser: the attachments of a message saved from Gmail, Apple Mail, Thunderbird or Outlook as files of their own, its text, and its HTML as a web page with its pictures in place, every encoding and character set decoded. Nothing is uploaded.",
+    category: "documents",
+    icon: "mailopen",
+    accepts: ".eml files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "open-msg",
+    name: "Open an Outlook .msg",
+    tagline: "An Outlook message read without Outlook: attachments, text, HTML, and an .eml.",
+    description:
+      "Open an Outlook .msg file entirely in your browser, without Outlook: its sender, recipients and date, its attachments as files, its text and HTML body, and the whole message as an .eml that Apple Mail, Thunderbird and every other mail program opens. Nothing is uploaded.",
+    category: "documents",
+    icon: "inbox",
+    accepts: "Outlook .msg files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "sqlite-to-csv",
+    name: "SQLite to CSV",
+    tagline: "Every table of a .db or .sqlite file as CSV, JSON or a workbook, no SQL needed.",
+    description:
+      "Convert a SQLite database to CSV entirely in your browser: every table of an app's .db, .sqlite or .sqlite3 file as a CSV, a JSON file or a sheet of one Excel workbook, read straight from the file format with no database software. Nothing is uploaded.",
+    category: "data",
+    icon: "databasezap",
+    accepts: "SQLite databases",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "join-csv",
+    name: "Join two CSV files",
+    tagline: "Columns from one CSV added to the matching rows of another, like VLOOKUP.",
+    description:
+      "Join two CSV files entirely in your browser: the rows of one matched to the rows of the other on a column they share, such as an ID or an e-mail, and the second file's columns added alongside, keeping every row of the first, only the matches, or everything. Nothing is uploaded.",
+    category: "data",
+    icon: "link",
+    accepts: "Two CSV files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "compare-csv",
+    name: "Compare two CSV files",
+    tagline: "The rows added, removed and changed between two versions of a table.",
+    description:
+      "Compare two CSV files entirely in your browser: match the rows of two exports on a key column and get a report of every row added, removed or changed, with each changed cell written old -> new, or compare whole rows when there is no key. Nothing is uploaded.",
+    category: "data",
+    icon: "comparearrows",
+    accepts: "Two CSV files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "pivot-csv",
+    name: "Pivot table from CSV",
+    tagline: "Rows grouped, counted, summed or averaged, and spread across a column, with totals.",
+    description:
+      "Make a pivot table from a CSV entirely in your browser: rows grouped by one column and counted, summed, averaged or reduced to their smallest, largest or distinct values, spread across the values of a second column if you like, with row and column totals. Nothing is uploaded.",
+    category: "data",
+    icon: "sigma",
+    accepts: "CSV and TSV files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "anonymize-csv",
+    name: "Anonymize a CSV",
+    tagline: "Names, e-mails, phones and ID numbers found and replaced before a table is shared.",
+    description:
+      "Anonymize a CSV entirely in your browser: the columns holding names, e-mail addresses, phone numbers, addresses, IP addresses, card and ID numbers and birth dates found by their headers and their values, then replaced with consistent stand-ins, masked, hashed or removed. Nothing is uploaded.",
+    category: "data",
+    icon: "mask",
+    accepts: "CSV and TSV files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "format-xml",
+    name: "Format XML",
+    tagline: "XML indented or minified, or told the line and column where it breaks.",
+    description:
+      "Format XML entirely in your browser: a config, a feed, a sitemap or an export indented so it can be read, or minified to one line, with the text inside kept exactly as it was, or the line, column and reason given when the file is not well-formed. Nothing is uploaded.",
+    category: "data",
+    icon: "codexml",
+    accepts: "XML files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "xml-to-json",
+    name: "XML to JSON",
+    tagline: "XML as JSON, or JSON as XML: attributes as @keys, repeats as arrays.",
+    description:
+      "Convert XML to JSON, or JSON to XML, entirely in your browser: attributes become keys starting with @, text beside them #text, and an element that repeats an array, the convention most converters share, with numbers and true or false typed if you like. Nothing is uploaded.",
+    category: "data",
+    icon: "brackets",
+    accepts: "XML and JSON files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "convert-gps",
+    name: "Convert GPX, KML and GeoJSON",
+    tagline: "GPS tracks between GPX, KML, GeoJSON, TCX and CSV, with distance and climb.",
+    description:
+      "Convert GPS files entirely in your browser: GPX from Strava or a watch, KML from Google Earth, GeoJSON from a web map, Garmin's TCX and CSV turned into each other with their tracks, routes, waypoints, heights and times, and the distance, climb and time on the card. Nothing is uploaded.",
+    category: "data",
+    icon: "route",
+    accepts: "GPX, KML, GeoJSON, TCX and CSV files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "trim-gps-track",
+    name: "Hide home on a GPS track",
+    tagline: "The start and end of a run or ride cut off, so sharing it does not share where you live.",
+    description:
+      "Trim a GPS track for privacy entirely in your browser: every point within a chosen distance of where a run, ride or walk starts and ends removed, the way Strava's privacy zones work, plus any place you name, with the times and heights dropped too if you like. Nothing is uploaded.",
+    category: "data",
+    icon: "mappinoff",
+    accepts: "GPX, KML, GeoJSON and TCX files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "sanitize-har",
+    name: "Sanitize a HAR file",
+    tagline: "A browser's network log with the cookies, tokens and passwords taken out.",
+    description:
+      "Sanitize a HAR file entirely in your browser before sending it to a support desk: the cookies, Authorization headers, session tokens, API keys and passwords recorded in it replaced, with the requests, timings and sizes left for whoever is debugging. Nothing is uploaded, which is the only safe way to do it.",
+    category: "files",
+    icon: "network",
+    accepts: "HAR files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "inspect-certificate",
+    name: "Inspect a certificate",
+    tagline: "Who a certificate is for, who issued it, the names it covers and when it expires.",
+    description:
+      "Inspect an SSL/TLS certificate entirely in your browser: the subject and issuer, the names it covers, its validity and days left, its key, its usages and its SHA-256 and SHA-1 fingerprints, from a .pem, .crt, .cer or .der, a whole chain, or a signing request, with the other encoding to download. Nothing is uploaded.",
+    category: "files",
+    icon: "filebadge",
+    accepts: "Certificates and CSRs",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "find-secrets",
+    name: "Find secrets in files",
+    tagline: "API keys, tokens, private keys and passwords left in code, configs and logs.",
+    description:
+      "Find secrets in files entirely in your browser before sharing or publishing them: AWS, GitHub, Stripe, Google, OpenAI, Slack and more than twenty other providers' keys and tokens, private keys, database URLs with passwords and secrets assigned in code, with the line each is on, in text files or a whole ZIP. Nothing is uploaded.",
+    category: "files",
+    icon: "keyround",
+    accepts: "Text files and ZIPs",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "optimize-svg",
+    name: "Optimize SVG",
+    tagline: "An SVG made smaller and safe for a page: editor data out, numbers rounded, scripts gone.",
+    description:
+      "Optimize an SVG entirely in your browser: the data Illustrator, Inkscape, Figma and Sketch leave behind taken out, numbers rounded, whitespace removed and unused ids dropped, and scripts, event handlers and javascript: links removed so it is safe to put on a page. Nothing is uploaded.",
+    category: "images",
+    icon: "pentool",
+    accepts: "SVG files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "passport-photo",
+    name: "Passport photo sheet",
+    tagline: "A photo cut to 35 x 45 mm, 2 x 2 in and more, repeated on a 4 x 6 print to cut out.",
+    description:
+      "Make passport and visa photos to print entirely in your browser: a portrait cut to 35 x 45 mm, 2 x 2 in, 50 x 70 mm or 33 x 48 mm and repeated across a 4 x 6 in photo print, A4 or Letter at 300 dpi with lines to cut along, plus the single photo for an online application. Nothing is uploaded.",
+    category: "images",
+    icon: "idcard",
+    accepts: "Photos",
     status: "live",
     engine: "browser",
   },

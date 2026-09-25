@@ -121,6 +121,26 @@ The live tools, each on its own route:
 | `/sort-lines` | A text file's lines sorted, deduplicated, reversed or shuffled | A collator with numeric order, a stable sort, and a Fisher-Yates shuffle |
 | `/rename-files` | Files renamed by a pattern, back as a ZIP | The pattern's tokens filled per file, names made unique, the files packed unchanged under the new names |
 | `/create-tar` | Files packed into a .tar or .tar.gz | A ustar header written by hand per file, GNU long-name entries where needed, fflate's streaming gzip on the way out |
+| `/protect-pdf` | A PDF that opens only with a password, printing and copying optional | Every string and stream encrypted with AES-256 under a random key, the key sealed by revision 6's iterated hash, through Web Crypto |
+| `/unlock-pdf` | A PDF's known password taken off, or its print and copy lock lifted | RC4 at 40 and 128 bits, AES-128 and AES-256 decrypted on pdf-lib's objects, encrypted object streams recovered and re-parsed |
+| `/pdf-form-data` | What was typed into one filled form or fifty, as a CSV and JSON | pdf-lib's form fields, check boxes as Yes and No; an XFA form's datasets packet read by path |
+| `/epub-to-text` | An e-book as one text or Markdown file, in reading order | The container, the package file's spine, and each chapter's XHTML walked for its blocks |
+| `/extract-email` | A saved .eml's attachments, its text and its HTML as a page | A MIME parser: boundaries, base64 and quoted-printable, RFC 2047 words and RFC 2231 names, any charset |
+| `/open-msg` | An Outlook .msg read without Outlook, and written as an .eml | A compound-file reader, the MAPI property streams, compressed RTF, and a MIME writer |
+| `/sqlite-to-csv` | Every table of a SQLite database as CSV, JSON or a workbook | The file format walked page by page: B-trees, overflow chains, WITHOUT ROWID, no SQL |
+| `/join-csv` | Columns from one CSV added to the matching rows of another | A key index on the second file, one row per match, left, inner or full |
+| `/compare-csv` | The rows added, removed and changed between two versions | Rows matched on a key, cells compared by column name and written old -> new |
+| `/pivot-csv` | Counts, sums or averages by group, spread across a column, with totals | One pass of accumulators per cell, numbers read with thousands separators and currency signs |
+| `/anonymize-csv` | Names, e-mails, phones and ID numbers replaced before sharing | Columns found by header and by value shape, then stand-ins, masks, salted hashes or removal |
+| `/format-xml` | XML indented or minified, or its break found by line and column | A tokenizer that keeps each node's spelling beside its meaning; mixed content left as it was |
+| `/xml-to-json` | XML as JSON and JSON as XML | Attributes as @keys, text as #text, repeats as arrays, and the same convention run backwards |
+| `/convert-gps` | GPX, KML, GeoJSON, TCX and CSV turned into each other | One model of tracks, waypoints and areas; distance by haversine and climb with a 3 m threshold |
+| `/trim-gps-track` | A track with its start and end cut off, so it does not show a home | Every point inside a circle round each end, and round places named, removed; times and heights optional |
+| `/sanitize-har` | A browser's network log with its cookies, tokens and passwords removed | Headers, parameters and JSON fields named like credentials replaced, cookies always, JWTs anywhere |
+| `/inspect-certificate` | What a certificate, chain or CSR says, with its fingerprints | A DER reader and RFC 5280's fields, extensions named, checked against Node's own parser |
+| `/find-secrets` | API keys, tokens and private keys left in files or a ZIP | Each provider's key shape matched exactly, with line and column, the report redacted |
+| `/optimize-svg` | An SVG made smaller and safe to put on a page | Editor namespaces, metadata and unused ids removed, numbers rounded, scripts and handlers stripped |
+| `/passport-photo` | Passport and visa photos laid out on a 4x6 print, A4 or Letter | The photo cut to size at 300 dpi and packed as tightly as the sheet allows, the JPEG told its dpi |
 
 Every media tool is one configuration of the same machinery: a catalogue of formats in
 `lib/engine/`, a page shell in `components/ToolApp.tsx`, and an entry in the registry in
@@ -890,6 +910,52 @@ names, since a browser cannot rename a file where it sits; the TAR writer is the
 a ustar header per file with GNU long-name entries where the name fits neither the field nor the
 prefix, fed through fflate's streaming gzip when asked.
 
+The seventh batch keeps to the same rule - no new runtime and no new dependency - and leans on
+the one thing the earlier batches did not have: a way to read XML. `lib/text/xml.ts` is a small
+tokenizer that keeps each node's raw spelling beside its meaning, says a broken file's line and
+column, and writes the tree back indented or minified with mixed content and `xml:space` left
+alone. The formatter, the JSON converter, the SVG optimiser, the GPS converter, the e-book reader
+and the XFA form reader are all built on it.
+
+Protecting a PDF is the first tool here that writes cryptography into someone else's format.
+pdf-lib neither writes nor reads encryption, so every string and stream of every object is
+encrypted on pdf-lib's own objects with AES-256-CBC and a random IV each, and an `/Encrypt`
+dictionary is written for revision 6, the handler of PDF 2.0: a random file key, sealed under the
+user password and again under an owner password made at random, by algorithm 2.B's iterated
+SHA-256/384/512 over AES-128 rounds. Everything comes from Web Crypto; Web Crypto insists on
+padding, so the unpadded decryptions the handler needs append a block that decrypts to a whole
+block of padding. Unlocking reads every revision in use, RC4 at 40 and 128 bits (with MD5 from the
+checksum tool and RC4 written here), AES-128 and AES-256, with either password, and a file whose
+only lock is on printing opens with none. Object streams are the awkward part: pdf-lib cannot
+inflate an encrypted one and keeps it as an invalid object, so the stream is taken back out of
+that, decrypted with its own object key and handed to pdf-lib's object-stream parser. Both are
+tested against files qpdf wrote in every revision, embedded as base64, and against PDF.js opening
+the protected output; qpdf accepted the output too when it was written.
+
+The readers of other people's formats are written from their specifications. An .eml is MIME:
+boundaries, base64 and quoted-printable, RFC 2047's encoded words and RFC 2231's continued
+parameters, the file read as Latin-1 so an 8-bit body survives to be decoded in its own charset.
+An Outlook .msg is a compound file - a FAT, a mini stream and a red-black tree of directory
+entries - holding MAPI properties as streams named for their id and type; `lib/documents/cfb.ts`
+reads the container and `msg.ts` the message, its recipients, its attachments and any message
+attached to it, and writes the whole as an .eml. Compressed RTF is expanded when that is all a
+message has, checked against the example in its specification. A SQLite database is read page by
+page: the schema table on page 1, each table's B-tree, records with their serial types, overflow
+chains, WITHOUT ROWID tables in primary-key order, and columns added after a table was made; the
+tests build their databases with Node's own SQLite. A certificate is DER walked by hand, its
+extensions named, and checked field by field against Node's `X509Certificate`.
+
+The CSV tools reuse the streaming reader: joining indexes the second file by its key and writes a
+row per match; comparing matches rows on a key and compares cells by column name; the pivot keeps
+an accumulator per cell and computes the totals from the rows rather than from the cells; the
+anonymiser finds columns by header and by the shape of their values - a card number passes Luhn,
+a phone has at least seven digits and some punctuation - and its stand-ins stay consistent across
+the file so the table still joins. The HAR sanitiser, the secret scanner and the GPS trimmer are
+the privacy tools this site is best placed for, since the file in question is exactly the one
+that should not be uploaded to have it cleaned. The passport sheet packs photos as tightly as the
+sheet allows, butting them together when that fits more, and writes 300 dpi into the JPEG's JFIF
+header so it prints at its true size.
+
 ### Cancelling one format
 
 Each output is a format *and* a range, and each can be cancelled on its own. Cancelling one that is
@@ -1102,6 +1168,7 @@ NEXT_PUBLIC_FFMPEG_CORE_BASE_URL=/core npm run build
 node scripts/verify-e2e.mjs                                 # the audio extractor in a browser
 node scripts/verify-video-tools.mjs                         # the video tools and the subtitle converter in a browser
 node scripts/verify-plain-tools.mjs                         # the PDF, data, file and image tools of the fourth, fifth and sixth batches, no ffmpeg needed
+node scripts/verify-plain-tools-2.mjs                       # the seventh batch: PDF passwords and forms, e-mail, e-books, SQLite, CSV, XML, GPS, HAR, certificates, secrets, SVG, passport photos
 node scripts/verify-large-file.mjs                          # >2 GiB input
 ```
 
@@ -1148,7 +1215,14 @@ unequal counts, the size bisection against a fake writer and a real document, th
 for every rotation, the outline parser on numbered and contents-page lines and the outline written
 and walked back with pdf-lib, the table merge, split, sort and record code, the Markdown, HTML and
 SQL writers, the transcript styles, the line sorter, the rename patterns, and a TAR written and
-read back through the reader, gzipped and plain. The canvas and PDF.js's renderer
+read back through the reader, gzipped and plain. The seventh batch adds the XML tokenizer's errors,
+formatting and JSON round trips; PDF encryption against qpdf's files in five revisions and against
+PDF.js; the form reader on pdf-lib forms and an XFA packet; the EPUB reader on nested lists and a
+broken chapter; the MIME parser on encoded words, continued parameters and 8-bit bodies; the
+compound-file and .msg readers on files written by a test writer that olefile read back; SQLite
+databases written by SQLite itself; the join, comparison, pivot and anonymiser; every GPS format
+round-tripped and the privacy trim; the HAR sanitiser; certificates against Node's parser; the
+secret patterns; the SVG cleaner; and the passport layout. The canvas and PDF.js's renderer
 only exist in a browser, and the pages built on them are driven through Chromium by hand-run
 scripts before a release.
 The browser scripts need ffmpeg and ffprobe on `PATH`, plus a Chromium: one Playwright can find
@@ -1207,6 +1281,18 @@ different headers merged, a CSV split every two rows with the header on both pie
 a column descending, written as a Markdown table and as SQL, a workbook read as JSON and an API
 response written as a workbook, an SRT run into paragraphs, and a word list sorted; and two
 files renamed by number into a ZIP and packed into a .tar.gz that is read back block by block.
+
+`verify-plain-tools-2.mjs` drives the seventh batch the same way, with fixtures it makes itself: a
+PDF protected with copying forbidden, refused by PDF.js without the password and read with it,
+then unlocked back and refused with the wrong one; two filled forms read into one CSV; an EPUB's
+chapters in spine order; an .eml's attachment byte for byte; an Outlook message's recipients,
+attachments and inline picture, and the .eml made from it; a SQLite database's two tables; two
+CSVs joined and compared, one pivoted and one anonymised; a feed formatted and a broken file
+located; XML to JSON and back; a GPX ride as GeoJSON and KML and a line trimmed 200 m at each end;
+a HAR with no secret left; a certificate chain and a DER written from a PEM; a GitHub token and
+an AWS key found in a config file; an Inkscape SVG cleaned to one element; and a passport sheet
+measured at 1800 x 1200 and 300 dpi, then laid out on A4 as a PDF. It bundles two TypeScript test
+fixtures with esbuild, which Vite brings in, and needs Node 22 for `node:sqlite`.
 
 `verify-e2e.mjs` drives a real Chromium through the audio extractor's seven cases - an MP4 with AAC, a video with no
 audio track, an MKV with 5.1 FLAC, a hand-set 1s-3s clip, an 8s file padded with two seconds of
