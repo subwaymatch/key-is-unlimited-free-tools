@@ -153,6 +153,12 @@ The live tools, each on its own route:
 | `/inspect-wasm` | A .wasm module's imports, exports, memory, sections and toolchain | The binary format's sections walked, the name, producers and target_features sections read, then WebAssembly.validate |
 | `/inspect-git-bundle` | A git bundle's refs, commits and the files at its tip, without git | A packfile reader: every zlib stream inflated by a decoder that reports where it ended, deltas applied, ids recomputed |
 | `/inspect-font` | A font's names, licence, languages, blocks and features, with a specimen | The sfnt tables read (WOFF inflated), coverage from the cmap, the specimen drawn by FontFace |
+| `/convert-3d-model` | STL, OBJ, PLY, glTF and 3MF turned into each other, upright and in the right units | Readers and writers for each format into one welded mesh; glTF node and 3MF build transforms applied |
+| `/repair-3d-model` | Whether a model will print: watertight, holes, inside-out faces, volume and weight | Edges counted for holes, non-manifold joins and flipped faces; repair welds, reorients shells and fills holes |
+| `/redact-pdf` | Names, e-mails and numbers blacked out of a PDF and removed from it | Matches found in PDF.js's text; each affected page redrawn as a picture with the boxes and rebuilt by pdf-lib |
+| `/check-pdf-redaction` | Whether a redacted PDF still has text under its black boxes | Dark filled rectangles read from each page's operator list, redaction marks from its annotations, text compared |
+| `/compare-pdfs-visually` | Two versions of a PDF compared as they look, removals red and additions green | Both drawn at 110 dpi by PDF.js and compared pixel by pixel; changed pages written to a PDF by pdf-lib |
+| `/edit-epub-metadata` | An e-book's title, authors, series, description and cover changed | Only the managed elements of the package file rewritten; the archive rebuilt with mimetype first and stored |
 
 Every media tool is one configuration of the same machinery: a catalogue of formats in
 `lib/engine/`, a page shell in `components/ToolApp.tsx`, and an entry in the registry in
@@ -1033,6 +1039,33 @@ One fix to shared code came out of this batch: the drop zone prefetches the ~31 
 when a pointer rests on it, which is right on an engine tool and wasted on the tools that never
 load ffmpeg. The plain-queue shells and the two subtitle tools now turn that off.
 
+The 3D tools read STL (binary and ASCII), OBJ, PLY (ASCII and binary), glTF 2.0 (a .glb or a
+.gltf with embedded buffers) and 3MF into one mesh and write any of them back. glTF's node
+hierarchy and 3MF's build and component transforms are applied, so parts land where the file put
+them; a mirroring transform has its triangles turned back. The 3MF reader scans the model XML with
+targeted patterns rather than building a tree, since a printable model can have millions of
+vertices, and follows the production extension's separate object files. Reading trimesh's own
+files gives trimesh's volume, area and bounds to the last digit, and every file written here loads
+in trimesh with the same numbers. The checker counts every edge: once is a hole, three times is
+non-manifold, twice in the same direction is a flipped face. Repair welds vertices, drops
+degenerate and duplicate triangles, walks each shell turning triangles to agree with their
+neighbours, fills each hole with a fan from its centre, and turns any shell whose volume is
+negative the right way out. The preview is a z-buffered software rasteriser, the same code in the
+tests and the page.
+
+Redaction is the tool this site is most suited to, since the file in question is exactly one that
+should not be uploaded. Words, and details found by their shape (e-mail addresses, phone numbers,
+card numbers checked by their Luhn digit, ID numbers, IBANs), are found in the text PDF.js reads
+from each page, joined across text items, and mapped back to rectangles. Every page with a match
+is drawn with the boxes painted in and replaces the original page, so the text underneath no
+longer exists; the other pages are copied untouched, and document properties, bookmarks and
+attachments are not carried over. The checker reads each page's operator list, tracking the
+transform and fill colour, collects the dark filled rectangles and the redaction and dark
+annotations, and reports the characters of text that fall under them. The visual comparison draws
+both versions' pages and colours ink only in the first red and ink only in the second green. The
+EPUB editor rewrites only the elements it manages in the package file's metadata, keeps the rest
+byte for byte, and writes series both the way calibre does and the way EPUB 3 does.
+
 ### Cancelling one format
 
 Each output is a format *and* a range, and each can be cancelled on its own. Cancelling one that is
@@ -1381,7 +1414,11 @@ read back with the link and the Wi-Fi password spelled out; TODO found across tw
 ZIP; a gzipped application log and an access log summarised; a protobuf message decoded raw and
 then with its .proto; PDF.js's colour module identified as Rust with wasm-bindgen; a bundle made
 by git opened with its commit ids matching git's and its tip saved as a ZIP; and DejaVu Sans read
-with a specimen drawn in it. It needs git on the PATH for the bundle.
+with a specimen drawn in it; an STL cube converted to 3MF and glTF, and a box with its bottom
+missing found and repaired to a watertight 8000 mm3; a PDF redacted with its details gone from the
+text, then checked beside one whose box hid nothing; two versions of a PDF compared to the one
+changed page; and an EPUB's title, authors and series changed and read back. It needs git on the
+PATH for the bundle.
 
 `verify-e2e.mjs` drives a real Chromium through the audio extractor's seven cases - an MP4 with AAC, a video with no
 audio track, an MKV with 5.1 FLAC, a hand-set 1s-3s clip, an 8s file padded with two seconds of

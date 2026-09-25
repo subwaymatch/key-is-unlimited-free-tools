@@ -112,7 +112,7 @@ export function SearchFilesApp() {
         const lines = hits.reduce((sum, entry) => sum + entry.search!.matchingLines, 0);
         const occurrences = hits.reduce((sum, entry) => sum + entry.search!.occurrences, 0);
         const skipped = searched.filter((entry) => entry.skipped === "binary");
-        const facts = [`Searched: ${text.length} text ${text.length === 1 ? "file" : "files"}${skipped.length > 0 ? `, ${skipped.length} binary skipped` : ""}`];
+        const searchedLine = `Searched ${text.length} text ${text.length === 1 ? "file" : "files"}${skipped.length > 0 ? `, skipping ${skipped.length} binary` : ""}.`;
         if (lines === 0) {
           return {
             outputs: [],
@@ -133,11 +133,10 @@ export function SearchFilesApp() {
           .slice(0, 8)
           .map((entry) => `${entry.path}: ${entry.search!.matchingLines.toLocaleString("en")} ${entry.search!.matchingLines === 1 ? "line" : "lines"}`);
         if (truncated.length > 0) notes.push(`Only the first ${LIMIT_PER_FILE.toLocaleString("en")} matching lines of a file, and ${LIMIT_TOTAL.toLocaleString("en")} in all, are written out; the counts include the rest.`);
-        facts.push(`Found: ${occurrences.toLocaleString("en")} ${occurrences === 1 ? "match" : "matches"} on ${lines.toLocaleString("en")} ${lines === 1 ? "line" : "lines"} in ${hits.length} ${hits.length === 1 ? "file" : "files"}`);
+        notes.unshift(`${searchedLine} Found ${occurrences.toLocaleString("en")} ${occurrences === 1 ? "match" : "matches"} on ${lines.toLocaleString("en")} ${lines === 1 ? "line" : "lines"} in ${hits.length} ${hits.length === 1 ? "file" : "files"}.`);
         const grepBlob = new Blob([grep], { type: "text/plain;charset=utf-8" });
         const csvBlob = new Blob([`${csv.join("\r\n")}\r\n`], { type: "text/csv;charset=utf-8" });
         return {
-          facts,
           notes,
           outputs: [
             { label: "Matches, grep style", fileName: "search-results.txt", blob: grepBlob, kind: "file", note: `${formatBytes(grepBlob.size)}; file:line:text, context lines with dashes` },

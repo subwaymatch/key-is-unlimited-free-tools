@@ -159,3 +159,55 @@ export async function pageText(document: PDFDocumentProxy, index: number): Promi
   page.cleanup();
   return text.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
+
+/** PDF.js's operator codes, for reading a page's drawing instructions. */
+export async function pdfOps(): Promise<Record<string, number>> {
+  return (await pdfjs()).OPS as unknown as Record<string, number>;
+}
+
+/**
+ * One page drawn as a JPEG with black rectangles painted over it, the
+ * rectangles given in the page's own user space. The page's size in points,
+ * rotation applied, comes back with it for the page that will replace it.
+ */
+export async function renderPageRedacted(document: PDFDocumentProxy, index: number, dpi: number, rects: readonly { x: number; y: number; width: number; height: number }[]): Promise<{ jpeg: Uint8Array; pointWidth: number; pointHeight: number }> {
+  const page = await document.getPage(index + 1);
+  const points = page.getViewport({ scale: 1 });
+  const viewport = page.getViewport({ scale: dpi / 72 });
+  const width = Math.max(1, Math.round(viewport.width));
+  const height = Math.max(1, Math.round(viewport.height));
+  const canvas = typeof OffscreenCanvas === "function" ? new OffscreenCanvas(width, height) : Object.assign(document_(), { width, height });
+  const context = canvas.getContext("2d") as CanvasRenderingContext2D;
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
+  const task = page.render({ canvasContext: context, viewport, canvas: canvas as HTMLCanvasElement });
+  task.onContinue = (continueRendering: () => void) => nextTick(continueRendering);
+  await task.promise;
+  context.fillStyle = "#000000";
+  for (const rect of rects) {
+    const [x1, y1] = viewport.convertToViewportPoint(rect.x, rect.y) as number[];
+    const [x2, y2] = viewport.convertToViewportPoint(rect.x + rect.width, rect.y + rect.height) as number[];
+    context.fillRect(Math.floor(Math.min(x1, x2)), Math.floor(Math.min(y1, y2)), Math.ceil(Math.abs(x2 - x1)) + 1, Math.ceil(Math.abs(y2 - y1)) + 1);
+  }
+  page.cleanup();
+  const blob = await encodeCanvas(canvas, "image/jpeg", 0.9);
+  return { jpeg: new Uint8Array(await blob.arrayBuffer()), pointWidth: points.width, pointHeight: points.height };
+}
+
+/** One page drawn to raw RGBA pixels on white, for comparing. */
+export async function renderPagePixels(document: PDFDocumentProxy, index: number, dpi: number): Promise<{ pixels: Uint8ClampedArray; width: number; height: number; pointWidth: number; pointHeight: number }> {
+  const page = await document.getPage(index + 1);
+  const points = page.getViewport({ scale: 1 });
+  const viewport = page.getViewport({ scale: dpi / 72 });
+  const width = Math.max(1, Math.round(viewport.width));
+  const height = Math.max(1, Math.round(viewport.height));
+  const canvas = typeof OffscreenCanvas === "function" ? new OffscreenCanvas(width, height) : Object.assign(document_(), { width, height });
+  const context = canvas.getContext("2d") as CanvasRenderingContext2D;
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
+  const task = page.render({ canvasContext: context, viewport, canvas: canvas as HTMLCanvasElement });
+  task.onContinue = (continueRendering: () => void) => nextTick(continueRendering);
+  await task.promise;
+  page.cleanup();
+  return { pixels: context.getImageData(0, 0, width, height).data, width, height, pointWidth: points.width, pointHeight: points.height };
+}

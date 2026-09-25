@@ -153,7 +153,13 @@ export type ToolIconName =
   | "binary"
   | "cpu"
   | "gitbranch"
-  | "type";
+  | "type"
+  | "rotate3d"
+  | "wrench"
+  | "eyeoff"
+  | "scaneye"
+  | "columns"
+  | "bookmarked";
 
 export interface ToolMeta {
   /** URL segment. Verb-object, lowercase, hyphenated, and permanent once shipped. */
@@ -1905,6 +1911,78 @@ export const TOOLS: readonly ToolMeta[] = [
     category: "files",
     icon: "type",
     accepts: "Font files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "convert-3d-model",
+    name: "Convert a 3D model",
+    tagline: "STL, OBJ, PLY, glTF and 3MF turned into each other, units and orientation kept right.",
+    description:
+      "Convert 3D models entirely in your browser: STL, OBJ, PLY, glTF (.glb) and 3MF into each other, with node and build transforms applied, units changed if asked, and the model kept upright between Y-up and Z-up formats, plus a preview. Nothing is uploaded.",
+    category: "files",
+    icon: "rotate3d",
+    accepts: "3D models",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "repair-3d-model",
+    name: "Check and repair a 3D model",
+    tagline: "Whether a model will print: watertight, holes, inside-out faces, volume and weight.",
+    description:
+      "Check a 3D model for printing entirely in your browser: its size, volume and weight in PLA, whether it is watertight, and where it has holes, inside-out faces, broken or duplicate triangles, repaired into a new STL or 3MF with a preview. Nothing is uploaded.",
+    category: "files",
+    icon: "wrench",
+    accepts: "3D models",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "redact-pdf",
+    name: "Redact a PDF",
+    tagline: "Names, e-mails and numbers blacked out of a PDF and taken out of it, not just covered.",
+    description:
+      "Redact PDFs entirely in your browser: the words and names you type, and e-mail addresses, phone, card, ID and bank numbers found by their shape, blacked out with the text underneath removed rather than covered, and the document's properties stripped. Nothing is uploaded.",
+    category: "documents",
+    icon: "eyeoff",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "check-pdf-redaction",
+    name: "Check a PDF's redaction",
+    tagline: "Whether a redacted PDF still has the text under its black boxes.",
+    description:
+      "Check a redacted PDF entirely in your browser: every black box and redaction mark on every page compared with the page's text, so text still sitting underneath, one copy and paste away, is found and shown before the file is sent. Nothing is uploaded.",
+    category: "documents",
+    icon: "scaneye",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "compare-pdfs-visually",
+    name: "Compare PDFs visually",
+    tagline: "Two versions of a PDF compared as they look, removals in red and additions in green.",
+    description:
+      "Compare two PDFs visually entirely in your browser: every page of both drawn and compared pixel by pixel, so changes to words, pictures, drawings and layout all show, with what was removed in red and what was added in green, in a PDF of the changed pages. Nothing is uploaded.",
+    category: "documents",
+    icon: "columns",
+    accepts: "Two PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "edit-epub-metadata",
+    name: "Edit EPUB details",
+    tagline: "An e-book's title, authors, series, description and cover changed, nothing else touched.",
+    description:
+      "Edit an EPUB's details entirely in your browser: the title, authors, series and number, language, publisher, date, description, subjects and cover picture, written the way calibre, Apple Books and Kobo read them, with the rest of the book left byte for byte. Nothing is uploaded.",
+    category: "documents",
+    icon: "bookmarked",
+    accepts: "EPUB files",
     status: "live",
     engine: "browser",
   },

@@ -127,6 +127,11 @@ import {
   ScrollText,
   Cpu,
   GitBranch,
+  Rotate3d,
+  Wrench,
+  EyeOff,
+  Columns2,
+  BookMarked,
 } from "lucide-react";
 
 import type { ToolIconName } from "@/lib/tools";
@@ -269,6 +274,12 @@ export const TOOL_ICONS = {
   cpu: Cpu,
   gitbranch: GitBranch,
   type: Type,
+  rotate3d: Rotate3d,
+  wrench: Wrench,
+  eyeoff: EyeOff,
+  scaneye: ScanEye,
+  columns: Columns2,
+  bookmarked: BookMarked,
 } as const satisfies Record<ToolIconName, unknown>;
 
 interface ToolIconProps {

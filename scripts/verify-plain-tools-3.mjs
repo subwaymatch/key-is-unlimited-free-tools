@@ -2,7 +2,8 @@
  * Browser verification of the eighth batch: Markdown, notebooks and YAML
  * converted, JWTs decoded and checked, QR codes made and read, and the
  * developer inspectors: file search, logs, protobuf, WebAssembly, git
- * bundles and fonts.
+ * bundles and fonts, the 3D model converter and repairer, PDF redaction
+ * and its check, visual PDF comparison and the EPUB details editor.
  *
  * Builds nothing itself: run `npm run build` first. Serves the static
  * export, makes its own fixtures in Node - a README, a notebook with a
@@ -28,6 +29,8 @@ import { crc32, deflateSync, gzipSync, inflateSync } from "node:zlib";
 
 import { buildSync } from "esbuild";
 import { strToU8, unzipSync, zipSync } from "fflate";
+import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { chromium } from "playwright-core";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -38,12 +41,16 @@ const PORT = 4177;
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".json": "application/json",
   ".wasm": "application/wasm",
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
   ".txt": "text/plain; charset=utf-8",
+  ".bcmap": "application/octet-stream",
+  ".pfb": "application/octet-stream",
+  ".icc": "application/octet-stream",
 };
 
 const log = (...args) => console.log(...args);
@@ -255,7 +262,34 @@ async function ensureFixtures() {
     '198.51.100.4 - - [10/Oct/2025:14:10:00 -0700] "GET /index.html HTTP/1.1" 200 2326 "-" "Googlebot/2.1"',
     "",
   ].join("\n");
+  const { writeStl } = await importTs("lib/geometry/formats.ts");
+  const cube = (side, drop) => {
+    const positions = [];
+    for (let index = 0; index < 8; index += 1) positions.push(index & 1 ? side : 0, index & 2 ? side : 0, index & 4 ? side : 0);
+    const faces = [[0, 2, 3, 1], [4, 5, 7, 6], [0, 1, 5, 4], [2, 6, 7, 3], [0, 4, 6, 2], [1, 3, 7, 5]].slice(drop ? 1 : 0);
+    return { positions: Float64Array.from(positions), triangles: Uint32Array.from(faces.flatMap(([a, b, c, d]) => [a, b, c, a, c, d])), parts: [], up: "z", unit: null };
+  };
+  const personalPdf = async (word) => {
+    const document = await PDFDocument.create();
+    document.setTitle("Customer record");
+    const font = await document.embedFont(StandardFonts.Helvetica);
+    const first = document.addPage([400, 300]);
+    first.drawText("Name: Ada Lovelace", { x: 30, y: 250, size: 12, font });
+    first.drawText("Email: ada@example.com", { x: 30, y: 230, size: 12, font });
+    first.drawText("SSN: 123-45-6789", { x: 30, y: 210, size: 12, font });
+    first.drawRectangle({ x: 30 + font.widthOfTextAtSize("SSN: ", 12) - 1, y: 206, width: font.widthOfTextAtSize("123-45-6789", 12) + 2, height: 16, color: rgb(0, 0, 0) });
+    const second = document.addPage([400, 300]);
+    second.drawText(`The weather is ${word}.`, { x: 30, y: 250, size: 12, font });
+    return document.save();
+  };
+  const container = '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>';
+  const opf = '<?xml version="1.0" encoding="utf-8"?>\n<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">\n  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\n    <dc:identifier id="id">urn:uuid:1</dc:identifier>\n    <dc:title>Draft</dc:title>\n    <dc:creator>Unknown</dc:creator>\n    <dc:language>en</dc:language>\n  </metadata>\n  <manifest><item id="c1" href="one.xhtml" media-type="application/xhtml+xml"/></manifest>\n  <spine><itemref idref="c1"/></spine>\n</package>\n';
   return {
+    personal: write("record.pdf", await personalPdf("fine")),
+    personalChanged: write("record-v2.pdf", await personalPdf("stormy")),
+    book: write("draft.epub", Buffer.from(zipSync({ mimetype: [strToU8("application/epub+zip"), { level: 0 }], "META-INF/container.xml": strToU8(container), "OEBPS/content.opf": strToU8(opf), "OEBPS/one.xhtml": strToU8("<html><body><p>One.</p></body></html>") }))),
+    cubeStl: write("cube.stl", writeStl(cube(20, false))),
+    openStl: write("open-box.stl", writeStl(cube(20, true))),
     notesA: write("notes-a.txt", "shopping\nTODO: buy milk\neggs\n"),
     notesB: write("app.js", "const a = 1;\n// todo later\nfunction run() {}\n// TODO: tests\n"),
     zipped: write("more.zip", Buffer.from(zipSync({ "docs/plan.md": strToU8("# Plan\n\n- TODO: write the plan\n") }))),
@@ -299,6 +333,16 @@ async function main() {
   const fixtures = await ensureFixtures();
   const { parseYaml } = await importTs("lib/data/yaml.ts");
   const { readQrCodes } = await importTs("lib/qr/detect.ts");
+  const { readModel } = await importTs("lib/geometry/formats.ts");
+  const { analyzeMesh } = await importTs("lib/geometry/mesh.ts");
+  const { readEpubInfo } = await importTs("lib/documents/epubMetadata.ts");
+  const pdfPages = async (bytes) => {
+    const pdf = await getDocument({ data: new Uint8Array(bytes), useWorkerFetch: false, disableFontFace: true, verbosity: 0 }).promise;
+    const pages = [];
+    for (let number = 1; number <= pdf.numPages; number += 1) pages.push((await (await pdf.getPage(number)).getTextContent()).items.map((item) => item.str ?? "").join(" "));
+    const { info } = await pdf.getMetadata();
+    return { pages, info };
+  };
   const readPng = (bytes) => {
     const { width, height, gray } = decodePng(bytes);
     return readQrCodes(gray, width, height).map((code) => code.text);
@@ -342,7 +386,7 @@ async function main() {
     log("\nIndex:");
     await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "networkidle" });
     const links = await page.locator("main a[href^='/']").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("href")));
-    for (const slug of ["markdown-to-html", "notebook-to-html", "yaml-to-json", "decode-jwt", "create-qr-code", "read-qr-code", "search-files", "analyze-log", "decode-protobuf", "inspect-wasm", "inspect-git-bundle", "inspect-font"]) check(`index links to /${slug}`, links.includes(`/${slug}`));
+    for (const slug of ["markdown-to-html", "notebook-to-html", "yaml-to-json", "decode-jwt", "create-qr-code", "read-qr-code", "search-files", "analyze-log", "decode-protobuf", "inspect-wasm", "inspect-git-bundle", "inspect-font", "convert-3d-model", "repair-3d-model", "redact-pdf", "check-pdf-redaction", "compare-pdfs-visually", "edit-epub-metadata"]) check(`index links to /${slug}`, links.includes(`/${slug}`));
 
     // ---- Markdown --------------------------------------------------------
     log("\nMarkdown to HTML - a README as a page, then with a table of contents:");
@@ -481,6 +525,7 @@ async function main() {
     check("context lines with dashes", grep.includes("notes-a.txt-1-shopping"));
     const table = (await download(page.getByRole("link", { name: "Download search-results.csv" }))).bytes.toString("utf8");
     check("the CSV has a row per matching line", table.trim().split("\n").length === 5, `${table.trim().split("\n").length - 1} rows`);
+    check("the summary counts them", (await page.locator("main").innerText()).includes("Searched 3 text files. Found 4 matches on 4 lines in 3 files."));
     await shot("search-files");
 
     // ---- Logs ------------------------------------------------------------
@@ -557,6 +602,90 @@ async function main() {
     const characters = (await downloadNamed(fontCard, "DejaVuSans-characters.txt")).bytes.toString("utf8");
     check("every character listed by block", characters.startsWith("Basic Latin (94)"));
     await shot("inspect-font");
+
+    // ---- 3D --------------------------------------------------------------
+    log("\nConvert a 3D model - an STL cube to 3MF and to glTF:");
+    await open("convert-3d-model");
+    await drop([fixtures.cubeStl]);
+    const toMf = cardFor("cube.stl");
+    await done(toMf);
+    const mf = analyzeMesh(readModel(new Uint8Array((await downloadNamed(toMf, "cube.3mf")).bytes), "cube.3mf").mesh);
+    check("the 3MF is the same watertight 8000 mm3 cube", mf.watertight && Math.abs(mf.volume - 8000) < 1e-6 && mf.vertices === 8, JSON.stringify({ volume: mf.volume, vertices: mf.vertices }));
+    check("with a preview", (await toMf.innerText()).includes("Preview"));
+    await openSettings(/^Format & size/);
+    await page.getByRole("radio", { name: /^glTF/ }).click();
+    await drop([fixtures.cubeStl]);
+    const toGlb = cardFor("cube.stl", 1);
+    await done(toGlb);
+    const glb = readModel(new Uint8Array((await downloadNamed(toGlb, "cube.glb")).bytes), "cube.glb").mesh;
+    check("the glTF is Y-up, turned to stay upright", glb.up === "y" && Math.abs(analyzeMesh(glb).volume - 8000) < 1e-6 && /turned a quarter/.test(await toGlb.innerText()));
+    await shot("convert-3d-model");
+
+    log("\nCheck and repair a 3D model - a sound cube, then a box with its bottom missing:");
+    await open("repair-3d-model");
+    await drop([fixtures.cubeStl]);
+    const sound = cardFor("cube.stl");
+    await done(sound);
+    const soundText = await sound.innerText();
+    check("a sound cube is watertight, 8 cm3, about 10 g of PLA", /Watertight\s*yes/.test(soundText) && soundText.includes("8.00 cm3") && soundText.includes("about 10 g of PLA") && soundText.includes("Nothing to repair"), soundText.replace(/\s+/g, " ").slice(0, 240));
+    await drop([fixtures.openStl]);
+    const open_ = cardFor("open-box.stl");
+    await done(open_);
+    check("the open box's hole is found", /1 hole \(4 open edges\)/.test(await open_.innerText()));
+    const fixed = analyzeMesh(readModel(new Uint8Array((await downloadNamed(open_, "open-box-repaired.stl")).bytes), "fixed.stl").mesh);
+    check("and filled: the repaired box is watertight and 8000 mm3", fixed.watertight && Math.abs(fixed.volume - 8000) < 1e-3, JSON.stringify({ watertight: fixed.watertight, volume: fixed.volume }));
+    await shot("repair-3d-model");
+
+    // ---- Redaction ---------------------------------------------------------
+    log("\nRedact a PDF - a name typed, and e-mails and ID numbers by their shape:");
+    await open("redact-pdf");
+    await page.getByLabel("Words and names to remove").fill("Ada Lovelace");
+    await drop([fixtures.personal]);
+    const redactCard = cardFor("record.pdf");
+    await done(redactCard);
+    const redactedFile = await downloadNamed(redactCard, "record-redacted.pdf");
+    const redacted = await pdfPages(redactedFile.bytes);
+    check("the page with personal details has no text left at all", redacted.pages[0].trim() === "", JSON.stringify(redacted.pages[0]));
+    check("the other page is untouched, text and all", redacted.pages[1].includes("weather"));
+    check("the document's title is gone", redacted.info.Title === undefined);
+    check("the card says what was removed", /1 e-mail addresses/.test(await redactCard.innerText()) && /1 typed words/.test(await redactCard.innerText()), (await redactCard.innerText()).replace(/\s+/g, " ").slice(0, 200));
+    await shot("redact-pdf");
+
+    log("\nCheck a PDF's redaction - a box drawn over text, then a real redaction:");
+    await open("check-pdf-redaction");
+    await drop([fixtures.personal, redactedFile.path]);
+    const badCard = cardFor("record.pdf");
+    await done(badCard);
+    const badText = await badCard.innerText();
+    check("the box over the ID number hides nothing", badText.includes("123-45-6789") && /does not work/.test(badText));
+    const goodCard = cardFor("record-redacted.pdf");
+    await done(goodCard);
+    check("the real redaction passes", /no black boxes or redaction marks|no text underneath/.test(await goodCard.innerText()) && !(await goodCard.innerText()).includes("123-45-6789"));
+    await shot("check-pdf-redaction");
+
+    log("\nCompare PDFs visually - one word changed on page 2:");
+    await open("compare-pdfs-visually");
+    await drop([fixtures.personal, fixtures.personalChanged]);
+    await page.getByRole("button", { name: "Compare the two PDFs" }).click();
+    const comparison = await download(page.getByRole("link", { name: "Download record-vs-record-v2.pdf" }));
+    const comparisonPdf = await PDFDocument.load(comparison.bytes);
+    check("one changed page in the comparison", comparisonPdf.getPageCount() === 1);
+    check("named as page 2", (await page.locator("main").innerText()).includes("changed: page 2."));
+    await shot("compare-pdfs-visually");
+
+    // ---- EPUB --------------------------------------------------------------
+    log("\nEdit EPUB details - title, authors and series:");
+    await open("edit-epub-metadata");
+    await page.locator('input[type="file"]').first().setInputFiles(fixtures.book);
+    await page.getByLabel("Title").fill("The Finished Book");
+    await page.getByLabel(/^Authors/).fill("Ada Lovelace\nCharles Babbage");
+    await page.getByLabel("Series", { exact: true }).fill("Engines");
+    await page.getByLabel("Number in the series").fill("2");
+    const epub = await download(page.getByRole("button", { name: "Save the EPUB" }));
+    const epubInfo = readEpubInfo(unzipSync(new Uint8Array(epub.bytes)));
+    check("the saved book has the new details", epubInfo.metadata.title === "The Finished Book" && epubInfo.metadata.authors.join("|") === "Ada Lovelace|Charles Babbage" && epubInfo.metadata.series === "Engines" && epubInfo.metadata.seriesIndex === "2", JSON.stringify(epubInfo.metadata));
+    check("mimetype first and stored", epub.bytes.toString("latin1", 30, 38) === "mimetype" && epub.bytes.readUInt16LE(8) === 0);
+    await shot("edit-epub-metadata");
 
     log("\nPage:");
     check("no uncaught page errors", pageErrors.length === 0, pageErrors.slice(0, 3).join(" | "));
