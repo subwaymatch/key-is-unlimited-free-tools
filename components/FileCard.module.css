@@ -1,9 +1,14 @@
 /*
- * A queue item is a row in a list, not a box. The gap between siblings
- * separates them now, so it needs neither a rule nor padding of its own.
+ * A queue item is a card: the file at the top, what is happening to it or
+ * what came out of it underneath. Outputs are rows inside the card, split by
+ * hairlines, so one file's results read as one thing.
  */
 .card {
-  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 1rem 1.125rem;
+  box-shadow: var(--shadow-sm);
 }
 
 .header {
@@ -19,7 +24,7 @@
   flex: 1 1 0%;
   display: flex;
   align-items: center;
-  gap: 0.625rem;
+  gap: 0.75rem;
 }
 
 .identityText {
@@ -39,7 +44,8 @@
   display: flex;
   min-width: 0;
   overflow: hidden;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
 }
 
 /*
@@ -70,8 +76,9 @@
   width: 5rem;
   aspect-ratio: 16 / 9;
   border-radius: var(--radius-sm);
-  background: var(--muted);
+  background: var(--surface-2);
   object-fit: cover;
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .meta {
@@ -87,22 +94,49 @@
   gap: 0.5rem;
 }
 
+/* ---- Status pill ------------------------------------------------------- */
+
 .status {
-  border-radius: 9999px;
-  padding: 0.125rem 0.5rem;
-  font-size: var(--text-sm);
-  line-height: var(--leading-sm);
-  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border-radius: var(--radius-full);
+  padding: 0.1875rem 0.625rem 0.1875rem 0.5rem;
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  font-weight: 600;
+}
+
+.status::before {
+  content: "";
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border-radius: var(--radius-full);
+  background: currentColor;
 }
 
 .statusIdle {
-  background: var(--border);
+  background: var(--surface-2);
   color: var(--muted-foreground);
 }
 
 .statusBusy {
-  background: var(--muted);
-  color: var(--foreground);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.statusBusy::before {
+  animation: status-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
 .statusDone {
@@ -119,13 +153,14 @@
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   background: var(--secondary);
   color: var(--secondary-foreground);
-  padding: 0.25rem 0.625rem;
+  padding: 0.3125rem 0.75rem;
   font-size: var(--text-sm);
   line-height: var(--leading-sm);
-  font-weight: 500;
+  font-weight: 550;
   transition: background-color 150ms;
 }
 
@@ -136,7 +171,7 @@
 /* ---- Running phase ----------------------------------------------------- */
 
 .progress {
-  margin-top: 0.75rem;
+  margin-top: 0.875rem;
 }
 
 .phaseRow {
@@ -147,8 +182,8 @@
 }
 
 .phase {
-  font-size: var(--text-base);
-  line-height: var(--leading-base);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
   color: var(--muted-foreground);
 }
 
@@ -160,23 +195,23 @@
 }
 
 .progressBar {
-  margin-top: 0.375rem;
+  margin-top: 0.5rem;
 }
 
 /* ---- Failure ----------------------------------------------------------- */
 
 .alert {
-  margin-top: 0.75rem;
-  border: 1px solid color-mix(in srgb, var(--destructive) 40%, transparent);
-  border-radius: var(--radius-lg);
+  margin-top: 0.875rem;
+  border: 1px solid var(--destructive-border);
+  border-radius: var(--radius);
   background: var(--destructive-soft);
-  padding: 0.5rem 0.75rem;
+  padding: 0.625rem 0.875rem;
   font-size: var(--text-base);
   line-height: var(--leading-base);
 }
 
 .alertMessage {
-  font-weight: 500;
+  font-weight: 600;
   color: var(--destructive);
 }
 
@@ -195,31 +230,40 @@
  * already what was asked for. Same shape, no alarm.
  */
 .note {
-  margin-top: 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--muted);
-  padding: 0.5rem 0.75rem;
+  margin-top: 0.875rem;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: 0.625rem 0.875rem;
   font-size: var(--text-base);
   line-height: var(--leading-base);
 }
 
 .noteMessage {
-  font-weight: 500;
+  font-weight: 600;
   color: var(--foreground);
 }
 
 /* ---- Outputs ----------------------------------------------------------- */
 
 .outputs {
-  margin-top: 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1.125rem;
+  margin-top: 0.875rem;
+  border-top: 1px solid var(--border);
+}
+
+.outputs > li {
+  padding: 0.75rem 0;
+}
+
+.outputs > li + li {
+  border-top: 1px solid var(--border);
+}
+
+.outputs > li:last-child {
+  padding-bottom: 0.125rem;
 }
 
 .row {
-  /* A row, not a tile: spacing separates these, not a fill. */
+  /* A row, not a tile: the hairlines separate these, not a fill. */
 }
 
 .rowHead {
@@ -227,39 +271,41 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.25rem 0.75rem;
+  gap: 0.375rem 0.75rem;
 }
 
 .rowLabel {
   display: flex;
   min-width: 0;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.375rem;
 }
 
 .formatName {
+  margin-right: 0.125rem;
   font-size: var(--text-base);
   line-height: var(--leading-base);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .tag {
-  border-radius: var(--radius-sm);
-  padding: 0.125rem 0.375rem;
-  font-size: var(--text-sm);
-  line-height: 1.2;
-  font-weight: 500;
+  border-radius: var(--radius-full);
+  padding: 0.125rem 0.5rem;
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  font-weight: 600;
   white-space: nowrap;
 }
 
 .tagRange {
-  background: var(--muted);
+  background: var(--surface-2);
   color: var(--foreground);
   font-variant-numeric: tabular-nums;
 }
 
 .tagExt {
-  background: var(--muted);
+  background: var(--surface-2);
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
@@ -294,11 +340,12 @@
   gap: 0.375rem;
   border-radius: var(--radius);
   background: var(--primary);
-  padding: 0.25rem 0.625rem;
+  padding: 0.3125rem 0.75rem;
   font-size: var(--text-sm);
   line-height: var(--leading-sm);
-  font-weight: 500;
+  font-weight: 600;
   color: var(--primary-foreground);
+  box-shadow: var(--shadow-sm);
   transition: background-color 150ms;
 }
 
@@ -317,6 +364,7 @@
 }
 
 .rowErrorMessage {
+  font-weight: 500;
   color: var(--destructive);
 }
 
@@ -347,7 +395,7 @@
 }
 
 .chips {
-  margin-top: 0.75rem;
+  margin-top: 0.875rem;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -357,24 +405,17 @@
 .chipsLabel {
   font-size: var(--text-sm);
   line-height: var(--leading-sm);
+  font-weight: 500;
   color: var(--muted-foreground);
 }
 
-.chip {
-  border-radius: var(--radius);
-  background: var(--secondary);
-  padding: 0.125rem 0.5rem;
-  font-size: var(--text-sm);
-  line-height: var(--leading-sm);
-  font-weight: 500;
-  transition:
-    border-color 150ms,
-    color 150ms;
+.chips .chip {
+  border-radius: var(--radius-full);
 }
 
-.chip:hover:not(:disabled) {
-  border-color: var(--primary);
-  color: var(--foreground);
+.chips .chip:hover:not([data-disabled]) {
+  border-color: var(--brand-500);
+  color: var(--accent);
 }
 
 .chip:disabled {
@@ -382,30 +423,36 @@
 }
 
 .disclosure {
-  margin-top: 0.75rem;
+  margin-top: 0.875rem;
 }
 
 .disclosureButton {
   font-size: var(--text-sm);
   line-height: var(--leading-sm);
+  font-weight: 500;
   color: var(--subtle);
-  text-underline-offset: 2px;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition:
+    color 120ms,
+    text-decoration-color 120ms;
 }
 
 .disclosureButton:hover {
-  color: var(--muted-foreground);
-  text-decoration: underline;
+  color: var(--foreground);
+  text-decoration-color: currentColor;
 }
 
 .log {
   margin-top: 0.5rem;
   max-height: 16rem;
   overflow: auto;
-  border-radius: var(--radius-lg);
-  background: var(--muted);
-  padding: 0.75rem;
-  font-size: var(--text-sm);
-  line-height: 1.625;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: 0.75rem 0.875rem;
+  font-size: var(--text-xs);
+  line-height: 1.7;
   color: var(--muted-foreground);
 }
 
@@ -415,7 +462,7 @@
  * does not take the whole viewport.
  */
 .videoPreview {
-  margin-top: 0.75rem;
+  margin-top: 0.875rem;
   width: 100%;
   max-height: 24rem;
   border-radius: var(--radius);
@@ -423,10 +470,11 @@
 }
 
 .imagePreview {
-  margin-top: 0.75rem;
+  margin-top: 0.875rem;
   max-height: 24rem;
   border-radius: var(--radius);
-  background: var(--muted);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 /* ---- Narrow screens ---------------------------------------------------- */
@@ -440,6 +488,10 @@
  * width and nothing overlaps.
  */
 @media (max-width: 480px) {
+  .card {
+    padding: 0.875rem 1rem;
+  }
+
   /*
    * `flex-wrap: nowrap` is not decoration. A wrapping *column* flex lays its
    * items out in columns whose width comes from their content, so `stretch`

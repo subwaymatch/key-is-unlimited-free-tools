@@ -1,7 +1,15 @@
 /* ---- Settings disclosure ----------------------------------------------- */
 
+/*
+ * A card of its own: a header row that says what is set, and a body that
+ * opens under it. The summary sits in a pill so it reads as a value rather
+ * than as more heading.
+ */
 .settings {
-  border-top: 1px solid var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
 }
 
 .settingsToggle {
@@ -10,26 +18,58 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.75rem 1rem;
+  border-radius: inherit;
+  padding: 0.875rem 1rem;
   text-align: left;
+  transition: background-color 120ms;
+}
+
+.settingsToggle:hover {
+  background: color-mix(in srgb, var(--surface-2) 60%, var(--surface));
+}
+
+.settingsToggle[aria-expanded="true"] {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 .settingsTitle {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem 0.625rem;
   font-size: var(--text-base);
   line-height: var(--leading-base);
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
 }
 
 .settingsSummary {
-  margin-left: 0.5rem;
-  font-weight: 400;
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: var(--radius-full);
+  background: var(--surface-2);
+  padding: 0.125rem 0.625rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  font-weight: 500;
+  letter-spacing: var(--tracking-body);
   color: var(--muted-foreground);
 }
 
 .chevron {
-  width: 1rem;
-  height: 1rem;
+  display: flex;
+  width: 1.5rem;
+  height: 1.5rem;
   flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  background: var(--surface-2);
   color: var(--muted-foreground);
   transition: transform 150ms;
 }
@@ -41,14 +81,15 @@
 .settingsBody {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
-  padding: 1rem 0;
+  gap: 1.5rem;
+  border-top: 1px solid var(--border);
+  padding: 1.125rem 1rem 1.25rem;
 }
 
 /* ---- Queue ------------------------------------------------------------- */
 
 .queueHeader {
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.75rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -56,45 +97,66 @@
 }
 
 .queueCount {
-  font-size: var(--text-base);
-  line-height: var(--leading-base);
-  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--text-md);
+  line-height: var(--leading-md);
+  font-weight: 650;
+  letter-spacing: var(--tracking-tight);
 }
 
 .queueRemaining {
-  margin-left: 0.5rem;
-  font-weight: 400;
-  color: var(--muted-foreground);
+  border-radius: var(--radius-full);
+  background: var(--accent-soft);
+  padding: 0.125rem 0.5rem;
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-body);
+  color: var(--accent);
 }
 
 .jobs {
   display: flex;
   flex-direction: column;
-  gap: 2rem;
+  gap: 0.875rem;
 }
 
 .totalRow {
-  margin-top: 0.75rem;
+  margin-top: 0.875rem;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  padding: 0.75rem 1rem;
 }
 
 .total {
   font-size: var(--text-sm);
   line-height: var(--leading-sm);
-  color: var(--subtle);
+  font-weight: 500;
+  color: var(--muted-foreground);
 }
 
 /* ---- Settings extras --------------------------------------------------- */
 
 /* Why the tool cannot start a job with the settings as they stand. */
 .settingsError {
-  padding: 0 1rem 0.75rem;
+  display: flex;
+  gap: 0.5rem;
+  border-top: 1px solid var(--destructive-border);
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
+  background: var(--destructive-soft);
+  padding: 0.625rem 1rem;
   font-size: var(--text-sm);
   line-height: var(--leading-sm);
+  font-weight: 500;
   color: var(--destructive);
 }
 
@@ -108,15 +170,17 @@
 
 .checkboxRow input {
   margin-top: 0.2rem;
+  width: 1rem;
+  height: 1rem;
   flex: none;
-  accent-color: var(--primary);
+  accent-color: var(--accent);
 }
 
 .checkboxLabel {
   display: block;
   font-size: var(--text-base);
   line-height: var(--leading-base);
-  font-weight: 500;
+  font-weight: 550;
 }
 
 .checkboxBlurb {
@@ -126,4 +190,3 @@
   line-height: var(--leading-sm);
   color: var(--muted-foreground);
 }
-

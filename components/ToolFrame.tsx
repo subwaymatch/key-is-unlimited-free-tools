@@ -1,9 +1,12 @@
+import { ChevronRight } from "lucide-react";
+import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { CORE_VERSION, FFMPEG_VERSION } from "@/lib/engine/constants";
 import { formatBytes } from "@/lib/format-utils";
-import type { ToolMeta } from "@/lib/tools";
+import { CATEGORY_LABELS, type ToolMeta } from "@/lib/tools";
 
+import { IconTile } from "./IconTile";
 import styles from "./ToolFrame.module.css";
 
 /** Files this large rely on the WORKERFS mount path rather than an in-memory copy. */
@@ -19,7 +22,8 @@ interface ToolFrameProps {
 }
 
 /**
- * The page around any tool: title, lead, the tool itself, fine print.
+ * The page around any tool: a breadcrumb, the icon and title, the lead, the
+ * tool itself, fine print.
  *
  * Shared by the queue-driven tools and the ones with a shape of their own, so
  * every tool page has the same width, the same header and the same footer
@@ -29,7 +33,19 @@ export function ToolFrame({ tool, lead, children, footer }: ToolFrameProps) {
   return (
     <main className={styles.page}>
       <header className={styles.header}>
-        <h1 className={styles.title}>{tool.name}</h1>
+        <nav aria-label="Breadcrumb" className={styles.crumbs}>
+          <Link href="/" className={styles.crumb}>
+            All tools
+          </Link>
+          <ChevronRight aria-hidden="true" size={14} strokeWidth={2} className={styles.crumbSep} />
+          <Link href={`/#${tool.category}`} className={styles.crumb}>
+            {CATEGORY_LABELS[tool.category]}
+          </Link>
+        </nav>
+        <div className={styles.titleRow}>
+          <IconTile icon={tool.icon} category={tool.category} size="lg" />
+          <h1 className={styles.title}>{tool.name}</h1>
+        </div>
         <p className={styles.tagline}>{lead}</p>
       </header>
 

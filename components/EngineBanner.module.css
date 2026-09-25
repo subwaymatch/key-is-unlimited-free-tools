@@ -1,21 +1,21 @@
 .banner {
-  border: 0;
+  border: 1px solid var(--accent-soft-border);
   border-radius: var(--radius-lg);
-  background: var(--muted);
-  padding: 0.75rem 1rem;
+  background: var(--accent-soft);
+  padding: 0.875rem 1rem;
 }
 
 .error {
-  border: 1px solid color-mix(in srgb, var(--destructive) 40%, transparent);
+  border: 1px solid var(--destructive-border);
   border-radius: var(--radius-lg);
   background: var(--destructive-soft);
-  padding: 0.75rem 1rem;
+  padding: 0.875rem 1rem;
   font-size: var(--text-base);
   line-height: var(--leading-base);
 }
 
 .errorMessage {
-  font-weight: 500;
+  font-weight: 600;
   color: var(--destructive);
 }
 
@@ -35,7 +35,8 @@
 .title {
   font-size: var(--text-base);
   line-height: var(--leading-base);
-  font-weight: 500;
+  font-weight: 600;
+  color: var(--accent);
 }
 
 .bytes {
@@ -46,7 +47,7 @@
 }
 
 .bar {
-  margin-top: 0.5rem;
+  margin-top: 0.625rem;
 }
 
 .note {
@@ -63,9 +64,10 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 0.5rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
   border-radius: var(--radius-lg);
   background: var(--warning-soft);
-  padding: 0.5rem 0.75rem;
+  padding: 0.625rem 0.875rem;
   font-size: var(--text-sm);
   line-height: var(--leading-sm);
   color: var(--warning);
@@ -73,8 +75,8 @@
 
 .dismiss {
   flex: none;
-  font-weight: 500;
+  font-weight: 600;
   color: inherit;
   text-decoration: underline;
-  text-underline-offset: 2px;
+  text-underline-offset: 3px;
 }

@@ -1,8 +1,8 @@
-import Link from "next/link";
+import { BadgeCheck, Infinity as InfinityIcon, LockKeyhole, Sparkles } from "lucide-react";
 
-import { ToolIcon } from "@/components/ToolIcon";
+import { ToolIndex } from "@/components/ToolIndex";
 import { PROMISE, PROMISE_QUALIFIER, PROMISE_REASON } from "@/lib/site";
-import { CATEGORY_LABELS, liveToolsByCategory, toolPath } from "@/lib/tools";
+import { liveTools } from "@/lib/tools";
 
 import styles from "./page.module.css";
 
@@ -14,35 +14,61 @@ import styles from "./page.module.css";
  * away whatever ranking it had earned by then.
  */
 export default function Page() {
-  const groups = liveToolsByCategory();
+  const count = liveTools().length;
 
   return (
     <main className={styles.page}>
-      <header className={styles.header}>
-        <h1 className={styles.title}>{PROMISE}</h1>
-        <p className={styles.reason}>{PROMISE_REASON}</p>
-        <p className={styles.qualifier}>{PROMISE_QUALIFIER}</p>
-      </header>
+      <ToolIndex
+        hero={
+          <>
+            <p className={styles.eyebrow}>
+              <Sparkles aria-hidden="true" size={14} strokeWidth={2} />
+              {count} tools, all in your browser
+            </p>
+            <h1 className={styles.title}>{PROMISE}</h1>
+            <p className={styles.reason}>{PROMISE_REASON}</p>
+          </>
+        }
+        note={PROMISE_QUALIFIER}
+      />
 
-      {groups.map(({ category, tools }) => (
-        <section key={category} className={styles.group}>
-          <h2 className={styles.groupTitle}>{CATEGORY_LABELS[category]}</h2>
-          <ul className={styles.list}>
-            {tools.map((tool) => (
-              <li key={tool.slug}>
-                <Link href={toolPath(tool)} className={styles.card}>
-                  <span className={styles.cardHead}>
-                    <ToolIcon name={tool.icon} className={styles.icon} />
-                    <span className={styles.name}>{tool.name}</span>
-                  </span>
-                  <span className={styles.tagline}>{tool.tagline}</span>
-                  <span className={styles.accepts}>{tool.accepts}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))}
+      <ul className={styles.pillars} aria-label="What makes this possible">
+        <li className={styles.pillar}>
+          <span className={styles.pillarIcon}>
+            <LockKeyhole aria-hidden="true" size={18} strokeWidth={2} />
+          </span>
+          <span>
+            <span className={styles.pillarTitle}>Nothing is uploaded</span>
+            <span className={styles.pillarText}>
+              A file is opened by the page and handed to an engine running in this tab. No server
+              ever sees it.
+            </span>
+          </span>
+        </li>
+        <li className={styles.pillar}>
+          <span className={styles.pillarIcon}>
+            <InfinityIcon aria-hidden="true" size={18} strokeWidth={2} />
+          </span>
+          <span>
+            <span className={styles.pillarTitle}>No file size limit</span>
+            <span className={styles.pillarText}>
+              Large files are read from disk on demand rather than loaded into memory, so a 3 GB
+              video works like a 3 MB one.
+            </span>
+          </span>
+        </li>
+        <li className={styles.pillar}>
+          <span className={styles.pillarIcon}>
+            <BadgeCheck aria-hidden="true" size={18} strokeWidth={2} />
+          </span>
+          <span>
+            <span className={styles.pillarTitle}>Free, with no account</span>
+            <span className={styles.pillarText}>
+              No sign-up, no quota, no queue and nothing to buy. There is no server to pay for.
+            </span>
+          </span>
+        </li>
+      </ul>
     </main>
   );
 }

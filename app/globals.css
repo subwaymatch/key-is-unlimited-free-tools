@@ -1,55 +1,95 @@
 /*
  * Design tokens.
  *
- * Neutral by default: the background is white, and colour is reserved for two
- * jobs, conveying the state of a conversion and marking a destructive action.
- * The token names follow the shadcn/ui shape because it is widely understood;
- * the values are the Tailwind neutral scale. Radii are deliberately tighter
- * than shadcn's, which reads as precise rather than soft.
+ * The palette is drawn from the mark: three blues, #5EC2FF on the top faces,
+ * #2F8EE0 on the left faces and #1C5FB8 on the right. The deepest one is the
+ * colour of every primary action and every link in light mode, because it is
+ * the one of the three that reads at 6:1 on white; the lightest one takes
+ * that job in dark mode for the same reason. The rest of the page is a cool
+ * grey scale tinted towards the same blue, so a card on the page and a tag on
+ * a card are all the same material at different depths.
  *
- * Borders are used sparingly. A rule earns its place only where it carries
- * meaning, such as the edge of a text input; containment is otherwise done
- * with whitespace. See section 7.5 of
- * agent-outputs/browser-tool-catalogue-and-build-order.md.
+ * Surfaces sit on a tinted page: the page is #f5f7fb, cards are white with a
+ * hairline and a soft shadow, and the sunken areas inside a card (a panel, a
+ * log, a tag) are one step below white again. That gives three depths with
+ * no rule heavier than a pixel.
+ *
+ * Every category of tool has a hue of its own, used only on the icon tile a
+ * tool carries, so a page of a hundred cards can be scanned by colour.
  *
  * Component styling lives in CSS modules next to each component; this file is
  * the palette, the type scale, the reset, and the handful of rules that have
  * to be global.
  */
 :root {
-  --background: #ffffff;
-  --foreground: #0a0a0a;
-  --muted: #f5f5f5;
-  --muted-foreground: #737373;
+  --brand-100: #5ec2ff;
+  --brand-500: #2f8ee0;
+  --brand-700: #1c5fb8;
+
+  --background: #f5f7fb;
+  --surface: #ffffff;
+  --surface-2: #eef2f7;
+  --surface-3: #e3e8ef;
+  --foreground: #0f1729;
+  --muted-foreground: #4b5565;
   /*
-   * The quietest text on the page, and it still has to be readable.
-   *
-   * #a3a3a3 measured 2.52:1 on white, well under the 4.5:1 WCAG AA asks for
-   * body text, and it was carrying real sentences: the privacy line under the
-   * drop zone, the index's "the only limits are your device's", the category
-   * headings and the "Video files" tags. #6b6b6b is 5.33:1 and still reads as
-   * the third level of a three-level hierarchy.
+   * The quietest text on the page, and it still has to be readable: 5.2:1 on
+   * white and 4.7:1 on the page colour, both over the 4.5:1 WCAG AA asks for.
    */
-  --subtle: #6b6b6b;
-  --border: #e5e5e5;
-  --border-strong: #d4d4d4;
-  --input: #d4d4d4;
-  --ring: #0a0a0a;
+  --subtle: #5f6b7d;
+  --border: #e3e8ef;
+  --border-strong: #cdd5df;
+  --input: #cdd5df;
+  --ring: var(--brand-500);
 
-  --primary: #171717;
-  --primary-hover: #000000;
-  --primary-foreground: #fafafa;
-  --secondary: #f5f5f5;
-  --secondary-hover: #ebebeb;
-  --secondary-foreground: #171717;
+  --accent: var(--brand-700);
+  --accent-hover: #174f9c;
+  --accent-foreground: #ffffff;
+  --accent-soft: #e8f2fc;
+  --accent-soft-border: #b9dcf8;
+  --link: var(--brand-700);
 
-  --destructive: #dc2626;
-  --destructive-soft: #fef2f2;
+  --primary: var(--accent);
+  --primary-hover: var(--accent-hover);
+  --primary-foreground: var(--accent-foreground);
+  --secondary: #ffffff;
+  --secondary-hover: var(--surface-2);
+  --secondary-foreground: var(--foreground);
+
+  --destructive: #d92d20;
+  --destructive-soft: #fef3f2;
+  --destructive-border: #fecdca;
   --success: #15803d;
-  --success-soft: #f0fdf4;
-  --warning: #a16207;
-  --warning-soft: #fefce8;
-  --accent-soft: #f5f5f5;
+  --success-soft: #e9f7ee;
+  --warning: #b54708;
+  --warning-soft: #fff6e6;
+
+  /* Footer: navy in both modes, a shade apart from the dark page. */
+  --footer-background: #0f1b2d;
+  --footer-foreground: #c9d3e0;
+  --footer-muted: #8592a8;
+  --footer-heading: #ffffff;
+  --footer-border: #223149;
+
+  /* Category hues, on the icon tile a tool carries. */
+  --cat-video: var(--brand-700);
+  --cat-video-soft: #e8f2fc;
+  --cat-audio: #6d3ae0;
+  --cat-audio-soft: #f0ebfd;
+  --cat-subtitles: #0f766e;
+  --cat-subtitles-soft: #e4f5f2;
+  --cat-images: #c81e6e;
+  --cat-images-soft: #fce8f1;
+  --cat-documents: #c2410c;
+  --cat-documents-soft: #fdeee4;
+  --cat-files: #475569;
+  --cat-files-soft: #eef2f7;
+  --cat-data: #15803d;
+  --cat-data-soft: #e9f7ee;
+
+  /* The waveform canvas reads these at draw time. */
+  --waveform-selected: var(--brand-500);
+  --waveform-muted: var(--border-strong);
 
   --font-sans:
     var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
@@ -58,61 +98,113 @@
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 
   /*
-   * Four sizes, and nothing sets font-size to a literal value. Hierarchy comes
-   * from weight and colour instead, which is what keeps a page of controls
-   * looking like one thing.
+   * Seven sizes, and nothing sets font-size to a literal value. Hierarchy
+   * comes from weight, colour and the two display sizes at the top of a page.
    */
+  --text-xs: 0.75rem;
   --text-sm: 0.8125rem;
   --text-base: 0.9375rem;
+  --text-md: 1.0625rem;
   --text-lg: 1.25rem;
-  --text-xl: 1.75rem;
+  --text-xl: 1.625rem;
+  --text-2xl: 2.25rem;
 
-  --leading-sm: 1.4;
-  --leading-base: 1.5;
+  --leading-xs: 1.4;
+  --leading-sm: 1.45;
+  --leading-base: 1.55;
+  --leading-md: 1.5;
   --leading-lg: 1.3;
   --leading-xl: 1.2;
+  --leading-2xl: 1.08;
 
   /*
-   * Slightly tightened. Inter's optical-size axis handles the display sizes,
-   * so this is a nudge rather than a correction.
+   * Inter, slightly tightened. Body text loses a touch, headings lose more:
+   * the larger the type the more its default spacing reads as loose.
    */
-  --tracking-body: -0.011em;
-  --tracking-tight: -0.02em;
+  --tracking-body: -0.012em;
+  --tracking-tight: -0.022em;
+  --tracking-display: -0.032em;
 
-  --radius-sm: 2px;
-  --radius: 4px;
-  --radius-lg: 6px;
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 999px;
+
+  --shadow-sm: 0 1px 2px rgb(16 24 40 / 5%);
+  --shadow: 0 1px 2px rgb(16 24 40 / 5%), 0 4px 14px rgb(16 24 40 / 5%);
+  --shadow-lg: 0 8px 20px rgb(16 24 40 / 8%), 0 20px 48px rgb(16 24 40 / 10%);
+
+  --container: 76rem;
+  --container-narrow: 50rem;
+  --gutter: 1rem;
 
   color-scheme: light;
 }
 
+@media (min-width: 640px) {
+  :root {
+    --gutter: 1.5rem;
+    --text-2xl: 2.75rem;
+  }
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #fafafa;
-    --muted: #1c1c1c;
-    --muted-foreground: #a3a3a3;
-    /* 6.12:1 on the dark background; #737373 was 4.18:1 and just under AA. */
-    --subtle: #8f8f8f;
-    --border: #262626;
-    --border-strong: #404040;
-    --input: #404040;
-    --ring: #d4d4d4;
+    --background: #0b1220;
+    --surface: #111a2b;
+    --surface-2: #182236;
+    --surface-3: #1f2b42;
+    --foreground: #eef2f7;
+    --muted-foreground: #a3adbd;
+    /* 5.6:1 on the card colour. */
+    --subtle: #8b96a9;
+    --border: #1f2a3d;
+    --border-strong: #2f3d55;
+    --input: #2f3d55;
+    --ring: var(--brand-100);
 
-    --primary: #e5e5e5;
-    --primary-hover: #ffffff;
-    --primary-foreground: #171717;
-    --secondary: #1c1c1c;
-    --secondary-hover: #262626;
-    --secondary-foreground: #fafafa;
+    --accent: var(--brand-100);
+    --accent-hover: #82d1ff;
+    --accent-foreground: #071527;
+    --accent-soft: #10243a;
+    --accent-soft-border: #1c4a75;
+    --link: var(--brand-100);
 
-    --destructive: #ef4444;
-    --destructive-soft: #291414;
+    --secondary: #182236;
+    --secondary-hover: #1f2b42;
+
+    --destructive: #f97066;
+    --destructive-soft: #2a1412;
+    --destructive-border: #5a2420;
     --success: #4ade80;
-    --success-soft: #0f2318;
-    --warning: #facc15;
-    --warning-soft: #2a2109;
-    --accent-soft: #1c1c1c;
+    --success-soft: #10271a;
+    --warning: #fdb022;
+    --warning-soft: #2a2008;
+
+    --footer-background: #070c16;
+    --footer-border: #16203a;
+
+    --cat-video: #7cccff;
+    --cat-video-soft: #10243a;
+    --cat-audio: #b49cff;
+    --cat-audio-soft: #221a3e;
+    --cat-subtitles: #5fd3c6;
+    --cat-subtitles-soft: #0f2b28;
+    --cat-images: #ff8ac2;
+    --cat-images-soft: #3a1528;
+    --cat-documents: #ffa26b;
+    --cat-documents-soft: #3a1e10;
+    --cat-files: #b4c0d3;
+    --cat-files-soft: #1f2b42;
+    --cat-data: #6ee7a0;
+    --cat-data-soft: #10271a;
+
+    --waveform-muted: #2f3d55;
+
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 30%);
+    --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 4px 14px rgb(0 0 0 / 30%);
+    --shadow-lg: 0 8px 20px rgb(0 0 0 / 40%), 0 24px 56px rgb(0 0 0 / 50%);
 
     color-scheme: dark;
   }
@@ -134,6 +226,7 @@ html {
   -moz-text-size-adjust: none;
   -webkit-text-size-adjust: none;
   text-size-adjust: none;
+  scroll-behavior: smooth;
 }
 
 body {
@@ -151,7 +244,9 @@ body {
   font-size: var(--text-base);
   line-height: var(--leading-base);
   letter-spacing: var(--tracking-body);
+  font-feature-settings: "cv05", "cv08";
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Pushes the footer down when the page is shorter than the viewport. */
@@ -220,6 +315,10 @@ pre {
   letter-spacing: 0;
 }
 
+::selection {
+  background: color-mix(in srgb, var(--brand-500) 28%, transparent);
+}
+
 /* Figures that update in place should not jitter as their width changes. */
 .tabular {
   font-variant-numeric: tabular-nums;
@@ -228,6 +327,23 @@ pre {
 :focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
+}
+
+/*
+ * Text fields share one focus treatment: the border takes the ring colour
+ * and a soft halo sits around it, so a field lights up without jumping.
+ */
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="color"]):focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 22%, transparent);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--subtle);
+  opacity: 1;
 }
 
 /* ---- Shared utilities -------------------------------------------------- */
@@ -259,6 +375,10 @@ pre {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
   *,
   *::before,
   *::after {

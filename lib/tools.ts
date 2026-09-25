@@ -160,6 +160,20 @@ export const CATEGORY_LABELS: Record<ToolCategory, string> = {
   data: "Data",
 };
 
+/**
+ * One line under each category heading on the index: what the group is for,
+ * in the terms someone scanning a hundred cards is thinking in.
+ */
+export const CATEGORY_BLURBS: Record<ToolCategory, string> = {
+  video: "Convert, compress, cut, join and fix video, however large the file.",
+  audio: "Extract, convert, clean up and reshape sound, whole or clipped.",
+  subtitles: "Convert, merge, extract and burn in captions.",
+  images: "Resize, convert, crop, clean and combine pictures, in bulk.",
+  documents: "Merge, split, stamp, shrink and tidy PDFs page by page.",
+  files: "Hash, zip, tar, split, rename and seal any file.",
+  data: "CSV, JSON, Excel and text, converted, cleaned and profiled.",
+};
+
 /** Display order for category groupings. */
 export const CATEGORY_ORDER: readonly ToolCategory[] = [
   "video",

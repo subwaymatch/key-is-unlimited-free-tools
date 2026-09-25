@@ -1,7 +1,7 @@
 "use client";
 
 import { NavigationMenu } from "@base-ui/react/navigation-menu";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ChevronRight, LayoutGrid, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -12,8 +12,8 @@ import { ToolIcon } from "./ToolIcon";
 import styles from "./SiteHeader.module.css";
 
 /*
- * Wordmark, an "All tools" menu grouped by category, and the name of the
- * tool being used.
+ * Wordmark, an "All tools" menu grouped by category, the name of the tool
+ * being used, and the promise in three words at the far end.
  *
  * The plain row of links this replaced wrapped to three lines once the
  * catalogue passed a dozen tools, which spent the top of every page on
@@ -42,7 +42,7 @@ export function SiteHeader() {
            */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo.svg" alt="" width={28} height={28} className={styles.mark} />
-          {SITE_NAME}
+          <span className={styles.name}>{SITE_NAME}</span>
         </Link>
 
         <nav aria-label="Tools" className={styles.nav}>
@@ -50,15 +50,24 @@ export function SiteHeader() {
             <NavigationMenu.List className={styles.list}>
               <NavigationMenu.Item>
                 <NavigationMenu.Trigger className={styles.trigger}>
+                  <LayoutGrid aria-hidden="true" size={15} strokeWidth={2} />
                   All tools
                   <NavigationMenu.Icon className={styles.icon}>
-                    <ChevronDown aria-hidden="true" size={16} />
+                    <ChevronDown aria-hidden="true" size={15} strokeWidth={2} />
                   </NavigationMenu.Icon>
                 </NavigationMenu.Trigger>
                 <NavigationMenu.Content keepMounted className={styles.content}>
                   {groups.map(({ category, tools }) => (
                     <section key={category} className={styles.group}>
-                      <h2 className={styles.groupTitle}>{CATEGORY_LABELS[category]}</h2>
+                      <h2 className={styles.groupTitle}>
+                        <span
+                          aria-hidden="true"
+                          className={styles.groupDot}
+                          data-category={category}
+                        />
+                        {CATEGORY_LABELS[category]}
+                        <span className={styles.groupCount}>{tools.length}</span>
+                      </h2>
                       <ul className={styles.groupList}>
                         {tools.map((tool) => {
                           const path = toolPath(tool);
@@ -84,7 +93,7 @@ export function SiteHeader() {
 
             <NavigationMenu.Portal>
               <NavigationMenu.Positioner
-                sideOffset={8}
+                sideOffset={10}
                 align="start"
                 collisionPadding={16}
                 className={styles.positioner}
@@ -97,7 +106,24 @@ export function SiteHeader() {
           </NavigationMenu.Root>
         </nav>
 
-        {current && <span className={styles.current}>{current.name}</span>}
+        {current && (
+          <span className={styles.crumb}>
+            <ChevronRight aria-hidden="true" size={14} strokeWidth={2} className={styles.crumbIcon} />
+            <span className={styles.current}>{current.name}</span>
+          </span>
+        )}
+
+        <span className={styles.spacer} />
+
+        {/*
+         * The promise, where the eye lands last on every page. The header is
+         * the one part of the site a visitor sees before they know what the
+         * site is, so this is the first thing it says about itself.
+         */}
+        <span className={styles.badge}>
+          <ShieldCheck aria-hidden="true" size={15} strokeWidth={2} />
+          Nothing is uploaded
+        </span>
       </div>
     </header>
   );
