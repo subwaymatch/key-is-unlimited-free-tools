@@ -56,7 +56,7 @@ export function FormatXmlApp() {
         const output = formatXml(document, current);
         const shape = describeXml(document);
         const facts = [`<${document.root.name}>, ${shape.elements.toLocaleString("en")} ${shape.elements === 1 ? "element" : "elements"}, ${shape.depth} ${shape.depth === 1 ? "level" : "levels"} deep`];
-        if (output === text.replace(/^﻿/, "")) return { facts, outputs: [], nothing: { message: "This file is already written that way.", hint: "Well-formed XML, and formatted exactly as asked." } };
+        if (output === text.replace(/^\ufeff/, "")) return { facts, outputs: [], nothing: { message: "This file is already written that way.", hint: "Well-formed XML, and formatted exactly as asked." } };
         const minified = current.indent === "none";
         const blob = new Blob([output], { type: "application/xml;charset=utf-8" });
         const extension = fileExtension(file.name) ?? "xml";

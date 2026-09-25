@@ -41,7 +41,7 @@ export function XmlToJsonApp() {
         report("Reading...", null);
         const text = await readXmlText(file);
         const stem = fileStem(file.name, "data");
-        const start = text.replace(/^﻿/, "").trimStart();
+        const start = text.replace(/^\ufeff/, "").trimStart();
         if (start.startsWith("{") || start.startsWith("[")) {
           const parsed = parseJson(text);
           if ("problem" in parsed) throw new PlainError("This file starts like JSON but is not valid JSON.", parsed.problem.line ? `Line ${parsed.problem.line}, column ${parsed.problem.column}: ${parsed.problem.message}` : parsed.problem.message);
