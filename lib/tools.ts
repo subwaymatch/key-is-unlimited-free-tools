@@ -141,7 +141,13 @@ export type ToolIconName =
   | "filebadge"
   | "keyround"
   | "pentool"
-  | "idcard";
+  | "idcard"
+  | "filecode"
+  | "notebooktext"
+  | "listtree"
+  | "ticket"
+  | "qrcode"
+  | "scanqr";
 
 export interface ToolMeta {
   /** URL segment. Verb-object, lowercase, hyphenated, and permanent once shipped. */
@@ -1749,6 +1755,78 @@ export const TOOLS: readonly ToolMeta[] = [
     category: "images",
     icon: "idcard",
     accepts: "Photos",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "markdown-to-html",
+    name: "Markdown to HTML",
+    tagline: "A README or notes rendered as a clean web page, or as HTML to paste anywhere.",
+    description:
+      "Convert Markdown to HTML entirely in your browser: headings, lists, GitHub tables, task lists, code blocks and links rendered as a styled page that reads and prints well, with an optional table of contents, or as bare HTML to paste into a CMS. Nothing is uploaded.",
+    category: "documents",
+    icon: "filecode",
+    accepts: "Markdown files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "notebook-to-html",
+    name: "Notebook to HTML",
+    tagline: "A Jupyter notebook as one web page, charts and tables included, no Jupyter needed.",
+    description:
+      "Convert a Jupyter notebook to HTML entirely in your browser: Markdown rendered, code in blocks and the saved outputs, tables, charts, printed lines and errors, laid out as one self-contained page anyone can open, with the code optional for a report. Nothing is uploaded.",
+    category: "data",
+    icon: "notebooktext",
+    accepts: "Jupyter notebook files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "yaml-to-json",
+    name: "YAML to JSON",
+    tagline: "YAML to JSON and JSON to YAML, with the line where broken YAML goes wrong.",
+    description:
+      "Convert YAML to JSON and JSON to YAML entirely in your browser: Kubernetes manifests, CI workflows and config files read by the YAML 1.2 rules, anchors and merge keys expanded, several documents kept in order, and the line named when the file is broken. Nothing is uploaded.",
+    category: "data",
+    icon: "listtree",
+    accepts: "YAML and JSON files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "decode-jwt",
+    name: "Decode a JWT",
+    tagline: "What a JSON Web Token carries, when it expires, and whether its signature holds.",
+    description:
+      "Decode a JSON Web Token entirely in your browser: the header and every claim with dates as dates, whether it has expired, warnings about unsafe tokens, and the signature verified against a secret, a PEM public key, a certificate or a JWK set. Nothing is uploaded.",
+    category: "files",
+    icon: "ticket",
+    accepts: "Pasted tokens",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "create-qr-code",
+    name: "QR code generator",
+    tagline: "QR codes for links, text and Wi-Fi, one or hundreds at once, as PNG or SVG.",
+    description:
+      "Make QR codes entirely in your browser: a link, any text or a Wi-Fi network phones join by scanning, with the error correction level, colours and quiet zone chosen, saved as a sharp PNG or scalable SVG, or hundreds from a list at once as a ZIP. Nothing is uploaded and the codes never expire.",
+    category: "images",
+    icon: "qrcode",
+    accepts: "Typed text",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "read-qr-code",
+    name: "Read a QR code",
+    tagline: "What a QR code in a screenshot or photo says, before you open it.",
+    description:
+      "Read QR codes from screenshots and photos entirely in your browser: links shown with their real destination and warnings about disguised ones, Wi-Fi passwords, contact cards and two-factor secrets spelled out, several codes in one picture, codes at an angle or light on dark. Nothing is uploaded.",
+    category: "images",
+    icon: "scanqr",
+    accepts: "Screenshots and photos",
     status: "live",
     engine: "browser",
   },

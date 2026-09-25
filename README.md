@@ -141,6 +141,12 @@ The live tools, each on its own route:
 | `/find-secrets` | API keys, tokens and private keys left in files or a ZIP | Each provider's key shape matched exactly, with line and column, the report redacted |
 | `/optimize-svg` | An SVG made smaller and safe to put on a page | Editor namespaces, metadata and unused ids removed, numbers rounded, scripts and handlers stripped |
 | `/passport-photo` | Passport and visa photos laid out on a 4x6 print, A4 or Letter | The photo cut to size at 300 dpi and packed as tightly as the sheet allows, the JPEG told its dpi |
+| `/markdown-to-html` | A README or notes as a styled page, or bare HTML to paste | CommonMark's blocks and inlines plus GitHub's tables, task lists and anchors; scripts and javascript: links removed |
+| `/notebook-to-html` | A Jupyter notebook as one page anyone can open, outputs and all | Each output's richest MIME type a static page can show, pictures embedded, tracebacks stripped of colour codes |
+| `/yaml-to-json` | YAML as JSON and JSON as YAML, broken YAML located by line | A YAML 1.2 core-schema parser: block and flow styles, block scalars, anchors and merge keys, several documents |
+| `/decode-jwt` | A JWT's header and claims read, its expiry checked and its signature verified | base64url and JSON, then Web Crypto's HMAC, RSA, RSA-PSS, ECDSA and Ed25519 against a secret, PEM, certificate or JWK set |
+| `/create-qr-code` | QR codes for links, text and Wi-Fi, one or hundreds, as PNG or SVG | An ISO 18004 encoder: the densest mode, the smallest version, Reed-Solomon blocks interleaved, the best of eight masks |
+| `/read-qr-code` | What the QR codes in a screenshot or photo say, before opening them | A local-threshold binarizer, finder patterns found and checked three ways, perspective from the finders' own edges |
 
 Every media tool is one configuration of the same machinery: a catalogue of formats in
 `lib/engine/`, a page shell in `components/ToolApp.tsx`, and an entry in the registry in
@@ -956,6 +962,44 @@ that should not be uploaded to have it cleaned. The passport sheet packs photos 
 sheet allows, butting them together when that fits more, and writes 300 dpi into the JPEG's JFIF
 header so it prints at its true size.
 
+The eighth batch starts with text formats and QR codes, still with no new runtime and no new
+dependency. `lib/text/markdown.ts` renders Markdown line by line into blocks and then runs each
+block's text through an inline pass that sets code spans and links aside before anything is
+taken for emphasis; headings get the anchors GitHub gives them, so links to sections keep working,
+and raw HTML passes through with its scripts, handlers and `javascript:` links removed. The
+notebook converter reuses it for Markdown cells and picks each output's richest MIME type a page
+opened from disk can show: a PNG or SVG chart, a pandas table's HTML, Markdown, LaTeX as text,
+then plain text, with an interactive plot's script-only HTML falling back to the picture or text
+saved beside it. `lib/data/yaml.ts` is a YAML 1.2 core-schema parser - block and flow
+collections, plain, quoted and block scalars with chomping, anchors, aliases, `<<` merge keys,
+tags and several documents - checked against PyYAML where the two schemas agree; the writer
+quotes any string an older YAML 1.1 reader would take for a boolean, a number or null.
+
+The JWT decoder reads without a key, as anyone can, and verifies with one: HMAC for the HS
+algorithms, and RSA, RSA-PSS, ECDSA and Ed25519 for the rest through Web Crypto, with the key given
+as a PEM public key, a PKCS #1 key (wrapped into the SubjectPublicKeyInfo Web Crypto imports), a
+certificate (its key found in the DER) or a JWK set, where the key whose `kid` matches is used.
+The tests sign with Node's own crypto, and one ES256 token was signed by openssl against a
+certificate.
+
+The QR tools are written from ISO/IEC 18004. The encoder picks the densest mode the text allows,
+the smallest version that holds it, splits the codewords into the standard's blocks with
+Reed-Solomon correction over GF(256), interleaves them, and scores all eight masks by the
+standard's penalty rules. zxing-cpp read back all 264 codes it made across versions 1 to 40
+and all four levels, and the tests hold a symbol it draws module for module as segno does. The
+reader binarizes by a threshold that
+follows each 8 x 8 block's neighbourhood, scans rows for the 1:1:3:1:1 runs of a finder pattern
+and checks each down its column and along its diagonal, then tries every three finders that
+could be one code's corners. A code seen at an angle is sampled through a projective transform:
+the bottom-right alignment pattern fixes the fourth corner when there is one, and otherwise the
+finders' own squares - their outer edges fitted as lines from rays cast out of each centre - say
+which way the code's edges run, so the top-right finder's right side and the bottom-left
+finder's bottom side meet at the missing corner. A version block read at the wrong grid size
+names the right one. On a set of 116 generated pictures - every level and scale, turned,
+warped, blurred with noise and a lighting gradient, inverted, several to a picture - it reads
+115, against zxing-cpp's 116; the one it misses is a version 1 code blurred until its finder
+merges with the modules beside it.
+
 ### Cancelling one format
 
 Each output is a format *and* a range, and each can be cancelled on its own. Cancelling one that is
@@ -1293,6 +1337,14 @@ a HAR with no secret left; a certificate chain and a DER written from a PEM; a G
 an AWS key found in a config file; an Inkscape SVG cleaned to one element; and a passport sheet
 measured at 1800 x 1200 and 300 dpi, then laid out on A4 as a PDF. It bundles two TypeScript test
 fixtures with esbuild, which Vite brings in, and needs Node 22 for `node:sqlite`.
+
+`verify-plain-tools-3.mjs` drives the eighth batch: a README rendered with and without a table
+of contents and its script gone; a notebook with a chart embedded, then as results only; two
+Kubernetes documents with an anchor and a merge key as JSON, and JSON back to YAML that parses as
+the same data; the JWT example verified, an expired RS256 token verified against its PEM key and
+refused against another key from a JWK set; a link, a Wi-Fi network and three lines made into QR
+codes whose downloaded PNGs are decoded again from their pixels; and a picture holding two codes
+read back with the link and the Wi-Fi password spelled out.
 
 `verify-e2e.mjs` drives a real Chromium through the audio extractor's seven cases - an MP4 with AAC, a video with no
 audio track, an MKV with 5.1 FLAC, a hand-set 1s-3s clip, an 8s file padded with two seconds of

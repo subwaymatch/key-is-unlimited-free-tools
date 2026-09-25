@@ -117,6 +117,12 @@ import {
   Type,
   Volume2,
   VolumeX,
+  FileCode,
+  NotebookText,
+  ListTree,
+  TicketCheck,
+  QrCode,
+  ScanQrCode,
 } from "lucide-react";
 
 import type { ToolIconName } from "@/lib/tools";
@@ -247,6 +253,12 @@ export const TOOL_ICONS = {
   keyround: KeyRound,
   pentool: PenTool,
   idcard: IdCard,
+  filecode: FileCode,
+  notebooktext: NotebookText,
+  listtree: ListTree,
+  ticket: TicketCheck,
+  qrcode: QrCode,
+  scanqr: ScanQrCode,
 } as const satisfies Record<ToolIconName, unknown>;
 
 interface ToolIconProps {
