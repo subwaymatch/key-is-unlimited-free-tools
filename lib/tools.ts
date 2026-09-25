@@ -159,7 +159,11 @@ export type ToolIconName =
   | "eyeoff"
   | "scaneye"
   | "columns"
-  | "bookmarked";
+  | "bookmarked"
+  | "imageoff"
+  | "imageminus"
+  | "spritesheet"
+  | "waypoints";
 
 export interface ToolMeta {
   /** URL segment. Verb-object, lowercase, hyphenated, and permanent once shipped. */
@@ -660,9 +664,9 @@ export const TOOLS: readonly ToolMeta[] = [
   {
     slug: "resize-image",
     name: "Resize image",
-    tagline: "Scale pictures down to a longest side or a fraction, never enlarged, in bulk.",
+    tagline: "Scale pictures to a longest side, a fraction or an exact width and height, in bulk.",
     description:
-      "Resize pictures entirely in your browser: to a longest side of 1920, 1280, 1024 or 800 pixels, to half or a quarter, or to a number you type, never enlarged, in the format they came in. Nothing is uploaded.",
+      "Resize pictures entirely in your browser: to a longest side of 1920, 1280, 1024 or 800 pixels, to half or a quarter, to a number you type, or to an exact width and height, cropped, fitted or stretched to it, in the format they came in. Nothing is uploaded.",
     category: "images",
     icon: "resize",
     accepts: "Image files",
@@ -1983,6 +1987,54 @@ export const TOOLS: readonly ToolMeta[] = [
     category: "documents",
     icon: "bookmarked",
     accepts: "EPUB files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "redact-image",
+    name: "Redact a screenshot",
+    tagline: "Black out, pixelate or blur parts of a screenshot or photo, burned in for good.",
+    description:
+      "Redact screenshots and photos entirely in your browser: drag boxes over names, account numbers, faces or messages, cover them with black, pixelation or blur burned into the pixels, and save a copy without the original's metadata. Nothing is uploaded.",
+    category: "images",
+    icon: "imageoff",
+    accepts: "JPEG, PNG, WebP and GIF pictures, or a pasted screenshot",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "optimize-gif",
+    name: "Optimize GIF",
+    tagline: "Shrink animated GIFs without changing a frame, or further with fewer colours.",
+    description:
+      "Optimize animated GIFs entirely in your browser: each frame rewritten as only the part that changed, repeated frames merged and padding dropped, losslessly, or with fewer colours for smaller files still. Nothing is uploaded.",
+    category: "images",
+    icon: "imageminus",
+    accepts: "GIF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "create-sprite-sheet",
+    name: "Create a sprite sheet",
+    tagline: "Pack icons or game frames onto one sprite sheet, with its CSS and JSON.",
+    description:
+      "Make a sprite sheet entirely in your browser: many small pictures packed onto one PNG or WebP, with a CSS class for each and the JSON map Phaser, PixiJS and other game engines read. Nothing is uploaded.",
+    category: "images",
+    icon: "spritesheet",
+    accepts: "PNG, JPEG, WebP and GIF pictures",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "merge-gps",
+    name: "Merge GPS tracks",
+    tagline: "Join the GPX, KML or GeoJSON legs of a trip into one track, in time order.",
+    description:
+      "Merge GPS files entirely in your browser: the GPX, KML, GeoJSON, TCX or CSV legs of a trip joined into one track in time order, or gathered as separate tracks in one file, with waypoints kept. Nothing is uploaded.",
+    category: "data",
+    icon: "waypoints",
+    accepts: "GPX, KML, GeoJSON, TCX and CSV files",
     status: "live",
     engine: "browser",
   },

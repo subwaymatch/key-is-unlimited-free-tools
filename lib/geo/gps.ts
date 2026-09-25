@@ -567,3 +567,38 @@ export function hideEnds(data: GeoData, options: PrivacyOptions, random: () => n
   return { data: { ...data, tracks, waypoints, polygons: data.polygons }, removedPoints, removedWaypoints };
 }
 
+
+/* ---- Merging ------------------------------------------------------------- */
+
+export type MergeMode = "separate" | "join";
+
+/**
+ * Several files' contents as one. Kept separate, every track stays a track
+ * of its own, named after its file when it had no name. Joined, every
+ * track's segments become the segments of one track, ordered by the time
+ * each starts when every one has times, and in file order otherwise.
+ * Waypoints and areas are gathered, a waypoint repeated at the same place
+ * under the same name kept once.
+ */
+export function mergeGeo(inputs: { data: GeoData; name: string }[], mode: MergeMode): GeoData {
+  const tracks: GeoTrack[] = [];
+  for (const { data, name } of inputs) for (const track of data.tracks) tracks.push({ ...track, name: track.name ?? name });
+  const waypoints: GeoWaypoint[] = [];
+  const seen = new Set<string>();
+  for (const { data } of inputs) {
+    for (const waypoint of data.waypoints) {
+      const key = `${waypoint.point.lat.toFixed(6)},${waypoint.point.lon.toFixed(6)},${waypoint.name ?? ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      waypoints.push(waypoint);
+    }
+  }
+  const polygons = inputs.flatMap(({ data }) => data.polygons);
+  const name = inputs.map((input) => input.data.name ?? input.name).filter(Boolean).slice(0, 3).join(" + ") || null;
+  if (mode === "separate" || tracks.length <= 1) return { name, tracks, waypoints, polygons };
+  const segments = tracks.flatMap((track) => track.segments).filter((segment) => segment.length > 0);
+  const start = (segment: GeoPoint[]) => (segment[0].time ? Date.parse(segment[0].time) : Number.NaN);
+  const timed = segments.every((segment) => !Number.isNaN(start(segment)));
+  const ordered = timed ? segments.slice().sort((a, b) => start(a) - start(b)) : segments;
+  return { name, tracks: [{ name, kind: "track", segments: ordered }], waypoints, polygons };
+}

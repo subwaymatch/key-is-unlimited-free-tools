@@ -3,7 +3,9 @@
  * converted, JWTs decoded and checked, QR codes made and read, and the
  * developer inspectors: file search, logs, protobuf, WebAssembly, git
  * bundles and fonts, the 3D model converter and repairer, PDF redaction
- * and its check, visual PDF comparison and the EPUB details editor.
+ * and its check, visual PDF comparison and the EPUB details editor, then
+ * pictures resized to an exact size, GPS legs merged, a sprite sheet
+ * packed, an animated GIF optimised and a pasted screenshot redacted.
  *
  * Builds nothing itself: run `npm run build` first. Serves the static
  * export, makes its own fixtures in Node - a README, a notebook with a
@@ -141,6 +143,13 @@ async function importTs(relative) {
   const outfile = join(FIXTURES, `${relative.replace(/[^\w]+/g, "-")}.mjs`);
   buildSync({ entryPoints: [join(root, relative)], bundle: true, format: "esm", platform: "node", outfile, logLevel: "silent" });
   return import(pathToFileURL(outfile).href);
+}
+
+/** The screenshot fixture's pixels: a diagonal gradient. */
+function gradient(width, height) {
+  const gray = new Uint8Array(width * height);
+  for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) gray[y * width + x] = 60 + ((x * 3 + y) % 150);
+  return gray;
 }
 
 const b64 = (value) => Buffer.from(value).toString("base64url");
@@ -284,7 +293,32 @@ async function ensureFixtures() {
   };
   const container = '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>';
   const opf = '<?xml version="1.0" encoding="utf-8"?>\n<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">\n  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\n    <dc:identifier id="id">urn:uuid:1</dc:identifier>\n    <dc:title>Draft</dc:title>\n    <dc:creator>Unknown</dc:creator>\n    <dc:language>en</dc:language>\n  </metadata>\n  <manifest><item id="c1" href="one.xhtml" media-type="application/xhtml+xml"/></manifest>\n  <spine><itemref idref="c1"/></spine>\n</package>\n';
+  // Two legs of a ride, the later one first in the list.
+  const leg = (name, start, lat) => `<?xml version="1.0"?><gpx version="1.1" creator="test" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>${name}</name><trkseg>${[0, 1, 2].map((step) => `<trkpt lat="${lat + step * 0.001}" lon="-0.1"><time>${new Date(Date.UTC(2025, 5, 1, start, step * 5)).toISOString()}</time></trkpt>`).join("")}</trkseg></trk></gpx>`;
+  // A gradient behind a square that moves: every frame written whole, as screen recorders write them.
+  const { lzwEncode } = await importTs("lib/images/gif.ts");
+  const gifFrames = [];
+  const [gw, gh] = [120, 80];
+  for (let frame = 0; frame < 16; frame += 1) {
+    const indices = new Uint8Array(gw * gh);
+    for (let y = 0; y < gh; y += 1) for (let x = 0; x < gw; x += 1) indices[y * gw + x] = Math.floor((x / gw) * 60);
+    for (let y = 30; y < 50; y += 1) for (let x = 5 + frame * 6; x < 25 + frame * 6; x += 1) indices[y * gw + x] = 63;
+    gifFrames.push(indices);
+  }
+  const palette = [];
+  for (let index = 0; index < 64; index += 1) palette.push(index === 63 ? [220, 40, 40] : [index * 4, 120, 255 - index * 4]);
+  const gif = [...Buffer.from("GIF89a"), gw, 0, gh, 0, 0xf5, 0, 0, ...palette.flat(), 0x21, 0xff, 0x0b, ...Buffer.from("NETSCAPE2.0"), 3, 1, 0, 0, 0];
+  for (const indices of gifFrames) gif.push(0x21, 0xf9, 4, 0, 5, 0, 0, 0, 0x2c, 0, 0, 0, 0, gw, 0, gh, 0, 0, 6, ...lzwEncode(indices, 6));
+  gif.push(0x3b);
+  const halves = new Uint8Array(300 * 200);
+  for (let y = 0; y < 200; y += 1) for (let x = 0; x < 300; x += 1) halves[y * 300 + x] = x < 150 ? 40 : 200;
   return {
+    wide: write("wide.png", grayPng(300, 200, halves)),
+    screenshot: write("screen.png", grayPng(200, 120, gradient(200, 120))),
+    animation: write("recording.gif", Buffer.from(gif)),
+    sprites: [write("icon-a.png", grayPng(32, 32, new Uint8Array(32 * 32).fill(30))), write("icon-b.png", grayPng(64, 16, new Uint8Array(64 * 16).fill(120))), write("icon-c.png", grayPng(16, 48, new Uint8Array(16 * 48).fill(220)))],
+    legLate: write("afternoon.gpx", leg("Afternoon", 14, 51.6)),
+    legEarly: write("morning.gpx", leg("Morning", 9, 51.5)),
     personal: write("record.pdf", await personalPdf("fine")),
     personalChanged: write("record-v2.pdf", await personalPdf("stormy")),
     book: write("draft.epub", Buffer.from(zipSync({ mimetype: [strToU8("application/epub+zip"), { level: 0 }], "META-INF/container.xml": strToU8(container), "OEBPS/content.opf": strToU8(opf), "OEBPS/one.xhtml": strToU8("<html><body><p>One.</p></body></html>") }))),
@@ -336,6 +370,8 @@ async function main() {
   const { readModel } = await importTs("lib/geometry/formats.ts");
   const { analyzeMesh } = await importTs("lib/geometry/mesh.ts");
   const { readEpubInfo } = await importTs("lib/documents/epubMetadata.ts");
+  const { readGeo } = await importTs("lib/geo/gps.ts");
+  const { decodeGif } = await importTs("lib/images/gif.ts");
   const pdfPages = async (bytes) => {
     const pdf = await getDocument({ data: new Uint8Array(bytes), useWorkerFetch: false, disableFontFace: true, verbosity: 0 }).promise;
     const pages = [];
@@ -386,7 +422,7 @@ async function main() {
     log("\nIndex:");
     await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "networkidle" });
     const links = await page.locator("main a[href^='/']").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("href")));
-    for (const slug of ["markdown-to-html", "notebook-to-html", "yaml-to-json", "decode-jwt", "create-qr-code", "read-qr-code", "search-files", "analyze-log", "decode-protobuf", "inspect-wasm", "inspect-git-bundle", "inspect-font", "convert-3d-model", "repair-3d-model", "redact-pdf", "check-pdf-redaction", "compare-pdfs-visually", "edit-epub-metadata"]) check(`index links to /${slug}`, links.includes(`/${slug}`));
+    for (const slug of ["markdown-to-html", "notebook-to-html", "yaml-to-json", "decode-jwt", "create-qr-code", "read-qr-code", "search-files", "analyze-log", "decode-protobuf", "inspect-wasm", "inspect-git-bundle", "inspect-font", "convert-3d-model", "repair-3d-model", "redact-pdf", "check-pdf-redaction", "compare-pdfs-visually", "edit-epub-metadata", "merge-gps", "create-sprite-sheet", "optimize-gif", "redact-image"]) check(`index links to /${slug}`, links.includes(`/${slug}`));
 
     // ---- Markdown --------------------------------------------------------
     log("\nMarkdown to HTML - a README as a page, then with a table of contents:");
@@ -686,6 +722,117 @@ async function main() {
     check("the saved book has the new details", epubInfo.metadata.title === "The Finished Book" && epubInfo.metadata.authors.join("|") === "Ada Lovelace|Charles Babbage" && epubInfo.metadata.series === "Engines" && epubInfo.metadata.seriesIndex === "2", JSON.stringify(epubInfo.metadata));
     check("mimetype first and stored", epub.bytes.toString("latin1", 30, 38) === "mimetype" && epub.bytes.readUInt16LE(8) === 0);
     await shot("edit-epub-metadata");
+
+    // ---- Pictures and GPS ----------------------------------------------------
+    log("\nResize a picture to an exact size - 300 x 200 cropped to fill 100 x 100:");
+    await open("resize-image");
+    await openSettings(/^Size & format/);
+    await page.getByRole("radio", { name: /^Exact size/ }).click();
+    await page.getByRole("spinbutton", { name: "Width" }).fill("100");
+    await page.getByRole("spinbutton", { name: "Height" }).fill("100");
+    await page.getByRole("radio", { name: /^Crop to fill/ }).click();
+    await drop([fixtures.wide]);
+    const resizeCard = cardFor("wide.png");
+    await done(resizeCard);
+    const exact = decodePng((await downloadNamed(resizeCard, "wide-100x100.png")).bytes);
+    check("exactly 100 x 100", exact.width === 100 && exact.height === 100, `${exact.width} x ${exact.height}`);
+    check("cropped from the middle: dark on the left, light on the right", exact.gray[50 * 100 + 10] < 80 && exact.gray[50 * 100 + 90] > 160, `${exact.gray[50 * 100 + 10]} / ${exact.gray[50 * 100 + 90]}`);
+    await shot("resize-image-exact");
+
+    log("\nMerge GPS tracks - an afternoon leg and a morning leg, added in the wrong order:");
+    await open("merge-gps");
+    await drop([fixtures.legLate, fixtures.legEarly]);
+    await page.getByRole("button", { name: "Merge the files" }).click();
+    const merged = readGeo((await download(page.getByRole("link", { name: "Download afternoon-merged.gpx" }))).bytes.toString("utf8"), "merged.gpx").data;
+    check("one track, each leg a segment of its own", merged.tracks.length === 1 && merged.tracks[0].segments.length === 2 && merged.tracks[0].segments.every((segment) => segment.length === 3), JSON.stringify(merged.tracks.map((track) => track.segments.map((segment) => segment.length))));
+    check("in time order: the morning first", merged.tracks[0].segments[0][0].time.startsWith("2025-06-01T09:00"), merged.tracks[0].segments[0][0].time);
+    check("the card says the legs were put in time order", (await page.locator("main").innerText()).includes("The legs are in time order"));
+    await shot("merge-gps");
+
+    log("\nCreate a sprite sheet - three icons of different sizes:");
+    await open("create-sprite-sheet");
+    await drop(fixtures.sprites);
+    await page.getByRole("button", { name: "Make the sprite sheet" }).click();
+    const sheet = decodePng((await download(page.getByRole("link", { name: "Download spritesheet.png" }))).bytes);
+    const sheetJson = JSON.parse((await download(page.getByRole("link", { name: "Download spritesheet.json" }))).bytes.toString("utf8"));
+    const css = (await download(page.getByRole("link", { name: "Download spritesheet.css" }))).bytes.toString("utf8");
+    check("the JSON's size is the sheet's", sheetJson.meta.size.w === sheet.width && sheetJson.meta.size.h === sheet.height, `${sheet.width} x ${sheet.height}`);
+    const placed = ["icon-a.png", "icon-b.png", "icon-c.png"].map((name, index) => {
+      const { frame } = sheetJson.frames[name];
+      return Math.abs(sheet.gray[(frame.y + (frame.h >> 1)) * sheet.width + frame.x + (frame.w >> 1)] - [30, 120, 220][index]) <= 1;
+    });
+    check("each icon is where the JSON says", placed.every(Boolean), JSON.stringify(sheetJson.frames));
+    check("a CSS class for each", css.includes(".sprite-icon-a") && css.includes(".sprite-icon-c") && css.includes("background-position"));
+    await shot("create-sprite-sheet");
+
+    log("\nOptimize a GIF - a recording written whole, frame after frame:");
+    await open("optimize-gif");
+    await drop([fixtures.animation]);
+    const gifCard = cardFor("recording.gif");
+    await done(gifCard);
+    const optimized = await downloadNamed(gifCard, "recording-optimized.gif");
+    const before = decodeGif(new Uint8Array(readFileSync(fixtures.animation)));
+    const after = decodeGif(new Uint8Array(optimized.bytes));
+    check("smaller", optimized.bytes.length < readFileSync(fixtures.animation).length * 0.6, `${readFileSync(fixtures.animation).length} -> ${optimized.bytes.length}`);
+    check("every frame and delay exactly the same", after.frames.length === before.frames.length && after.frames.every((frame, index) => Buffer.from(frame.pixels).equals(Buffer.from(before.frames[index].pixels)) && frame.delay === before.frames[index].delay));
+    const shown = await page.evaluate(async (base64) => {
+      const image = new Image();
+      image.src = `data:image/gif;base64,${base64}`;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext("2d");
+      context.drawImage(image, 0, 0);
+      return Array.from(context.getImageData(0, 0, canvas.width, canvas.height).data);
+    }, optimized.bytes.toString("base64"));
+    check("Chromium draws its first frame pixel for pixel", Buffer.from(shown).equals(Buffer.from(before.frames[0].pixels)));
+    await shot("optimize-gif");
+
+    log("\nRedact a screenshot - pasted, a box dragged over it, black and then pixelated:");
+    await open("redact-image");
+    await page.evaluate((base64) => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([Uint8Array.from(atob(base64), (character) => character.charCodeAt(0))], "image.png", { type: "image/png" }));
+      document.dispatchEvent(new ClipboardEvent("paste", { clipboardData: transfer, bubbles: true }));
+    }, readFileSync(fixtures.screenshot).toString("base64"));
+    const stage = page.getByRole("application", { name: /drag to cover/ });
+    await stage.waitFor();
+    const bounds = await stage.boundingBox();
+    const at = (x, y) => [bounds.x + (x / 200) * bounds.width, bounds.y + (y / 120) * bounds.height];
+    await page.mouse.move(...at(40, 30));
+    await page.mouse.down();
+    await page.mouse.move(...at(100, 60), { steps: 6 });
+    await page.mouse.move(...at(140, 90), { steps: 6 });
+    await page.mouse.up();
+    const source = gradient(200, 120);
+    const inBox = (x, y) => x >= 42 && x < 138 && y >= 32 && y < 88;
+    const outside = (x, y) => x < 38 || x >= 142 || y < 28 || y >= 92;
+    const blacked = decodePng((await download(page.getByRole("button", { name: "Save the picture" }))).bytes);
+    let black = true;
+    let untouched = true;
+    for (let y = 0; y < 120; y += 1) {
+      for (let x = 0; x < 200; x += 1) {
+        if (inBox(x, y) && blacked.gray[y * 200 + x] !== 0) black = false;
+        if (outside(x, y) && blacked.gray[y * 200 + x] !== source[y * 200 + x]) untouched = false;
+      }
+    }
+    check("the saved picture is black under the box", black && blacked.width === 200 && blacked.height === 120);
+    check("and untouched outside it", untouched);
+    await page.mouse.click(...at(90, 60));
+    await page.getByRole("radio", { name: /^Pixelate/ }).click();
+    const pixelated = decodePng((await download(page.getByRole("button", { name: "Save the picture" }))).bytes);
+    const blockValues = new Set();
+    let pixelOutside = true;
+    for (let y = 0; y < 120; y += 1) {
+      for (let x = 0; x < 200; x += 1) {
+        if (inBox(x, y)) blockValues.add(pixelated.gray[y * 200 + x]);
+        if (outside(x, y) && pixelated.gray[y * 200 + x] !== source[y * 200 + x]) pixelOutside = false;
+      }
+    }
+    check("picked and changed to pixelated: a few flat blocks, not the gradient", blockValues.size > 1 && blockValues.size <= 20 && !blockValues.has(0), `${blockValues.size} values`);
+    check("still untouched outside", pixelOutside);
+    await shot("redact-image");
 
     log("\nPage:");
     check("no uncaught page errors", pageErrors.length === 0, pageErrors.slice(0, 3).join(" | "));

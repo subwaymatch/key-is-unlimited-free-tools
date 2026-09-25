@@ -83,3 +83,15 @@ describe("duplicates", () => {
     expect(duplicatesReport([], 3)).toBe("No duplicates among 3 files.\n");
   });
 });
+
+describe("an exact size", () => {
+  it("crops to the shape and covers, fits inside with bands, or stretches", async () => {
+    const { exactPlan } = await import("@/lib/images/edit");
+    const photo = { width: 4000, height: 3000 };
+    expect(exactPlan(photo, { width: 1080, height: 1080 }, "crop")).toEqual({ crop: { x: 500, y: 0, width: 3000, height: 3000 }, x: 0, y: 0, width: 1080, height: 1080 });
+    expect(exactPlan(photo, { width: 1080, height: 1080 }, "pad")).toEqual({ crop: { x: 0, y: 0, width: 4000, height: 3000 }, x: 0, y: 135, width: 1080, height: 810 });
+    expect(exactPlan(photo, { width: 1200, height: 630 }, "stretch")).toEqual({ crop: { x: 0, y: 0, width: 4000, height: 3000 }, x: 0, y: 0, width: 1200, height: 630 });
+    // Enlarging is allowed: an exact size is exact.
+    expect(exactPlan({ width: 100, height: 50 }, { width: 400, height: 400 }, "pad")).toMatchObject({ x: 0, y: 100, width: 400, height: 200 });
+  });
+});

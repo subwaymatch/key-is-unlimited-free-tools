@@ -141,3 +141,19 @@ describe("hiding the ends of a track", () => {
     expect(parsePlaces("51.5007, -0.1246\n40.7 -74.0\nnowhere")).toEqual({ places: [{ lat: 51.5007, lon: -0.1246 }, { lat: 40.7, lon: -74 }], bad: ["nowhere"] });
   });
 });
+
+describe("merging", () => {
+  it("keeps tracks apart, or joins them into one ordered by time", async () => {
+    const { mergeGeo } = await import("@/lib/geo/gps");
+    const point = (lat: number, time: string | null) => ({ lat, lon: 0, ele: null, time });
+    const morning = { name: null, tracks: [{ name: null, kind: "track" as const, segments: [[point(1, "2025-06-01T09:00:00Z"), point(2, "2025-06-01T09:10:00Z")]] }], waypoints: [{ point: point(5, null), name: "Cafe", description: null }], polygons: [] };
+    const evening = { name: "Evening ride", tracks: [{ name: "Back", kind: "track" as const, segments: [[point(3, "2025-06-01T18:00:00Z")]] }], waypoints: [{ point: point(5, null), name: "Cafe", description: null }], polygons: [] };
+    const separate = mergeGeo([{ data: evening, name: "evening" }, { data: morning, name: "morning" }], "separate");
+    expect(separate.tracks.map((track) => track.name)).toEqual(["Back", "morning"]);
+    expect(separate.waypoints).toHaveLength(1);
+    const joined = mergeGeo([{ data: evening, name: "evening" }, { data: morning, name: "morning" }], "join");
+    expect(joined.tracks).toHaveLength(1);
+    expect(joined.tracks[0].segments.map((segment) => segment[0].lat)).toEqual([1, 3]);
+    expect(joined.name).toBe("Evening ride + morning");
+  });
+});

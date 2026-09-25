@@ -132,6 +132,10 @@ import {
   EyeOff,
   Columns2,
   BookMarked,
+  ImageOff,
+  ImageMinus,
+  LayoutDashboard,
+  Waypoints,
 } from "lucide-react";
 
 import type { ToolIconName } from "@/lib/tools";
@@ -280,6 +284,10 @@ export const TOOL_ICONS = {
   scaneye: ScanEye,
   columns: Columns2,
   bookmarked: BookMarked,
+  imageoff: ImageOff,
+  imageminus: ImageMinus,
+  spritesheet: LayoutDashboard,
+  waypoints: Waypoints,
 } as const satisfies Record<ToolIconName, unknown>;
 
 interface ToolIconProps {

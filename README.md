@@ -48,7 +48,7 @@ The live tools, each on its own route:
 | `/add-subtitles` | An SRT, VTT or ASS file inside an MP4, MOV, MKV or WebM as a track that can be switched off | The file written into the core as a second input and mapped in as MOV text, SRT, ASS or WebVTT by container, with everything else copied |
 | `/convert-image` | Any picture the browser opens, out as JPEG, PNG or WebP | The browser's own decoder and canvas encoder; no library, no WebAssembly |
 | `/compress-image` | A photo under a size you choose | Bisection on the encoder's quality, and a smaller frame only when the lowest quality is still too large |
-| `/resize-image` | A picture scaled down to a longest side or a fraction, never enlarged | Drawn in halves down to the size, in the format it came in |
+| `/resize-image` | A picture scaled to a longest side, a fraction or an exact width and height | Drawn in halves down to the size; an exact size cropped to cover, fitted with bands, or stretched |
 | `/remove-image-metadata` | What a photo says about itself, and a copy without it | JPEG, PNG and WebP taken apart by chunk and written back without the metadata ones; the orientation tag kept |
 | `/images-to-pdf` | Pictures into one PDF, a page each | pdf-lib embedding an upright JPEG or PNG as it is, the rest drawn again by the browser |
 | `/merge-pdf` | Several PDFs as one | pdf-lib copying every page across |
@@ -159,6 +159,10 @@ The live tools, each on its own route:
 | `/check-pdf-redaction` | Whether a redacted PDF still has text under its black boxes | Dark filled rectangles read from each page's operator list, redaction marks from its annotations, text compared |
 | `/compare-pdfs-visually` | Two versions of a PDF compared as they look, removals red and additions green | Both drawn at 110 dpi by PDF.js and compared pixel by pixel; changed pages written to a PDF by pdf-lib |
 | `/edit-epub-metadata` | An e-book's title, authors, series, description and cover changed | Only the managed elements of the package file rewritten; the archive rebuilt with mimetype first and stored |
+| `/redact-image` | Parts of a screenshot or photo blacked out, pixelated or blurred for good | Boxes burned into the pixels, pixelation and blur kept to coarse block averages, saved from a canvas with no metadata |
+| `/optimize-gif` | An animated GIF made smaller without changing a frame, or with fewer colours | Every frame composed, then written as the rectangle that changed with unchanged pixels transparent; LZW written here |
+| `/create-sprite-sheet` | Many small pictures packed onto one sheet, with CSS and game-engine JSON | Shelf packing, tallest first, about as wide as the square the pictures fill; or a grid, a row or a column |
+| `/merge-gps` | The legs of a trip joined into one track in time order, or gathered side by side | Each file read into the shared GPS model, legs kept as segments so no line crosses a gap |
 
 Every media tool is one configuration of the same machinery: a catalogue of formats in
 `lib/engine/`, a page shell in `components/ToolApp.tsx`, and an entry in the registry in
@@ -171,7 +175,7 @@ load ffmpeg at all.
 The image, PDF, data and file tools load no WebAssembly either: they are the browser's own
 canvas, two small pure-JavaScript libraries and some arithmetic, on a second, smaller queue
 (`lib/plainQueue.ts`) with two shells of its own, one for a job per file and one for many files
-into one. The three tools that draw or read a PDF's pages add PDF.js, pulled in on first use.
+into one. The tools that draw or read a PDF's pages add PDF.js, pulled in on first use.
 See [Tools with no engine at all](#tools-with-no-engine-at-all).
 
 The research behind the site is in [`agent-outputs/`](agent-outputs/): the
@@ -1066,6 +1070,23 @@ both versions' pages and colours ink only in the first red and ink only in the s
 EPUB editor rewrites only the elements it manages in the package file's metadata, keeps the rest
 byte for byte, and writes series both the way calibre does and the way EPUB 3 does.
 
+The screenshot redactor works on the picture's pixels, not on layers over it: a black box
+replaces every pixel under it, and pixelation and blur both keep only the average colour of
+coarse blocks - at least 12 pixels, and a third of the box's shorter side - with blur shading
+smoothly between those averages rather than running a light Gaussian blur, which can be undone.
+What is saved is a canvas export, so no metadata survives. A screenshot can be pasted straight
+from the clipboard. The GIF optimiser has its own decoder and LZW encoder in `lib/images/gif.ts`:
+it composes every frame as a browser does - disposal methods, interlacing, local palettes - and
+then writes each frame as the rectangle that changed since the one before, with the unchanged
+pixels inside it transparent, which LZW squeezes to almost nothing. Identical frames are merged
+with their delays added, and a frame that turns pixels transparent is drawn on ground its
+predecessor clears. Pillow decodes what it writes to the same pixels and delays as the source,
+and so does Chromium; with fewer colours, one palette for the whole animation comes from median
+cut. The sprite sheet packs pictures on shelves, tallest first, about as wide as the square they
+would fill, and writes CSS classes and TexturePacker's JSON hash, which game engines
+load. The exact resize crops to cover, fits with bands, or stretches, and the GPS merge puts
+timed legs in time order as segments of one track, so no straight line is drawn across a gap.
+
 ### Cancelling one format
 
 Each output is a format *and* a range, and each can be cancelled on its own. Cancelling one that is
@@ -1279,6 +1300,7 @@ node scripts/verify-e2e.mjs                                 # the audio extracto
 node scripts/verify-video-tools.mjs                         # the video tools and the subtitle converter in a browser
 node scripts/verify-plain-tools.mjs                         # the PDF, data, file and image tools of the fourth, fifth and sixth batches, no ffmpeg needed
 node scripts/verify-plain-tools-2.mjs                       # the seventh batch: PDF passwords and forms, e-mail, e-books, SQLite, CSV, XML, GPS, HAR, certificates, secrets, SVG, passport photos
+node scripts/verify-plain-tools-3.mjs                       # the eighth batch: text formats, QR codes, developer inspectors, 3D, redaction, pictures and GPS merging
 node scripts/verify-large-file.mjs                          # >2 GiB input
 ```
 
@@ -1332,7 +1354,13 @@ broken chapter; the MIME parser on encoded words, continued parameters and 8-bit
 compound-file and .msg readers on files written by a test writer that olefile read back; SQLite
 databases written by SQLite itself; the join, comparison, pivot and anonymiser; every GPS format
 round-tripped and the privacy trim; the HAR sanitiser; certificates against Node's parser; the
-secret patterns; the SVG cleaner; and the passport layout. The canvas and PDF.js's renderer
+secret patterns; the SVG cleaner; and the passport layout. The eighth batch adds Markdown against
+the constructs GitHub renders, notebooks, YAML against PyYAML, JWTs signed by Node and openssl,
+QR codes module for module against segno, logs, protobuf against protoc, WebAssembly, the DEFLATE
+decoder against zlib, bundles written by git, fonts against fontTools, meshes against trimesh,
+redaction on pages PDF.js reads, the EPUB editor, GIFs written by Pillow decoded frame for frame
+and written again losslessly, redaction boxes, sprite layouts, exact resizes and merged GPS legs.
+The canvas and PDF.js's renderer
 only exist in a browser, and the pages built on them are driven through Chromium by hand-run
 scripts before a release.
 The browser scripts need ffmpeg and ffprobe on `PATH`, plus a Chromium: one Playwright can find
@@ -1417,8 +1445,12 @@ by git opened with its commit ids matching git's and its tip saved as a ZIP; and
 with a specimen drawn in it; an STL cube converted to 3MF and glTF, and a box with its bottom
 missing found and repaired to a watertight 8000 mm3; a PDF redacted with its details gone from the
 text, then checked beside one whose box hid nothing; two versions of a PDF compared to the one
-changed page; and an EPUB's title, authors and series changed and read back. It needs git on the
-PATH for the bundle.
+changed page; an EPUB's title, authors and series changed and read back; a picture cropped to an
+exact 100 x 100 from its middle; two GPS legs added out of order and merged in time order; three
+icons packed with each where the JSON says; a GIF written whole, frame after frame, optimised to
+under 60% and decoded again to identical frames, with Chromium drawing its first frame pixel for
+pixel; and a screenshot pasted, a box dragged over it and saved black, then picked and pixelated,
+with every pixel outside the box untouched. It needs git on the PATH for the bundle.
 
 `verify-e2e.mjs` drives a real Chromium through the audio extractor's seven cases - an MP4 with AAC, a video with no
 audio track, an MKV with 5.1 FLAC, a hand-set 1s-3s clip, an 8s file padded with two seconds of

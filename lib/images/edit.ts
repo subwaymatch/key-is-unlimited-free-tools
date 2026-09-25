@@ -73,6 +73,49 @@ export function drawCrop(image: DecodedImage, rect: CropRect, size: Size, backgr
   return drawImage(asImage, size, background);
 }
 
+/* ---- Exact size ----------------------------------------------------------- */
+
+export type ExactFit = "crop" | "pad" | "stretch";
+
+export interface ExactPlan {
+  /** The part of the picture used, in its own pixels. */
+  crop: CropRect;
+  /** Where that part is drawn on the output, and at what size. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * How a picture fills an exact width and height: cropped to the shape and
+ * scaled to cover it, scaled to fit inside it with bands either side, or
+ * stretched to it.
+ */
+export function exactPlan(source: Size, target: Size, fit: ExactFit): ExactPlan {
+  const whole = { x: 0, y: 0, width: source.width, height: source.height };
+  if (fit === "stretch") return { crop: whole, x: 0, y: 0, width: target.width, height: target.height };
+  if (fit === "crop") return { crop: centredCrop(source, target), x: 0, y: 0, width: target.width, height: target.height };
+  const scale = Math.min(target.width / source.width, target.height / source.height);
+  const width = Math.max(1, Math.round(source.width * scale));
+  const height = Math.max(1, Math.round(source.height * scale));
+  return { crop: whole, x: Math.round((target.width - width) / 2), y: Math.round((target.height - height) / 2), width, height };
+}
+
+/** The picture drawn at exactly `target`, as `exactPlan` lays it out, on a background or none. */
+export function drawExact(image: DecodedImage, target: Size, fit: ExactFit, background: string | null): AnyCanvas {
+  const plan = exactPlan({ width: image.width, height: image.height }, target, fit);
+  const drawn = drawCrop(image, plan.crop, { width: plan.width, height: plan.height }, null);
+  const canvas = makeCanvas(target.width, target.height);
+  const context = canvas.getContext("2d") as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+  if (background) {
+    context.fillStyle = background;
+    context.fillRect(0, 0, target.width, target.height);
+  }
+  context.drawImage(drawn, plan.x, plan.y);
+  return canvas;
+}
+
 /* ---- Watermark ---------------------------------------------------------- */
 
 export type Corner = "top-left" | "top-right" | "bottom-left" | "bottom-right" | "center";
