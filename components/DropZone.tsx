@@ -1,6 +1,6 @@
 "use client";
 
-import { CloudUpload } from "lucide-react";
+import { LockKeyhole, Upload } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { VIDEO_ACCEPT } from "@/lib/mediaTypes";
@@ -161,9 +161,11 @@ export function DropZone({
         }}
       />
 
-      <CloudUpload aria-hidden="true" className={styles.icon} size={32} strokeWidth={1.25} />
+      <span className={styles.iconWrap} aria-hidden="true">
+        <Upload className={styles.icon} size={26} strokeWidth={1.75} />
+      </span>
 
-      <span>
+      <span className={styles.text}>
         <span className={styles.headline}>
           {isDraggingOver ? "Drop to add the files" : headline}
         </span>
@@ -173,7 +175,8 @@ export function DropZone({
       <span className={styles.button}>Choose files</span>
 
       <span className={styles.privacy}>
-        Everything runs on your device - nothing is uploaded.
+        <LockKeyhole aria-hidden="true" size={12} strokeWidth={2} className={styles.privacyIcon} />
+        Everything runs on your device. Nothing is uploaded.
       </span>
     </label>
   );

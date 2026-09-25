@@ -77,8 +77,8 @@ export function Waveform({
      * draw time, so the canvas follows the theme instead of hard-coding one.
      */
     const style = getComputedStyle(canvas);
-    const selected = style.getPropertyValue("--foreground").trim() || "#0a0a0a";
-    const muted = style.getPropertyValue("--border-strong").trim() || "#d4d4d4";
+    const selected = style.getPropertyValue("--waveform-selected").trim() || "#2f8ee0";
+    const muted = style.getPropertyValue("--waveform-muted").trim() || "#cdd5df";
 
     const barWidth = Math.max(1, width / peaks.length);
     const gap = barWidth > 3 ? 1 : 0;

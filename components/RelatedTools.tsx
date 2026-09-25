@@ -1,9 +1,9 @@
+import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 
-import { relatedTools, toolPath } from "@/lib/tools";
+import { relatedTools } from "@/lib/tools";
 
-import { ToolIcon } from "./ToolIcon";
-
+import { ToolCard } from "./ToolCard";
 import styles from "./RelatedTools.module.css";
 
 interface RelatedToolsProps {
@@ -23,19 +23,19 @@ export function RelatedTools({ slug }: RelatedToolsProps) {
 
   return (
     <section className={styles.section} aria-labelledby="related-tools">
-      <h2 id="related-tools" className={styles.title}>
-        Other tools
-      </h2>
+      <div className={styles.head}>
+        <h2 id="related-tools" className={styles.title}>
+          More tools
+        </h2>
+        <Link href="/" className={styles.all}>
+          All tools
+          <ArrowRight aria-hidden="true" size={14} strokeWidth={2} />
+        </Link>
+      </div>
       <ul className={styles.list}>
         {tools.map((tool) => (
           <li key={tool.slug}>
-            <Link href={toolPath(tool)} className={styles.card}>
-              <span className={styles.cardHead}>
-                <ToolIcon name={tool.icon} className={styles.icon} />
-                <span className={styles.name}>{tool.name}</span>
-              </span>
-              <span className={styles.tagline}>{tool.tagline}</span>
-            </Link>
+            <ToolCard tool={tool} />
           </li>
         ))}
       </ul>

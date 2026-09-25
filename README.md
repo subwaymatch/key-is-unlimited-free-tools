@@ -910,18 +910,39 @@ has been cancelled is settled without ever being opened.
 
 ### Navigation
 
-The header is a wordmark, an "All tools" menu on Base UI's Navigation Menu grouped by category,
-and the name of the tool in use. The plain row of links it replaced wrapped to three lines once
-the catalogue passed a dozen tools. The menu's content is kept mounted, so every link is in the
+The header is sticky: the mark and wordmark, an "All tools" menu on Base UI's Navigation Menu
+grouped by category with a count per group, the name of the tool in use, and the promise in three
+words at the far end. The plain row of links the menu replaced wrapped to three lines once the
+catalogue passed a dozen tools. The menu's content is kept mounted, so every link is in the
 server-rendered HTML for a crawler, and the footer carries the same list as plain anchors either
 way; the current tool's link is marked `aria-current="page"` in the menu and named beside it.
 
+The index (`components/ToolIndex.tsx`) puts a search box over the catalogue. Typing filters the
+cards as the letters land, every word typed has to appear somewhere in a tool's name, tagline,
+slug, category or what it accepts, and the categories left empty are hidden; `/` focuses the box
+from anywhere on the page. The cards are in the server-rendered HTML in full, so a crawler and a
+visitor without JavaScript get the whole catalogue either way. Under the search, a row of chips
+jumps to each category, and every tool page opens with a breadcrumb back to its category.
+
 ### Styling
 
-Plain CSS modules, one per component, plus `app/globals.css` for the palette and a small reset.
-Colours are CSS custom properties on `:root` with a `prefers-color-scheme` override, so the theme
-follows the OS setting with no flash and no JavaScript. There is no utility-class framework and no
-PostCSS config; the whole stylesheet is about 17 KB.
+Plain CSS modules, one per component, plus `app/globals.css` for the palette, the type scale and
+a small reset. Colours are CSS custom properties on `:root` with a `prefers-color-scheme`
+override, so the theme follows the OS setting with no flash and no JavaScript. There is no
+utility-class framework and no PostCSS config.
+
+The palette is drawn from the mark: the three blues of its faces, with the deepest one on every
+primary action and link in light mode and the lightest one taking that job in dark mode, each
+chosen because it is the one of the three that reads at better than 4.5:1 on its background. The
+page is a cool grey tinted towards the same blue; cards are a step lighter with a hairline and a
+soft shadow; the panels, tags and logs inside a card are a step darker again. Every category has
+a hue of its own, used only on the icon tile a tool carries, so a page of a hundred cards can be
+scanned by colour, and the index's category headings carry a small isometric illustration in the
+mark's own three blues (`public/illustrations/`).
+
+The type is Inter, self-hosted by `next/font`, with the letter-spacing tightened a touch at body
+size and more at the two display sizes. Seven sizes cover the whole site; nothing sets a font
+size to a literal value.
 
 ### Real-time progress
 

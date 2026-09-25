@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 
-import { ToolIcon } from "@/components/ToolIcon";
+import { ToolCard } from "@/components/ToolCard";
 import { SITE_NAME } from "@/lib/site";
-import { liveToolsInDisplayOrder, toolPath } from "@/lib/tools";
+import { liveToolsInDisplayOrder } from "@/lib/tools";
 
 import styles from "./not-found.module.css";
 
@@ -39,13 +38,7 @@ export default function NotFound() {
       <ul className={styles.list}>
         {tools.map((tool) => (
           <li key={tool.slug}>
-            <Link href={toolPath(tool)} className={styles.card}>
-              <span className={styles.cardHead}>
-                <ToolIcon name={tool.icon} className={styles.icon} />
-                <span className={styles.name}>{tool.name}</span>
-              </span>
-              <span className={styles.tagline}>{tool.tagline}</span>
-            </Link>
+            <ToolCard tool={tool} />
           </li>
         ))}
       </ul>

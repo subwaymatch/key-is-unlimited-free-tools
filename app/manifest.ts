@@ -23,8 +23,8 @@ export default function manifest(): MetadataRoute.Manifest {
       "Convert, compress and edit files entirely in your browser. Nothing is uploaded, so there is no file size limit and nothing to pay.",
     start_url: "/",
     display: "standalone",
-    background_color: "#ffffff",
-    theme_color: "#ffffff",
+    background_color: "#f5f7fb",
+    theme_color: "#f5f7fb",
     icons: [{ src: "/favicon.ico", sizes: "any", type: "image/x-icon" }],
   };
 }
