@@ -147,6 +147,12 @@ The live tools, each on its own route:
 | `/decode-jwt` | A JWT's header and claims read, its expiry checked and its signature verified | base64url and JSON, then Web Crypto's HMAC, RSA, RSA-PSS, ECDSA and Ed25519 against a secret, PEM, certificate or JWK set |
 | `/create-qr-code` | QR codes for links, text and Wi-Fi, one or hundreds, as PNG or SVG | An ISO 18004 encoder: the densest mode, the smallest version, Reed-Solomon blocks interleaved, the best of eight masks |
 | `/read-qr-code` | What the QR codes in a screenshot or photo say, before opening them | A local-threshold binarizer, finder patterns found and checked three ways, perspective from the finders' own edges |
+| `/search-files` | A word or regular expression found across many files and ZIPs, grep style | Each file streamed and decoded in pieces, lines matched with context kept either side, output as grep's format and a CSV |
+| `/analyze-log` | A log summarised: levels, time span, recurring errors, and web traffic | Access-log, JSON, syslog and timestamped lines parsed as a stream; messages grouped once numbers and ids are masked |
+| `/decode-protobuf` | A protobuf message field by field, or with names from its .proto | The wire format read as protoc --decode_raw prints it; a .proto parser for names, enums, maps and packed fields |
+| `/inspect-wasm` | A .wasm module's imports, exports, memory, sections and toolchain | The binary format's sections walked, the name, producers and target_features sections read, then WebAssembly.validate |
+| `/inspect-git-bundle` | A git bundle's refs, commits and the files at its tip, without git | A packfile reader: every zlib stream inflated by a decoder that reports where it ended, deltas applied, ids recomputed |
+| `/inspect-font` | A font's names, licence, languages, blocks and features, with a specimen | The sfnt tables read (WOFF inflated), coverage from the cmap, the specimen drawn by FontFace |
 
 Every media tool is one configuration of the same machinery: a catalogue of formats in
 `lib/engine/`, a page shell in `components/ToolApp.tsx`, and an entry in the registry in
@@ -1000,6 +1006,33 @@ warped, blurred with noise and a lighting gradient, inverted, several to a pictu
 115, against zxing-cpp's 116; the one it misses is a version 1 code blurred until its finder
 merges with the modules beside it.
 
+The developer inspectors read formats no browser tool usually opens. The file search streams
+each file through a `TextDecoder` and keeps only matching lines and their context, so a log of
+several gigabytes is searched in a tab; files inside ZIPs are searched too. The log analyser
+reads the same way, tries each line as an access log, JSON, syslog and a timestamped line in
+turn, treats indented and untimed lines as the entry above (a stack trace), and groups messages
+once what varies between them is masked. The protobuf decoder's raw output is byte for byte what
+`protoc --decode_raw` printed for a message written by protobuf's Python runtime, and with the
+`.proto` file its JSON matches protobuf's own JSON printer. The WebAssembly inspector's import and
+export lists match `WebAssembly.Module.imports` and `exports` for real modules - PDF.js's
+Rust and Emscripten builds - and it guesses the toolchain from the producers section or the shape
+of the imports.
+
+The git bundle reader needed a decompressor that says where a stream ended: a packfile is zlib
+streams laid end to end with nothing between them, and fflate does not report how much input it
+used. `lib/zip/inflate.ts` is a table-driven DEFLATE decoder that does, checked against Node's
+zlib at every level, stored and fixed blocks included, on streams placed back to back. The pack
+reader applies offset and reference deltas, recomputes every object's SHA-1 so ids match git's,
+and reports the deltas a thin bundle cannot resolve; its tests use bundles git 2.43 wrote. The font
+inspector reads TrueType, OpenType, collections and WOFF, whose tables it inflates with the same
+decoder; its names, glyph count, cmap size, features and scripts match what fontTools reads from
+DejaVu Sans. WOFF2 needs Brotli and is recognised but not read, though the browser still draws
+its specimen.
+
+One fix to shared code came out of this batch: the drop zone prefetches the ~31 MB ffmpeg core
+when a pointer rests on it, which is right on an engine tool and wasted on the tools that never
+load ffmpeg. The plain-queue shells and the two subtitle tools now turn that off.
+
 ### Cancelling one format
 
 Each output is a format *and* a range, and each can be cancelled on its own. Cancelling one that is
@@ -1343,8 +1376,12 @@ of contents and its script gone; a notebook with a chart embedded, then as resul
 Kubernetes documents with an anchor and a merge key as JSON, and JSON back to YAML that parses as
 the same data; the JWT example verified, an expired RS256 token verified against its PEM key and
 refused against another key from a JWK set; a link, a Wi-Fi network and three lines made into QR
-codes whose downloaded PNGs are decoded again from their pixels; and a picture holding two codes
-read back with the link and the Wi-Fi password spelled out.
+codes whose downloaded PNGs are decoded again from their pixels; a picture holding two codes
+read back with the link and the Wi-Fi password spelled out; TODO found across two files and a
+ZIP; a gzipped application log and an access log summarised; a protobuf message decoded raw and
+then with its .proto; PDF.js's colour module identified as Rust with wasm-bindgen; a bundle made
+by git opened with its commit ids matching git's and its tip saved as a ZIP; and DejaVu Sans read
+with a specimen drawn in it. It needs git on the PATH for the bundle.
 
 `verify-e2e.mjs` drives a real Chromium through the audio extractor's seven cases - an MP4 with AAC, a video with no
 audio track, an MKV with 5.1 FLAC, a hand-set 1s-3s clip, an 8s file padded with two seconds of

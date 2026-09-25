@@ -123,6 +123,10 @@ import {
   TicketCheck,
   QrCode,
   ScanQrCode,
+  TextSearch,
+  ScrollText,
+  Cpu,
+  GitBranch,
 } from "lucide-react";
 
 import type { ToolIconName } from "@/lib/tools";
@@ -259,6 +263,12 @@ export const TOOL_ICONS = {
   ticket: TicketCheck,
   qrcode: QrCode,
   scanqr: ScanQrCode,
+  textsearch: TextSearch,
+  scrolltext: ScrollText,
+  binary: Binary,
+  cpu: Cpu,
+  gitbranch: GitBranch,
+  type: Type,
 } as const satisfies Record<ToolIconName, unknown>;
 
 interface ToolIconProps {

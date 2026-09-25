@@ -1,6 +1,8 @@
 /**
  * Browser verification of the eighth batch: Markdown, notebooks and YAML
- * converted, JWTs decoded and checked, and QR codes made and read.
+ * converted, JWTs decoded and checked, QR codes made and read, and the
+ * developer inspectors: file search, logs, protobuf, WebAssembly, git
+ * bundles and fonts.
  *
  * Builds nothing itself: run `npm run build` first. Serves the static
  * export, makes its own fixtures in Node - a README, a notebook with a
@@ -12,19 +14,20 @@
  *
  *   npm run build && node scripts/verify-plain-tools-3.mjs
  *
- * Requires a Chromium Playwright can find on its own, or one named in
- * CHROMIUM_PATH.
+ * Requires git on the PATH, for the bundle, and a Chromium Playwright can
+ * find on its own, or one named in CHROMIUM_PATH.
  */
+import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { crc32, deflateSync, inflateSync } from "node:zlib";
+import { crc32, deflateSync, gzipSync, inflateSync } from "node:zlib";
 
 import { buildSync } from "esbuild";
-import { unzipSync } from "fflate";
+import { strToU8, unzipSync, zipSync } from "fflate";
 import { chromium } from "playwright-core";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -224,7 +227,45 @@ async function ensureFixtures() {
     }
     return grayPng(width, height, gray);
   };
+  const varint = (value) => {
+    const out = [];
+    for (; value > 127; value = Math.floor(value / 128)) out.push((value & 127) | 128);
+    out.push(value);
+    return out;
+  };
+  const field = (number, text) => [(number << 3) | 2, ...varint(Buffer.byteLength(text)), ...Buffer.from(text)];
+  const person = Buffer.from([...field(1, "Ada Lovelace"), 0x10, ...varint(1815), ...field(3, "ada@example.com"), ...field(3, "countess@example.org")]);
+  const repo = join(FIXTURES, "repo");
+  if (!existsSync(join(FIXTURES, "project.bundle"))) {
+    const git = (...args) => execFileSync("git", ["-C", repo, "-c", "user.name=Ada Lovelace", "-c", "user.email=ada@example.com", "-c", "commit.gpgsign=false", ...args], { stdio: "pipe" });
+    mkdirSync(join(repo, "src"), { recursive: true });
+    execFileSync("git", ["init", "-q", "-b", "main", repo]);
+    writeFileSync(join(repo, "README.md"), "# Engine\n");
+    writeFileSync(join(repo, "src", "main.py"), 'print("hello")\n');
+    git("add", "-A");
+    git("commit", "-q", "-m", "First commit");
+    writeFileSync(join(repo, "src", "main.py"), 'print("hello, world")\n');
+    git("commit", "-q", "-am", "Greet the world");
+    git("bundle", "create", join(FIXTURES, "project.bundle"), "--all");
+  }
+  const appLog = ["2025-10-10 13:55:36 INFO Server started on port 8080", "2025-10-10 13:55:40 ERROR Connection to 10.0.0.12:5432 refused", "2025-10-10 13:56:40 ERROR Connection to 10.0.0.13:5432 refused", "2025-10-10 13:57:00 WARN Slow query took 1200 ms", ""].join("\n");
+  const accessLog = [
+    '203.0.113.9 - - [10/Oct/2025:13:55:36 -0700] "GET /index.html HTTP/1.1" 200 2326 "-" "Mozilla/5.0"',
+    '203.0.113.9 - - [10/Oct/2025:13:56:01 -0700] "GET /missing HTTP/1.1" 404 153 "-" "Mozilla/5.0"',
+    '198.51.100.4 - - [10/Oct/2025:14:10:00 -0700] "GET /index.html HTTP/1.1" 200 2326 "-" "Googlebot/2.1"',
+    "",
+  ].join("\n");
   return {
+    notesA: write("notes-a.txt", "shopping\nTODO: buy milk\neggs\n"),
+    notesB: write("app.js", "const a = 1;\n// todo later\nfunction run() {}\n// TODO: tests\n"),
+    zipped: write("more.zip", Buffer.from(zipSync({ "docs/plan.md": strToU8("# Plan\n\n- TODO: write the plan\n") }))),
+    appLog: write("app.log.gz", gzipSync(appLog)),
+    accessLog: write("access.log", accessLog),
+    person: write("person.bin", person),
+    personProto: write("person.proto", 'syntax = "proto3";\nmessage Person {\n  string name = 1;\n  int32 born = 2;\n  repeated string emails = 3;\n}\n'),
+    wasm: join(root, "node_modules", "pdfjs-dist", "wasm", "qcms_bg.wasm"),
+    bundle: join(FIXTURES, "project.bundle"),
+    font: join(root, "public", "fonts", "DejaVuSans.ttf"),
     readme: write("README.md", README),
     notebook: write("analysis.ipynb", JSON.stringify(NOTEBOOK)),
     yaml: write("deploy.yaml", MANIFESTS),
@@ -276,8 +317,9 @@ async function main() {
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(String(error)));
   page.on("console", (message) => {
-    if (message.type() === "error") pageErrors.push(message.text());
+    if (message.type() === "error") pageErrors.push(`${message.text()} ${message.location()?.url ?? ""}`.trim());
   });
+  page.on("requestfailed", (request) => log(`  (request failed: ${request.url()} on ${page.url()})`));
 
   const open = async (slug) => page.goto(`http://127.0.0.1:${PORT}/${slug}`, { waitUntil: "networkidle" });
   const drop = async (paths) => page.locator('input[type="file"][multiple]').setInputFiles(paths);
@@ -300,7 +342,7 @@ async function main() {
     log("\nIndex:");
     await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "networkidle" });
     const links = await page.locator("main a[href^='/']").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("href")));
-    for (const slug of ["markdown-to-html", "notebook-to-html", "yaml-to-json", "decode-jwt", "create-qr-code", "read-qr-code"]) check(`index links to /${slug}`, links.includes(`/${slug}`));
+    for (const slug of ["markdown-to-html", "notebook-to-html", "yaml-to-json", "decode-jwt", "create-qr-code", "read-qr-code", "search-files", "analyze-log", "decode-protobuf", "inspect-wasm", "inspect-git-bundle", "inspect-font"]) check(`index links to /${slug}`, links.includes(`/${slug}`));
 
     // ---- Markdown --------------------------------------------------------
     log("\nMarkdown to HTML - a README as a page, then with a table of contents:");
@@ -427,6 +469,94 @@ async function main() {
     const all = (await downloadNamed(readCard, "two-codes-qr-codes.txt")).bytes.toString("utf8");
     check("all codes as one file", all.split("\n").filter(Boolean).length === 2);
     await shot("read-qr-code");
+
+    // ---- Search ----------------------------------------------------------
+    log("\nSearch in files - TODO across two files and a ZIP, then as whole words with case:");
+    await open("search-files");
+    await page.getByLabel("Text or pattern").fill("TODO");
+    await drop([fixtures.notesA, fixtures.notesB, fixtures.zipped]);
+    await page.getByRole("button", { name: "Search the files" }).click();
+    const grep = (await download(page.getByRole("link", { name: "Download search-results.txt" }))).bytes.toString("utf8");
+    check("every match, file:line:text, the ZIP's file included", grep.includes("notes-a.txt:2:TODO: buy milk") && grep.includes("app.js:2:// todo later") && grep.includes("more.zip/docs/plan.md:3:- TODO: write the plan"), grep.split("\n").slice(0, 4).join(" | "));
+    check("context lines with dashes", grep.includes("notes-a.txt-1-shopping"));
+    const table = (await download(page.getByRole("link", { name: "Download search-results.csv" }))).bytes.toString("utf8");
+    check("the CSV has a row per matching line", table.trim().split("\n").length === 5, `${table.trim().split("\n").length - 1} rows`);
+    await shot("search-files");
+
+    // ---- Logs ------------------------------------------------------------
+    log("\nAnalyze a log file - a gzipped app log and an access log:");
+    await open("analyze-log");
+    await drop([fixtures.appLog, fixtures.accessLog]);
+    const appCard = cardFor("app.log.gz");
+    await done(appCard);
+    const appText = await appCard.innerText();
+    check("the gzipped log is unpacked and its levels counted", /2 error/.test(appText) && /1 warn/.test(appText), appText.replace(/\s+/g, " ").slice(0, 200));
+    check("repeated errors grouped", /The most frequent error, 2 times/.test(appText));
+    const accessCard = cardFor("access.log");
+    await done(accessCard);
+    const accessReport = (await downloadNamed(accessCard, "access-report.md")).bytes.toString("utf8");
+    check("the access log's statuses, 404s and bots", accessReport.includes("| 404 | 1 |") && accessReport.includes("### Not found (404)") && accessReport.includes("From bots and scripts: 1"));
+    await shot("analyze-log");
+
+    // ---- Protobuf --------------------------------------------------------
+    log("\nDecode protobuf - raw, then with its .proto:");
+    await open("decode-protobuf");
+    await drop([fixtures.person]);
+    const rawCard = cardFor("person.bin");
+    await done(rawCard);
+    const rawText = (await downloadNamed(rawCard, "person-raw.txt")).bytes.toString("utf8");
+    check("fields by number, as protoc --decode_raw prints them", rawText === '1: "Ada Lovelace"\n2: 1815\n3: "ada@example.com"\n3: "countess@example.org"\n', JSON.stringify(rawText));
+    await openSettings(/^\.proto file/);
+    await page.locator("#proto-file").setInputFiles(fixtures.personProto);
+    await page.getByText("person.proto").first().waitFor();
+    await drop([fixtures.person]);
+    const namedCard = cardFor("person.bin", 1);
+    await done(namedCard);
+    const named = JSON.parse((await downloadNamed(namedCard, "person.json")).bytes.toString("utf8"));
+    check("with names from the .proto", JSON.stringify(named) === JSON.stringify({ name: "Ada Lovelace", born: 1815, emails: ["ada@example.com", "countess@example.org"] }), JSON.stringify(named));
+    await shot("decode-protobuf");
+
+    // ---- WebAssembly -----------------------------------------------------
+    log("\nInspect WebAssembly - PDF.js's colour module:");
+    await open("inspect-wasm");
+    await drop([fixtures.wasm]);
+    const wasmCard = cardFor("qcms_bg.wasm");
+    await done(wasmCard);
+    const wasmText = await wasmCard.innerText();
+    check("built with Rust and wasm-bindgen, exports named", wasmText.includes("Rust, with wasm-bindgen") && wasmText.includes("qcms_convert_array"));
+    const wasmReport = (await downloadNamed(wasmCard, "qcms_bg-wasm-report.md")).bytes.toString("utf8");
+    check("the engine accepts it, and the sections are listed", wasmReport.includes("- Valid: yes") && wasmReport.includes("| code |"));
+    await shot("inspect-wasm");
+
+    // ---- Git bundle ------------------------------------------------------
+    log("\nOpen a git bundle - two commits, and the files at the tip:");
+    await open("inspect-git-bundle");
+    await drop([fixtures.bundle]);
+    const bundleCard = cardFor("project.bundle");
+    await done(bundleCard);
+    const bundleText = await bundleCard.innerText();
+    check("refs and commits", bundleText.includes("main") && /2 commits/.test(bundleText), bundleText.replace(/\s+/g, " ").slice(0, 200));
+    const tipZip = await download(bundleCard.getByRole("link", { name: /^Download project-[0-9a-f]{7}\.zip$/ }));
+    const tipFiles = unzipSync(new Uint8Array(tipZip.bytes));
+    check("the tip's files, as git has them", Object.keys(tipFiles).sort().join(",") === "README.md,src/main.py" && Buffer.from(tipFiles["src/main.py"]).toString() === 'print("hello, world")\n');
+    const commitsCsv = (await downloadNamed(bundleCard, "project-commits.csv")).bytes.toString("utf8");
+    const headId = execFileSync("git", ["-C", join(FIXTURES, "repo"), "rev-parse", "HEAD"]).toString().trim();
+    check("commit ids match git's", commitsCsv.split("\n")[1].startsWith(headId));
+    await shot("inspect-git-bundle");
+
+    // ---- Font ------------------------------------------------------------
+    log("\nInspect a font - DejaVu Sans:");
+    await open("inspect-font");
+    await drop([fixtures.font]);
+    const fontCard = cardFor("DejaVuSans.ttf");
+    await done(fontCard);
+    const fontText = await fontCard.innerText();
+    check("names, glyphs and languages", fontText.includes("DejaVu Sans") && fontText.includes("6,253") && fontText.includes("Russian") && fontText.includes("Greek"), fontText.replace(/\s+/g, " ").slice(0, 240));
+    const specimen = decodePng((await downloadNamed(fontCard, "DejaVuSans-specimen.png")).bytes);
+    check("a specimen drawn in the font", specimen.width === 1200 && specimen.height > 400, `${specimen.width} x ${specimen.height}`);
+    const characters = (await downloadNamed(fontCard, "DejaVuSans-characters.txt")).bytes.toString("utf8");
+    check("every character listed by block", characters.startsWith("Basic Latin (94)"));
+    await shot("inspect-font");
 
     log("\nPage:");
     check("no uncaught page errors", pageErrors.length === 0, pageErrors.slice(0, 3).join(" | "));

@@ -147,7 +147,13 @@ export type ToolIconName =
   | "listtree"
   | "ticket"
   | "qrcode"
-  | "scanqr";
+  | "scanqr"
+  | "textsearch"
+  | "scrolltext"
+  | "binary"
+  | "cpu"
+  | "gitbranch"
+  | "type";
 
 export interface ToolMeta {
   /** URL segment. Verb-object, lowercase, hyphenated, and permanent once shipped. */
@@ -1827,6 +1833,78 @@ export const TOOLS: readonly ToolMeta[] = [
     category: "images",
     icon: "scanqr",
     accepts: "Screenshots and photos",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "search-files",
+    name: "Search in files",
+    tagline: "A word or pattern found across many files and ZIPs, grep style, with line numbers.",
+    description:
+      "Search many files at once entirely in your browser: code, logs and exports, and the files inside ZIPs, for a word, a phrase or a regular expression, with every matching line, its line number and the lines around it, as grep output or a CSV. Nothing is uploaded.",
+    category: "files",
+    icon: "textsearch",
+    accepts: "Any text files and ZIPs",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "analyze-log",
+    name: "Analyze a log file",
+    tagline: "A log summarised: errors by count, time span, top messages, status codes and paths.",
+    description:
+      "Analyze log files entirely in your browser: application logs, nginx and Apache access logs, syslog and JSON lines, even gzipped, summarised into levels, the time they cover, the messages that repeat most, and for web logs the status codes, top paths, 404s and bots. Nothing is uploaded.",
+    category: "files",
+    icon: "scrolltext",
+    accepts: "Log files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "decode-protobuf",
+    name: "Decode protobuf",
+    tagline: "A binary protobuf message taken apart field by field, with names if you have the .proto.",
+    description:
+      "Decode Protocol Buffers messages entirely in your browser: binary, base64 or hex, gRPC frames included, taken apart field by field the way protoc --decode_raw shows them, or with field names, enums and types from the message's .proto file, as JSON. Nothing is uploaded.",
+    category: "files",
+    icon: "binary",
+    accepts: "Protobuf messages",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "inspect-wasm",
+    name: "Inspect WebAssembly",
+    tagline: "What a .wasm imports and exports, which toolchain built it and where its size goes.",
+    description:
+      "Inspect a WebAssembly module entirely in your browser: its imports and exports with signatures, its memory and tables, its size section by section, its largest functions by name, and the toolchain that built it, Rust, Go, Emscripten or more, without running it. Nothing is uploaded.",
+    category: "files",
+    icon: "cpu",
+    accepts: "WebAssembly modules",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "inspect-git-bundle",
+    name: "Open a git bundle",
+    tagline: "A git bundle's branches, commits and files, without git, with the files as a ZIP.",
+    description:
+      "Open a git bundle or packfile entirely in your browser: its branches and tags, every commit with its author, date and message, and the files at the tip saved as a ZIP, every delta applied and every object id checked, with no git installed. Nothing is uploaded.",
+    category: "files",
+    icon: "gitbranch",
+    accepts: "Git bundles and packfiles",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "inspect-font",
+    name: "Inspect a font",
+    tagline: "A font's name, licence, glyphs, languages and features, with a specimen.",
+    description:
+      "Inspect a font file entirely in your browser: its names and version, its licence and embedding permission, its glyph count, which languages it can set and which letters are missing, its Unicode blocks, OpenType features and variable axes, with a specimen drawn in it. Nothing is uploaded.",
+    category: "files",
+    icon: "type",
+    accepts: "Font files",
     status: "live",
     engine: "browser",
   },
