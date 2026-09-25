@@ -410,6 +410,7 @@ export function ConvertSubtitlesApp() {
         onFiles={addFiles}
         compact={entries.length > 0}
         disabled={invalid !== null}
+        warmsEngine={false}
         accept={ACCEPT}
         inputLabel="Choose subtitle files"
         headline="Drop subtitle files here"

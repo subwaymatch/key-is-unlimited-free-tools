@@ -1,0 +1,124 @@
+/* A static site shown in a sandboxed frame, with a browser's controls. */
+
+.card {
+  margin-top: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.625rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.address {
+  flex: 1 1 14rem;
+  min-width: 0;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-full);
+  background: var(--surface);
+  padding: 0.3125rem 0.875rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.select {
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 0.3125rem 0.5rem;
+  font-size: var(--text-sm);
+  max-width: 14rem;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.stage {
+  overflow: auto;
+  resize: vertical;
+  height: 72vh;
+  min-height: 18rem;
+  background:
+    repeating-conic-gradient(var(--surface-2) 0% 25%, var(--surface) 0% 50%) 50% / 20px 20px;
+}
+
+.frame {
+  display: block;
+  height: 100%;
+  margin: 0 auto;
+  border: 0;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4375rem 0.75rem;
+  border-top: 1px solid var(--border);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--muted-foreground);
+}
+
+.report {
+  margin-top: 1rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 0.875rem 1rem;
+}
+
+.sectionTitle {
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
+}
+
+.list {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: var(--muted-foreground);
+}
+
+.error {
+  color: var(--destructive);
+}
+
+.warn {
+  color: var(--warning);
+}

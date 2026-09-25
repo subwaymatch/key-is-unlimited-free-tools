@@ -60,11 +60,13 @@ export async function readCsvRows(file: File, report?: PlainReport, signal?: Abo
       yield chunk;
     }
   }
+  // A loop rather than push(...rows): a 4 MB chunk of short rows is more
+  // arguments than a call can take (DATA-1 in the audit).
   for await (const text of decodeChunks(counted(), encoding.encoding)) {
     if (signal?.aborted) throw new PlainError("Cancelled.");
-    rows.push(...parser.push(text));
+    for (const row of parser.push(text)) rows.push(row);
   }
-  rows.push(...parser.end());
+  for (const row of parser.end()) rows.push(row);
   return { rows, encoding, delimiter };
 }
 
@@ -76,4 +78,19 @@ export function csvOutput(delimiter: Delimiter): { extension: string; mime: stri
 /** "1,234 rows" */
 export function countRows(count: number, noun = "row"): string {
   return `${count.toLocaleString("en")} ${count === 1 ? noun : `${noun}s`}`;
+}
+
+/** The first row of a file, from its first 64 KB: what a list shows so the columns can be named. */
+export async function csvHeader(file: File): Promise<string[]> {
+  const { encoding, delimiter } = await sampleCsv(file);
+  const text = new TextDecoder(encoding.encoding).decode(new Uint8Array(await file.slice(0, 64 * 1024).arrayBuffer()));
+  const parser = new CsvParser(delimiter);
+  const rows = parser.push(text);
+  return rows[0] ?? parser.end()[0] ?? [];
+}
+
+/** "3 columns: id, name, city", shortened past a handful. */
+export function describeHeader(header: readonly string[]): string {
+  const shown = header.slice(0, 6).map((name) => name.trim() || "(unnamed)").join(", ");
+  return `${header.length} ${header.length === 1 ? "column" : "columns"}: ${shown}${header.length > 6 ? ` and ${header.length - 6} more` : ""}`;
 }

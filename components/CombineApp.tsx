@@ -24,8 +24,8 @@ interface CombineAppProps<S> {
   settings?: PlainSettings;
   dropZone?: ToolDropZone;
   note?: ReactNode;
-  /** The button: "Merge PDFs", "Create ZIP". */
-  action: string;
+  /** The button: "Merge PDFs", "Create ZIP"; or worded for the files in the list. */
+  action: string | ((files: CombineFile[]) => string);
   /** How many ready files the button needs. Defaults to 1. */
   minFiles?: number;
   /** One line about the list as it stands: "3 PDFs, 27 pages". */
@@ -102,7 +102,7 @@ export function CombineApp<S>({ tool, lead, queue: options, settings, dropZone, 
 
   return (
     <ToolFrame tool={tool} lead={lead} footer={<PlainFootnote note={note} />}>
-      <DropZone onFiles={handleFiles} compact={files.length > 0} disabled={invalid !== null} {...dropZone} />
+      <DropZone onFiles={handleFiles} compact={files.length > 0} disabled={invalid !== null} warmsEngine={false} {...dropZone} />
 
       {settings && (
         <div className={toolStyles.settings}>
@@ -164,7 +164,7 @@ export function CombineApp<S>({ tool, lead, queue: options, settings, dropZone, 
               </>
             ) : (
               <Button onClick={() => void run()} disabled={!canRun} variant="primary" size="md">
-                {action}
+                {typeof action === "function" ? action(ready) : action}
               </Button>
             )}
           </div>

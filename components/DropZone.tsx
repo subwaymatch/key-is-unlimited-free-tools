@@ -20,6 +20,8 @@ interface DropZoneProps {
   subhead?: string;
   /** Refuses files while the tool's settings cannot start a job. */
   disabled?: boolean;
+  /** Prefetch the ffmpeg core when the zone is reached for. Off for the tools that never load it. */
+  warmsEngine?: boolean;
 }
 
 /** How long a pointer has to rest on the zone before the core is prefetched. */
@@ -49,6 +51,7 @@ export function DropZone({
   headline = "Drop video files here",
   subhead = "Conversion starts automatically, multi-gigabyte files supported",
   disabled = false,
+  warmsEngine = true,
 }: DropZoneProps) {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   // dragenter/dragleave fire for every child element, so nesting is counted
@@ -79,11 +82,11 @@ export function DropZone({
    * the file input with the keyboard is already deliberate.
    */
   const start = useCallback(() => {
-    if (disabledRef.current) return;
+    if (disabledRef.current || !warmsEngine) return;
     void import("@/lib/engine/coreLoader")
       .then((module) => module.loadCoreUrls())
       .catch(() => {});
-  }, []);
+  }, [warmsEngine]);
 
   const warmUpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelWarmUp = useCallback(() => {

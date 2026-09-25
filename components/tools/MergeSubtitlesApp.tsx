@@ -207,6 +207,7 @@ export function MergeSubtitlesApp() {
         onFiles={addFiles}
         compact={entries.length > 0}
         disabled={invalid !== null}
+        warmsEngine={false}
         accept={ACCEPT}
         inputLabel="Choose the first language's subtitle files"
         headline="Drop the first language's subtitle file here"

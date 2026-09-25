@@ -48,7 +48,7 @@ The live tools, each on its own route:
 | `/add-subtitles` | An SRT, VTT or ASS file inside an MP4, MOV, MKV or WebM as a track that can be switched off | The file written into the core as a second input and mapped in as MOV text, SRT, ASS or WebVTT by container, with everything else copied |
 | `/convert-image` | Any picture the browser opens, out as JPEG, PNG or WebP | The browser's own decoder and canvas encoder; no library, no WebAssembly |
 | `/compress-image` | A photo under a size you choose | Bisection on the encoder's quality, and a smaller frame only when the lowest quality is still too large |
-| `/resize-image` | A picture scaled down to a longest side or a fraction, never enlarged | Drawn in halves down to the size, in the format it came in |
+| `/resize-image` | A picture scaled to a longest side, a fraction or an exact width and height | Drawn in halves down to the size; an exact size cropped to cover, fitted with bands, or stretched |
 | `/remove-image-metadata` | What a photo says about itself, and a copy without it | JPEG, PNG and WebP taken apart by chunk and written back without the metadata ones; the orientation tag kept |
 | `/images-to-pdf` | Pictures into one PDF, a page each | pdf-lib embedding an upright JPEG or PNG as it is, the rest drawn again by the browser |
 | `/merge-pdf` | Several PDFs as one | pdf-lib copying every page across |
@@ -121,6 +121,52 @@ The live tools, each on its own route:
 | `/sort-lines` | A text file's lines sorted, deduplicated, reversed or shuffled | A collator with numeric order, a stable sort, and a Fisher-Yates shuffle |
 | `/rename-files` | Files renamed by a pattern, back as a ZIP | The pattern's tokens filled per file, names made unique, the files packed unchanged under the new names |
 | `/create-tar` | Files packed into a .tar or .tar.gz | A ustar header written by hand per file, GNU long-name entries where needed, fflate's streaming gzip on the way out |
+| `/protect-pdf` | A PDF that opens only with a password, printing and copying optional | Every string and stream encrypted with AES-256 under a random key, the key sealed by revision 6's iterated hash, through Web Crypto |
+| `/unlock-pdf` | A PDF's known password taken off, or its print and copy lock lifted | RC4 at 40 and 128 bits, AES-128 and AES-256 decrypted on pdf-lib's objects, encrypted object streams recovered and re-parsed |
+| `/pdf-form-data` | What was typed into one filled form or fifty, as a CSV and JSON | pdf-lib's form fields, check boxes as Yes and No; an XFA form's datasets packet read by path |
+| `/epub-to-text` | An e-book as one text or Markdown file, in reading order | The container, the package file's spine, and each chapter's XHTML walked for its blocks |
+| `/extract-email` | A saved .eml's attachments, its text and its HTML as a page | A MIME parser: boundaries, base64 and quoted-printable, RFC 2047 words and RFC 2231 names, any charset |
+| `/open-msg` | An Outlook .msg read without Outlook, and written as an .eml | A compound-file reader, the MAPI property streams, compressed RTF, and a MIME writer |
+| `/sqlite-to-csv` | Every table of a SQLite database as CSV, JSON or a workbook | The file format walked page by page: B-trees, overflow chains, WITHOUT ROWID, no SQL |
+| `/join-csv` | Columns from one CSV added to the matching rows of another | A key index on the second file, one row per match, left, inner or full |
+| `/compare-csv` | The rows added, removed and changed between two versions | Rows matched on a key, cells compared by column name and written old -> new |
+| `/pivot-csv` | Counts, sums or averages by group, spread across a column, with totals | One pass of accumulators per cell, numbers read with thousands separators and currency signs |
+| `/anonymize-csv` | Names, e-mails, phones and ID numbers replaced before sharing | Columns found by header and by value shape, then stand-ins, masks, salted hashes or removal |
+| `/format-xml` | XML indented or minified, or its break found by line and column | A tokenizer that keeps each node's spelling beside its meaning; mixed content left as it was |
+| `/xml-to-json` | XML as JSON and JSON as XML | Attributes as @keys, text as #text, repeats as arrays, and the same convention run backwards |
+| `/convert-gps` | GPX, KML, GeoJSON, TCX and CSV turned into each other | One model of tracks, waypoints and areas; distance by haversine and climb with a 3 m threshold |
+| `/trim-gps-track` | A track with its start and end cut off, so it does not show a home | Every point inside a circle round each end, and round places named, removed; times and heights optional |
+| `/sanitize-har` | A browser's network log with its cookies, tokens and passwords removed | Headers, parameters and JSON fields named like credentials replaced, cookies always, JWTs anywhere |
+| `/inspect-certificate` | What a certificate, chain or CSR says, with its fingerprints | A DER reader and RFC 5280's fields, extensions named, checked against Node's own parser |
+| `/find-secrets` | API keys, tokens and private keys left in files or a ZIP | Each provider's key shape matched exactly, with line and column, the report redacted |
+| `/optimize-svg` | An SVG made smaller and safe to put on a page | Editor namespaces, metadata and unused ids removed, numbers rounded, scripts and handlers stripped |
+| `/passport-photo` | Passport and visa photos laid out on a 4x6 print, A4 or Letter | The photo cut to size at 300 dpi and packed as tightly as the sheet allows, the JPEG told its dpi |
+| `/markdown-to-html` | A README or notes as a styled page, or bare HTML to paste | CommonMark's blocks and inlines plus GitHub's tables, task lists and anchors; scripts and javascript: links removed |
+| `/notebook-to-html` | A Jupyter notebook as one page anyone can open, outputs and all | Each output's richest MIME type a static page can show, pictures embedded, tracebacks stripped of colour codes |
+| `/yaml-to-json` | YAML as JSON and JSON as YAML, broken YAML located by line | A YAML 1.2 core-schema parser: block and flow styles, block scalars, anchors and merge keys, several documents |
+| `/decode-jwt` | A JWT's header and claims read, its expiry checked and its signature verified | base64url and JSON, then Web Crypto's HMAC, RSA, RSA-PSS, ECDSA and Ed25519 against a secret, PEM, certificate or JWK set |
+| `/create-qr-code` | QR codes for links, text and Wi-Fi, one or hundreds, as PNG or SVG | An ISO 18004 encoder: the densest mode, the smallest version, Reed-Solomon blocks interleaved, the best of eight masks |
+| `/read-qr-code` | What the QR codes in a screenshot or photo say, before opening them | A local-threshold binarizer, finder patterns found and checked three ways, perspective from the finders' own edges |
+| `/search-files` | A word or regular expression found across many files and ZIPs, grep style | Each file streamed and decoded in pieces, lines matched with context kept either side, output as grep's format and a CSV |
+| `/analyze-log` | A log summarised: levels, time span, recurring errors, and web traffic | Access-log, JSON, syslog and timestamped lines parsed as a stream; messages grouped once numbers and ids are masked |
+| `/decode-protobuf` | A protobuf message field by field, or with names from its .proto | The wire format read as protoc --decode_raw prints it; a .proto parser for names, enums, maps and packed fields |
+| `/inspect-wasm` | A .wasm module's imports, exports, memory, sections and toolchain | The binary format's sections walked, the name, producers and target_features sections read, then WebAssembly.validate |
+| `/inspect-git-bundle` | A git bundle's refs, commits and the files at its tip, without git | A packfile reader: every zlib stream inflated by a decoder that reports where it ended, deltas applied, ids recomputed |
+| `/inspect-font` | A font's names, licence, languages, blocks and features, with a specimen | The sfnt tables read (WOFF inflated), coverage from the cmap, the specimen drawn by FontFace |
+| `/convert-3d-model` | STL, OBJ, PLY, glTF and 3MF turned into each other, upright and in the right units | Readers and writers for each format into one welded mesh; glTF node and 3MF build transforms applied |
+| `/repair-3d-model` | Whether a model will print: watertight, holes, inside-out faces, volume and weight | Edges counted for holes, non-manifold joins and flipped faces; repair welds, reorients shells and fills holes |
+| `/redact-pdf` | Names, e-mails and numbers blacked out of a PDF and removed from it | Matches found in PDF.js's text; each affected page redrawn as a picture with the boxes and rebuilt by pdf-lib |
+| `/check-pdf-redaction` | Whether a redacted PDF still has text under its black boxes | Dark filled rectangles read from each page's operator list, redaction marks from its annotations, text compared |
+| `/compare-pdfs-visually` | Two versions of a PDF compared as they look, removals red and additions green | Both drawn at 110 dpi by PDF.js and compared pixel by pixel; changed pages written to a PDF by pdf-lib |
+| `/edit-epub-metadata` | An e-book's title, authors, series, description and cover changed | Only the managed elements of the package file rewritten; the archive rebuilt with mimetype first and stored |
+| `/redact-image` | Parts of a screenshot or photo blacked out, pixelated or blurred for good | Boxes burned into the pixels, pixelation and blur kept to coarse block averages, saved from a canvas with no metadata |
+| `/optimize-gif` | An animated GIF made smaller without changing a frame, or with fewer colours | Every frame composed, then written as the rectangle that changed with unchanged pixels transparent; LZW written here |
+| `/create-sprite-sheet` | Many small pictures packed onto one sheet, with CSS and game-engine JSON | Shelf packing, tallest first, about as wide as the square the pictures fill; or a grid, a row or a column |
+| `/merge-gps` | The legs of a trip joined into one track in time order, or gathered side by side | Each file read into the shared GPS model, legs kept as segments so no line crosses a gap |
+| `/password-strength` | How many guesses a password takes and why, and strong passphrases made | zxcvbn's pattern matching and minimum-guesses search, ported; EFF's word list for passphrases |
+| `/encrypt-note` | A note locked with a passphrase, sent as a link, pasteable text or a page | The passphrase format below; a link keeps the sealed note after the #, which no server sees |
+| `/secure-package` | Files locked into one HTML page that opens itself with a passphrase, offline | A stored ZIP sealed with PBKDF2 and AES-256-GCM, base64 in the page beside a few lines of Web Crypto |
+| `/preview-site` | A static site from a ZIP or folder, clicked through in a sandbox, with its broken links | Pages rewritten to run from their own bytes in an opaque-origin frame that can load nothing from the network |
 
 Every media tool is one configuration of the same machinery: a catalogue of formats in
 `lib/engine/`, a page shell in `components/ToolApp.tsx`, and an entry in the registry in
@@ -133,7 +179,7 @@ load ffmpeg at all.
 The image, PDF, data and file tools load no WebAssembly either: they are the browser's own
 canvas, two small pure-JavaScript libraries and some arithmetic, on a second, smaller queue
 (`lib/plainQueue.ts`) with two shells of its own, one for a job per file and one for many files
-into one. The three tools that draw or read a PDF's pages add PDF.js, pulled in on first use.
+into one. The tools that draw or read a PDF's pages add PDF.js, pulled in on first use.
 See [Tools with no engine at all](#tools-with-no-engine-at-all).
 
 The research behind the site is in [`agent-outputs/`](agent-outputs/): the
@@ -890,6 +936,198 @@ names, since a browser cannot rename a file where it sits; the TAR writer is the
 a ustar header per file with GNU long-name entries where the name fits neither the field nor the
 prefix, fed through fflate's streaming gzip when asked.
 
+The seventh batch keeps to the same rule - no new runtime and no new dependency - and leans on
+the one thing the earlier batches did not have: a way to read XML. `lib/text/xml.ts` is a small
+tokenizer that keeps each node's raw spelling beside its meaning, says a broken file's line and
+column, and writes the tree back indented or minified with mixed content and `xml:space` left
+alone. The formatter, the JSON converter, the SVG optimiser, the GPS converter, the e-book reader
+and the XFA form reader are all built on it.
+
+Protecting a PDF is the first tool here that writes cryptography into someone else's format.
+pdf-lib neither writes nor reads encryption, so every string and stream of every object is
+encrypted on pdf-lib's own objects with AES-256-CBC and a random IV each, and an `/Encrypt`
+dictionary is written for revision 6, the handler of PDF 2.0: a random file key, sealed under the
+user password and again under an owner password made at random, by algorithm 2.B's iterated
+SHA-256/384/512 over AES-128 rounds. Everything comes from Web Crypto; Web Crypto insists on
+padding, so the unpadded decryptions the handler needs append a block that decrypts to a whole
+block of padding. Unlocking reads every revision in use, RC4 at 40 and 128 bits (with MD5 from the
+checksum tool and RC4 written here), AES-128 and AES-256, with either password, and a file whose
+only lock is on printing opens with none. Object streams are the awkward part: pdf-lib cannot
+inflate an encrypted one and keeps it as an invalid object, so the stream is taken back out of
+that, decrypted with its own object key and handed to pdf-lib's object-stream parser. Both are
+tested against files qpdf wrote in every revision, embedded as base64, and against PDF.js opening
+the protected output; qpdf accepted the output too when it was written.
+
+The readers of other people's formats are written from their specifications. An .eml is MIME:
+boundaries, base64 and quoted-printable, RFC 2047's encoded words and RFC 2231's continued
+parameters, the file read as Latin-1 so an 8-bit body survives to be decoded in its own charset.
+An Outlook .msg is a compound file - a FAT, a mini stream and a red-black tree of directory
+entries - holding MAPI properties as streams named for their id and type; `lib/documents/cfb.ts`
+reads the container and `msg.ts` the message, its recipients, its attachments and any message
+attached to it, and writes the whole as an .eml. Compressed RTF is expanded when that is all a
+message has, checked against the example in its specification. A SQLite database is read page by
+page: the schema table on page 1, each table's B-tree, records with their serial types, overflow
+chains, WITHOUT ROWID tables in primary-key order, and columns added after a table was made; the
+tests build their databases with Node's own SQLite. A certificate is DER walked by hand, its
+extensions named, and checked field by field against Node's `X509Certificate`.
+
+The CSV tools reuse the streaming reader: joining indexes the second file by its key and writes a
+row per match; comparing matches rows on a key and compares cells by column name; the pivot keeps
+an accumulator per cell and computes the totals from the rows rather than from the cells; the
+anonymiser finds columns by header and by the shape of their values - a card number passes Luhn,
+a phone has at least seven digits and some punctuation - and its stand-ins stay consistent across
+the file so the table still joins. The HAR sanitiser, the secret scanner and the GPS trimmer are
+the privacy tools this site is best placed for, since the file in question is exactly the one
+that should not be uploaded to have it cleaned. The passport sheet packs photos as tightly as the
+sheet allows, butting them together when that fits more, and writes 300 dpi into the JPEG's JFIF
+header so it prints at its true size.
+
+The eighth batch starts with text formats and QR codes, still with no new runtime and no new
+dependency. `lib/text/markdown.ts` renders Markdown line by line into blocks and then runs each
+block's text through an inline pass that sets code spans and links aside before anything is
+taken for emphasis; headings get the anchors GitHub gives them, so links to sections keep working,
+and raw HTML passes through with its scripts, handlers and `javascript:` links removed. The
+notebook converter reuses it for Markdown cells and picks each output's richest MIME type a page
+opened from disk can show: a PNG or SVG chart, a pandas table's HTML, Markdown, LaTeX as text,
+then plain text, with an interactive plot's script-only HTML falling back to the picture or text
+saved beside it. `lib/data/yaml.ts` is a YAML 1.2 core-schema parser - block and flow
+collections, plain, quoted and block scalars with chomping, anchors, aliases, `<<` merge keys,
+tags and several documents - checked against PyYAML where the two schemas agree; the writer
+quotes any string an older YAML 1.1 reader would take for a boolean, a number or null.
+
+The JWT decoder reads without a key, as anyone can, and verifies with one: HMAC for the HS
+algorithms, and RSA, RSA-PSS, ECDSA and Ed25519 for the rest through Web Crypto, with the key given
+as a PEM public key, a PKCS #1 key (wrapped into the SubjectPublicKeyInfo Web Crypto imports), a
+certificate (its key found in the DER) or a JWK set, where the key whose `kid` matches is used.
+The tests sign with Node's own crypto, and one ES256 token was signed by openssl against a
+certificate.
+
+The QR tools are written from ISO/IEC 18004. The encoder picks the densest mode the text allows,
+the smallest version that holds it, splits the codewords into the standard's blocks with
+Reed-Solomon correction over GF(256), interleaves them, and scores all eight masks by the
+standard's penalty rules. zxing-cpp read back all 264 codes it made across versions 1 to 40
+and all four levels, and the tests hold a symbol it draws module for module as segno does. The
+reader binarizes by a threshold that
+follows each 8 x 8 block's neighbourhood, scans rows for the 1:1:3:1:1 runs of a finder pattern
+and checks each down its column and along its diagonal, then tries every three finders that
+could be one code's corners. A code seen at an angle is sampled through a projective transform:
+the bottom-right alignment pattern fixes the fourth corner when there is one, and otherwise the
+finders' own squares - their outer edges fitted as lines from rays cast out of each centre - say
+which way the code's edges run, so the top-right finder's right side and the bottom-left
+finder's bottom side meet at the missing corner. A version block read at the wrong grid size
+names the right one. On a set of 116 generated pictures - every level and scale, turned,
+warped, blurred with noise and a lighting gradient, inverted, several to a picture - it reads
+115, against zxing-cpp's 116; the one it misses is a version 1 code blurred until its finder
+merges with the modules beside it.
+
+The developer inspectors read formats no browser tool usually opens. The file search streams
+each file through a `TextDecoder` and keeps only matching lines and their context, so a log of
+several gigabytes is searched in a tab; files inside ZIPs are searched too. The log analyser
+reads the same way, tries each line as an access log, JSON, syslog and a timestamped line in
+turn, treats indented and untimed lines as the entry above (a stack trace), and groups messages
+once what varies between them is masked. The protobuf decoder's raw output is byte for byte what
+`protoc --decode_raw` printed for a message written by protobuf's Python runtime, and with the
+`.proto` file its JSON matches protobuf's own JSON printer. The WebAssembly inspector's import and
+export lists match `WebAssembly.Module.imports` and `exports` for real modules - PDF.js's
+Rust and Emscripten builds - and it guesses the toolchain from the producers section or the shape
+of the imports.
+
+The git bundle reader needed a decompressor that says where a stream ended: a packfile is zlib
+streams laid end to end with nothing between them, and fflate does not report how much input it
+used. `lib/zip/inflate.ts` is a table-driven DEFLATE decoder that does, checked against Node's
+zlib at every level, stored and fixed blocks included, on streams placed back to back. The pack
+reader applies offset and reference deltas, recomputes every object's SHA-1 so ids match git's,
+and reports the deltas a thin bundle cannot resolve; its tests use bundles git 2.43 wrote. The font
+inspector reads TrueType, OpenType, collections and WOFF, whose tables it inflates with the same
+decoder; its names, glyph count, cmap size, features and scripts match what fontTools reads from
+DejaVu Sans. WOFF2 needs Brotli and is recognised but not read, though the browser still draws
+its specimen.
+
+One fix to shared code came out of this batch: the drop zone prefetches the ~31 MB ffmpeg core
+when a pointer rests on it, which is right on an engine tool and wasted on the tools that never
+load ffmpeg. The plain-queue shells and the two subtitle tools now turn that off.
+
+The 3D tools read STL (binary and ASCII), OBJ, PLY (ASCII and binary), glTF 2.0 (a .glb or a
+.gltf with embedded buffers) and 3MF into one mesh and write any of them back. glTF's node
+hierarchy and 3MF's build and component transforms are applied, so parts land where the file put
+them; a mirroring transform has its triangles turned back. The 3MF reader scans the model XML with
+targeted patterns rather than building a tree, since a printable model can have millions of
+vertices, and follows the production extension's separate object files. Reading trimesh's own
+files gives trimesh's volume, area and bounds to the last digit, and every file written here loads
+in trimesh with the same numbers. The checker counts every edge: once is a hole, three times is
+non-manifold, twice in the same direction is a flipped face. Repair welds vertices, drops
+degenerate and duplicate triangles, walks each shell turning triangles to agree with their
+neighbours, fills each hole with a fan from its centre, and turns any shell whose volume is
+negative the right way out. The preview is a z-buffered software rasteriser, the same code in the
+tests and the page.
+
+Redaction is the tool this site is most suited to, since the file in question is exactly one that
+should not be uploaded. Words, and details found by their shape (e-mail addresses, phone numbers,
+card numbers checked by their Luhn digit, ID numbers, IBANs), are found in the text PDF.js reads
+from each page, joined across text items, and mapped back to rectangles. Every page with a match
+is drawn with the boxes painted in and replaces the original page, so the text underneath no
+longer exists; the other pages are copied untouched, and document properties, bookmarks and
+attachments are not carried over. The checker reads each page's operator list, tracking the
+transform and fill colour, collects the dark filled rectangles and the redaction and dark
+annotations, and reports the characters of text that fall under them. The visual comparison draws
+both versions' pages and colours ink only in the first red and ink only in the second green. The
+EPUB editor rewrites only the elements it manages in the package file's metadata, keeps the rest
+byte for byte, and writes series both the way calibre does and the way EPUB 3 does.
+
+The screenshot redactor works on the picture's pixels, not on layers over it: a black box
+replaces every pixel under it, and pixelation and blur both keep only the average colour of
+coarse blocks - at least 12 pixels, and a third of the box's shorter side - with blur shading
+smoothly between those averages rather than running a light Gaussian blur, which can be undone.
+What is saved is a canvas export, so no metadata survives. A screenshot can be pasted straight
+from the clipboard. The GIF optimiser has its own decoder and LZW encoder in `lib/images/gif.ts`:
+it composes every frame as a browser does - disposal methods, interlacing, local palettes - and
+then writes each frame as the rectangle that changed since the one before, with the unchanged
+pixels inside it transparent, which LZW squeezes to almost nothing. Identical frames are merged
+with their delays added, and a frame that turns pixels transparent is drawn on ground its
+predecessor clears. Pillow decodes what it writes to the same pixels and delays as the source,
+and so does Chromium; with fewer colours, one palette for the whole animation comes from median
+cut. The sprite sheet packs pictures on shelves, tallest first, about as wide as the square they
+would fill, and writes CSS classes and TexturePacker's JSON hash, which game engines
+load. The exact resize crops to cover, fits with bands, or stretches, and the GPS merge puts
+timed legs in time order as segments of one track, so no straight line is drawn across a gap.
+
+The password checker is a port of zxcvbn 4.4.2 (MIT, Dropbox): the same frequency lists - 30,000
+common passwords, English words from Wikipedia and from film and television, first names and
+surnames - the same keyboard graphs, built here from drawings of the layouts and checked equal to
+zxcvbn's, the same matchers for reversed and l33t words, keyboard walks, repeats, sequences, years
+and dates, and the same search for the cheapest run of patterns. On 3,210 generated passwords it
+gives exactly zxcvbn's guesses, score, pattern sequence and feedback; the one change is that years
+up to 2099 count as recent, where zxcvbn stops at 2019. The lists, about 750 KB, load only with
+that page. Its generator draws from the browser's cryptographic random numbers with rejection
+sampling, so no choice is favoured by a remainder, and passphrases come from EFF's long word list
+(CC BY 3.0 US); their strength is counted exactly rather than estimated.
+
+The encrypted note and the secure package reuse the passphrase format of the file encrypter:
+PBKDF2-SHA-256 at 600,000 rounds, then AES-256-GCM a megabyte at a time with the header bound to
+every chunk. A note travels as a link whose fragment - the part after the #, which a browser never
+sends to a server - holds the sealed bytes as base64url, as an armoured block of text, or as a page.
+The package packs files into a stored ZIP, seals it, and writes it as base64 into an HTML page
+beside a few dozen lines of script that open it with Web Crypto and list each file to save. The
+page's own policy allows it no network access, it opens offline from disk, and the same code the
+page carries is what the tests run in Node, so a package made here is known to open.
+
+The site preview shows a static site without a service worker and without the site's scripts
+ever sharing this site's origin. Each page is rebuilt and handed to a frame as `srcdoc`, sandboxed
+without `allow-same-origin`, so its origin is opaque: the site's code cannot read this site's
+storage or reach its pages. A `srcdoc` frame inherits the page's CSP, which allows scripts only
+inline or from `blob:` and fonts only from this site, so the rebuild works within it: stylesheets
+are inlined with their `@import`s followed and pictures as `data:` URLs, fonts are taken out of
+`@font-face` and loaded from bytes with `FontFace`, classic scripts are inlined with deferred ones
+moved to the end of the body, and module code has its specifiers made absolute and is found
+through an import map of `blob:` URLs the frame's runtime writes. The runtime also answers `fetch`
+and `XMLHttpRequest` for the site's files, points pictures at their bytes however a script sets
+them, and passes clicks on the site's links back to the tool, which shows the next page. Each page
+carries its own policy on top forbidding anything but `blob:` and `data:`, so a reference the
+rewrite misses fails instead of going out; references to other sites are listed, not fetched.
+Folders with an `index.html`, root-relative links and addresses without `.html` resolve as static
+hosts resolve them. Single-page apps that route by the path show their first page, since a
+`srcdoc` document has no path to route by.
+
 ### Cancelling one format
 
 Each output is a format *and* a range, and each can be cancelled on its own. Cancelling one that is
@@ -1055,6 +1293,10 @@ because the App Router emits inline bootstrap scripts and a static export has no
 per-response nonce into them. `connect-src` has to allow `cdn.jsdelivr.net`, which is where the
 core is fetched from - a policy that omits it looks tighter and breaks every conversion.
 
+The site preview's frames are `srcdoc` documents and inherit this policy, which is why the preview
+rebuilds pages rather than serving them; see [the site preview](#tools-with-no-engine-at-all).
+Loosening the policy for it would loosen it for every page.
+
 `public/_redirects` catches the short aliases people type (`/compress`, `/gif`, `/mp4`) and sends
 them to the canonical verb-object routes.
 
@@ -1102,6 +1344,8 @@ NEXT_PUBLIC_FFMPEG_CORE_BASE_URL=/core npm run build
 node scripts/verify-e2e.mjs                                 # the audio extractor in a browser
 node scripts/verify-video-tools.mjs                         # the video tools and the subtitle converter in a browser
 node scripts/verify-plain-tools.mjs                         # the PDF, data, file and image tools of the fourth, fifth and sixth batches, no ffmpeg needed
+node scripts/verify-plain-tools-2.mjs                       # the seventh batch: PDF passwords and forms, e-mail, e-books, SQLite, CSV, XML, GPS, HAR, certificates, secrets, SVG, passport photos
+node scripts/verify-plain-tools-3.mjs                       # the eighth batch: text formats, QR codes, developer inspectors, 3D, redaction, pictures, GPS merging, passwords, encryption and site preview
 node scripts/verify-large-file.mjs                          # >2 GiB input
 ```
 
@@ -1148,7 +1392,22 @@ unequal counts, the size bisection against a fake writer and a real document, th
 for every rotation, the outline parser on numbered and contents-page lines and the outline written
 and walked back with pdf-lib, the table merge, split, sort and record code, the Markdown, HTML and
 SQL writers, the transcript styles, the line sorter, the rename patterns, and a TAR written and
-read back through the reader, gzipped and plain. The canvas and PDF.js's renderer
+read back through the reader, gzipped and plain. The seventh batch adds the XML tokenizer's errors,
+formatting and JSON round trips; PDF encryption against qpdf's files in five revisions and against
+PDF.js; the form reader on pdf-lib forms and an XFA packet; the EPUB reader on nested lists and a
+broken chapter; the MIME parser on encoded words, continued parameters and 8-bit bodies; the
+compound-file and .msg readers on files written by a test writer that olefile read back; SQLite
+databases written by SQLite itself; the join, comparison, pivot and anonymiser; every GPS format
+round-tripped and the privacy trim; the HAR sanitiser; certificates against Node's parser; the
+secret patterns; the SVG cleaner; and the passport layout. The eighth batch adds Markdown against
+the constructs GitHub renders, notebooks, YAML against PyYAML, JWTs signed by Node and openssl,
+QR codes module for module against segno, logs, protobuf against protoc, WebAssembly, the DEFLATE
+decoder against zlib, bundles written by git, fonts against fontTools, meshes against trimesh,
+redaction on pages PDF.js reads, the EPUB editor, GIFs written by Pillow decoded frame for frame
+and written again losslessly, redaction boxes, sprite layouts, exact resizes and merged GPS legs,
+password estimates against zxcvbn's own, the generators' counting and uniformity, locked pages
+opened by the script they carry, notes as links and text, and site pages rebuilt under jsdom.
+The canvas and PDF.js's renderer
 only exist in a browser, and the pages built on them are driven through Chromium by hand-run
 scripts before a release.
 The browser scripts need ffmpeg and ffprobe on `PATH`, plus a Chromium: one Playwright can find
@@ -1207,6 +1466,47 @@ different headers merged, a CSV split every two rows with the header on both pie
 a column descending, written as a Markdown table and as SQL, a workbook read as JSON and an API
 response written as a workbook, an SRT run into paragraphs, and a word list sorted; and two
 files renamed by number into a ZIP and packed into a .tar.gz that is read back block by block.
+
+`verify-plain-tools-2.mjs` drives the seventh batch the same way, with fixtures it makes itself: a
+PDF protected with copying forbidden, refused by PDF.js without the password and read with it,
+then unlocked back and refused with the wrong one; two filled forms read into one CSV; an EPUB's
+chapters in spine order; an .eml's attachment byte for byte; an Outlook message's recipients,
+attachments and inline picture, and the .eml made from it; a SQLite database's two tables; two
+CSVs joined and compared, one pivoted and one anonymised; a feed formatted and a broken file
+located; XML to JSON and back; a GPX ride as GeoJSON and KML and a line trimmed 200 m at each end;
+a HAR with no secret left; a certificate chain and a DER written from a PEM; a GitHub token and
+an AWS key found in a config file; an Inkscape SVG cleaned to one element; and a passport sheet
+measured at 1800 x 1200 and 300 dpi, then laid out on A4 as a PDF. It bundles two TypeScript test
+fixtures with esbuild, which Vite brings in, and needs Node 22 for `node:sqlite`.
+
+`verify-plain-tools-3.mjs` drives the eighth batch: a README rendered with and without a table
+of contents and its script gone; a notebook with a chart embedded, then as results only; two
+Kubernetes documents with an anchor and a merge key as JSON, and JSON back to YAML that parses as
+the same data; the JWT example verified, an expired RS256 token verified against its PEM key and
+refused against another key from a JWK set; a link, a Wi-Fi network and three lines made into QR
+codes whose downloaded PNGs are decoded again from their pixels; a picture holding two codes
+read back with the link and the Wi-Fi password spelled out; TODO found across two files and a
+ZIP; a gzipped application log and an access log summarised; a protobuf message decoded raw and
+then with its .proto; PDF.js's colour module identified as Rust with wasm-bindgen; a bundle made
+by git opened with its commit ids matching git's and its tip saved as a ZIP; and DejaVu Sans read
+with a specimen drawn in it; an STL cube converted to 3MF and glTF, and a box with its bottom
+missing found and repaired to a watertight 8000 mm3; a PDF redacted with its details gone from the
+text, then checked beside one whose box hid nothing; two versions of a PDF compared to the one
+changed page; an EPUB's title, authors and series changed and read back; a picture cropped to an
+exact 100 x 100 from its middle; two GPS legs added out of order and merged in time order; three
+icons packed with each where the JSON says; a GIF written whole, frame after frame, optimised to
+under 60% and decoded again to identical frames, with Chromium drawing its first frame pixel for
+pixel; and a screenshot pasted, a box dragged over it and saved black, then picked and pixelated,
+with every pixel outside the box untouched; a common password, Tr0ub4dor&3 and a generated
+passphrase scored as zxcvbn scores them; a note locked to a link, refused with the wrong
+passphrase, opened from the link and from its page saved to disk; two files locked into a page
+that opens from disk and gives them back byte for byte, and opens again when dropped on the site;
+and a small site from a ZIP clicked through in its sandbox - no origin, storage blocked, its
+stylesheet, picture and font from the ZIP, its module import and fetch answered, its deferred
+script after the body, /about found as about.html, the broken link and the font from Google in the
+report, and no request made to the network. The server sends the CSP from `public/_headers`, as
+the deployed site does, since every page has to work inside it. It needs git on the PATH for the
+bundle.
 
 `verify-e2e.mjs` drives a real Chromium through the audio extractor's seven cases - an MP4 with AAC, a video with no
 audio track, an MKV with 5.1 FLAC, a hand-set 1s-3s clip, an 8s file padded with two seconds of

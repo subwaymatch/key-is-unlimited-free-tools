@@ -121,7 +121,53 @@ export type ToolIconName =
   | "textquote"
   | "updown"
   | "folderpen"
-  | "packageplus";
+  | "packageplus"
+  | "filelock"
+  | "unlock"
+  | "clipboard"
+  | "book"
+  | "mailopen"
+  | "inbox"
+  | "databasezap"
+  | "link"
+  | "comparearrows"
+  | "sigma"
+  | "mask"
+  | "codexml"
+  | "brackets"
+  | "route"
+  | "mappinoff"
+  | "network"
+  | "filebadge"
+  | "keyround"
+  | "pentool"
+  | "idcard"
+  | "filecode"
+  | "notebooktext"
+  | "listtree"
+  | "ticket"
+  | "qrcode"
+  | "scanqr"
+  | "textsearch"
+  | "scrolltext"
+  | "binary"
+  | "cpu"
+  | "gitbranch"
+  | "type"
+  | "rotate3d"
+  | "wrench"
+  | "eyeoff"
+  | "scaneye"
+  | "columns"
+  | "bookmarked"
+  | "imageoff"
+  | "imageminus"
+  | "spritesheet"
+  | "waypoints"
+  | "passwordfield"
+  | "securepackage"
+  | "notelock"
+  | "sitepreview";
 
 export interface ToolMeta {
   /** URL segment. Verb-object, lowercase, hyphenated, and permanent once shipped. */
@@ -169,9 +215,9 @@ export const CATEGORY_BLURBS: Record<ToolCategory, string> = {
   audio: "Extract, convert, clean up and reshape sound, whole or clipped.",
   subtitles: "Convert, merge, extract and burn in captions.",
   images: "Resize, convert, crop, clean and combine pictures, in bulk.",
-  documents: "Merge, split, stamp, shrink and tidy PDFs page by page.",
-  files: "Hash, zip, tar, split, rename and seal any file.",
-  data: "CSV, JSON, Excel and text, converted, cleaned and profiled.",
+  documents: "Merge, split, lock and tidy PDFs, and open e-mails and e-books.",
+  files: "Hash, zip, split and seal files, and check them for secrets.",
+  data: "CSV, JSON, XML, Excel, SQLite and GPS files, converted and cleaned.",
 };
 
 /** Display order for category groupings. */
@@ -622,9 +668,9 @@ export const TOOLS: readonly ToolMeta[] = [
   {
     slug: "resize-image",
     name: "Resize image",
-    tagline: "Scale pictures down to a longest side or a fraction, never enlarged, in bulk.",
+    tagline: "Scale pictures to a longest side, a fraction or an exact width and height, in bulk.",
     description:
-      "Resize pictures entirely in your browser: to a longest side of 1920, 1280, 1024 or 800 pixels, to half or a quarter, or to a number you type, never enlarged, in the format they came in. Nothing is uploaded.",
+      "Resize pictures entirely in your browser: to a longest side of 1920, 1280, 1024 or 800 pixels, to half or a quarter, to a number you type, or to an exact width and height, cropped, fitted or stretched to it, in the format they came in. Nothing is uploaded.",
     category: "images",
     icon: "resize",
     accepts: "Image files",
@@ -1489,6 +1535,558 @@ export const TOOLS: readonly ToolMeta[] = [
     category: "files",
     icon: "packageplus",
     accepts: "Any files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "protect-pdf",
+    name: "Password-protect a PDF",
+    tagline: "A PDF that asks for a password, encrypted with AES-256, printing and copying optional.",
+    description:
+      "Password-protect a PDF entirely in your browser: every page, picture and piece of text encrypted with AES-256 under a password you choose, the handler every current reader opens, with printing, copying and editing forbidden if you like. Nothing is uploaded, so the password and the document never leave your device.",
+    category: "documents",
+    icon: "filelock",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "unlock-pdf",
+    name: "Unlock a PDF",
+    tagline: "A PDF's password taken off, with the password, or its printing and copying lock lifted.",
+    description:
+      "Unlock a PDF entirely in your browser: give the password once and get a copy that opens without one, or drop a PDF that opens freely but will not print or copy and get one that does. Every standard encryption is read: RC4, AES-128 and AES-256. Nothing is uploaded.",
+    category: "documents",
+    icon: "unlock",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "pdf-form-data",
+    name: "Extract PDF form data",
+    tagline: "What was typed into filled PDF forms, one row per form, as a spreadsheet.",
+    description:
+      "Extract the data from filled PDF forms entirely in your browser: drop one form or fifty and get a CSV and JSON with a row per form and a column per field, check boxes as Yes or No and choices as chosen, XFA forms included. Nothing is uploaded.",
+    category: "documents",
+    icon: "clipboard",
+    accepts: "Filled PDF forms",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "epub-to-text",
+    name: "EPUB to text",
+    tagline: "An e-book's chapters as one text file in reading order, or as Markdown.",
+    description:
+      "Convert an EPUB to text entirely in your browser: every chapter in the book's own reading order as one plain text file with a blank line between paragraphs, or as Markdown with its headings, lists and emphasis kept, with the word count on the card. Nothing is uploaded.",
+    category: "documents",
+    icon: "book",
+    accepts: "EPUB files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "extract-email",
+    name: "Open an .eml e-mail",
+    tagline: "A saved e-mail's attachments as files, its text, and its HTML as a page to open.",
+    description:
+      "Open an .eml file entirely in your browser: the attachments of a message saved from Gmail, Apple Mail, Thunderbird or Outlook as files of their own, its text, and its HTML as a web page with its pictures in place, every encoding and character set decoded. Nothing is uploaded.",
+    category: "documents",
+    icon: "mailopen",
+    accepts: ".eml files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "open-msg",
+    name: "Open an Outlook .msg",
+    tagline: "An Outlook message read without Outlook: attachments, text, HTML, and an .eml.",
+    description:
+      "Open an Outlook .msg file entirely in your browser, without Outlook: its sender, recipients and date, its attachments as files, its text and HTML body, and the whole message as an .eml that Apple Mail, Thunderbird and every other mail program opens. Nothing is uploaded.",
+    category: "documents",
+    icon: "inbox",
+    accepts: "Outlook .msg files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "sqlite-to-csv",
+    name: "SQLite to CSV",
+    tagline: "Every table of a .db or .sqlite file as CSV, JSON or a workbook, no SQL needed.",
+    description:
+      "Convert a SQLite database to CSV entirely in your browser: every table of an app's .db, .sqlite or .sqlite3 file as a CSV, a JSON file or a sheet of one Excel workbook, read straight from the file format with no database software. Nothing is uploaded.",
+    category: "data",
+    icon: "databasezap",
+    accepts: "SQLite databases",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "join-csv",
+    name: "Join two CSV files",
+    tagline: "Columns from one CSV added to the matching rows of another, like VLOOKUP.",
+    description:
+      "Join two CSV files entirely in your browser: the rows of one matched to the rows of the other on a column they share, such as an ID or an e-mail, and the second file's columns added alongside, keeping every row of the first, only the matches, or everything. Nothing is uploaded.",
+    category: "data",
+    icon: "link",
+    accepts: "Two CSV files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "compare-csv",
+    name: "Compare two CSV files",
+    tagline: "The rows added, removed and changed between two versions of a table.",
+    description:
+      "Compare two CSV files entirely in your browser: match the rows of two exports on a key column and get a report of every row added, removed or changed, with each changed cell written old -> new, or compare whole rows when there is no key. Nothing is uploaded.",
+    category: "data",
+    icon: "comparearrows",
+    accepts: "Two CSV files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "pivot-csv",
+    name: "Pivot table from CSV",
+    tagline: "Rows grouped, counted, summed or averaged, and spread across a column, with totals.",
+    description:
+      "Make a pivot table from a CSV entirely in your browser: rows grouped by one column and counted, summed, averaged or reduced to their smallest, largest or distinct values, spread across the values of a second column if you like, with row and column totals. Nothing is uploaded.",
+    category: "data",
+    icon: "sigma",
+    accepts: "CSV and TSV files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "anonymize-csv",
+    name: "Anonymize a CSV",
+    tagline: "Names, e-mails, phones and ID numbers found and replaced before a table is shared.",
+    description:
+      "Anonymize a CSV entirely in your browser: the columns holding names, e-mail addresses, phone numbers, addresses, IP addresses, card and ID numbers and birth dates found by their headers and their values, then replaced with consistent stand-ins, masked, hashed or removed. Nothing is uploaded.",
+    category: "data",
+    icon: "mask",
+    accepts: "CSV and TSV files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "format-xml",
+    name: "Format XML",
+    tagline: "XML indented or minified, or told the line and column where it breaks.",
+    description:
+      "Format XML entirely in your browser: a config, a feed, a sitemap or an export indented so it can be read, or minified to one line, with the text inside kept exactly as it was, or the line, column and reason given when the file is not well-formed. Nothing is uploaded.",
+    category: "data",
+    icon: "codexml",
+    accepts: "XML files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "xml-to-json",
+    name: "XML to JSON",
+    tagline: "XML as JSON, or JSON as XML: attributes as @keys, repeats as arrays.",
+    description:
+      "Convert XML to JSON, or JSON to XML, entirely in your browser: attributes become keys starting with @, text beside them #text, and an element that repeats an array, the convention most converters share, with numbers and true or false typed if you like. Nothing is uploaded.",
+    category: "data",
+    icon: "brackets",
+    accepts: "XML and JSON files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "convert-gps",
+    name: "Convert GPX, KML and GeoJSON",
+    tagline: "GPS tracks between GPX, KML, GeoJSON, TCX and CSV, with distance and climb.",
+    description:
+      "Convert GPS files entirely in your browser: GPX from Strava or a watch, KML from Google Earth, GeoJSON from a web map, Garmin's TCX and CSV turned into each other with their tracks, routes, waypoints, heights and times, and the distance, climb and time on the card. Nothing is uploaded.",
+    category: "data",
+    icon: "route",
+    accepts: "GPX, KML, GeoJSON, TCX and CSV files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "trim-gps-track",
+    name: "Hide home on a GPS track",
+    tagline: "The start and end of a run or ride cut off, so sharing it does not share where you live.",
+    description:
+      "Trim a GPS track for privacy entirely in your browser: every point within a chosen distance of where a run, ride or walk starts and ends removed, the way Strava's privacy zones work, plus any place you name, with the times and heights dropped too if you like. Nothing is uploaded.",
+    category: "data",
+    icon: "mappinoff",
+    accepts: "GPX, KML, GeoJSON and TCX files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "sanitize-har",
+    name: "Sanitize a HAR file",
+    tagline: "A browser's network log with the cookies, tokens and passwords taken out.",
+    description:
+      "Sanitize a HAR file entirely in your browser before sending it to a support desk: the cookies, Authorization headers, session tokens, API keys and passwords recorded in it replaced, with the requests, timings and sizes left for whoever is debugging. Nothing is uploaded, which is the only safe way to do it.",
+    category: "files",
+    icon: "network",
+    accepts: "HAR files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "inspect-certificate",
+    name: "Inspect a certificate",
+    tagline: "Who a certificate is for, who issued it, the names it covers and when it expires.",
+    description:
+      "Inspect an SSL/TLS certificate entirely in your browser: the subject and issuer, the names it covers, its validity and days left, its key, its usages and its SHA-256 and SHA-1 fingerprints, from a .pem, .crt, .cer or .der, a whole chain, or a signing request, with the other encoding to download. Nothing is uploaded.",
+    category: "files",
+    icon: "filebadge",
+    accepts: "Certificates and CSRs",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "find-secrets",
+    name: "Find secrets in files",
+    tagline: "API keys, tokens, private keys and passwords left in code, configs and logs.",
+    description:
+      "Find secrets in files entirely in your browser before sharing or publishing them: AWS, GitHub, Stripe, Google, OpenAI, Slack and more than twenty other providers' keys and tokens, private keys, database URLs with passwords and secrets assigned in code, with the line each is on, in text files or a whole ZIP. Nothing is uploaded.",
+    category: "files",
+    icon: "keyround",
+    accepts: "Text files and ZIPs",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "optimize-svg",
+    name: "Optimize SVG",
+    tagline: "An SVG made smaller and safe for a page: editor data out, numbers rounded, scripts gone.",
+    description:
+      "Optimize an SVG entirely in your browser: the data Illustrator, Inkscape, Figma and Sketch leave behind taken out, numbers rounded, whitespace removed and unused ids dropped, and scripts, event handlers and javascript: links removed so it is safe to put on a page. Nothing is uploaded.",
+    category: "images",
+    icon: "pentool",
+    accepts: "SVG files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "passport-photo",
+    name: "Passport photo sheet",
+    tagline: "A photo cut to 35 x 45 mm, 2 x 2 in and more, repeated on a 4 x 6 print to cut out.",
+    description:
+      "Make passport and visa photos to print entirely in your browser: a portrait cut to 35 x 45 mm, 2 x 2 in, 50 x 70 mm or 33 x 48 mm and repeated across a 4 x 6 in photo print, A4 or Letter at 300 dpi with lines to cut along, plus the single photo for an online application. Nothing is uploaded.",
+    category: "images",
+    icon: "idcard",
+    accepts: "Photos",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "markdown-to-html",
+    name: "Markdown to HTML",
+    tagline: "A README or notes rendered as a clean web page, or as HTML to paste anywhere.",
+    description:
+      "Convert Markdown to HTML entirely in your browser: headings, lists, GitHub tables, task lists, code blocks and links rendered as a styled page that reads and prints well, with an optional table of contents, or as bare HTML to paste into a CMS. Nothing is uploaded.",
+    category: "documents",
+    icon: "filecode",
+    accepts: "Markdown files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "notebook-to-html",
+    name: "Notebook to HTML",
+    tagline: "A Jupyter notebook as one web page, charts and tables included, no Jupyter needed.",
+    description:
+      "Convert a Jupyter notebook to HTML entirely in your browser: Markdown rendered, code in blocks and the saved outputs, tables, charts, printed lines and errors, laid out as one self-contained page anyone can open, with the code optional for a report. Nothing is uploaded.",
+    category: "data",
+    icon: "notebooktext",
+    accepts: "Jupyter notebook files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "yaml-to-json",
+    name: "YAML to JSON",
+    tagline: "YAML to JSON and JSON to YAML, with the line where broken YAML goes wrong.",
+    description:
+      "Convert YAML to JSON and JSON to YAML entirely in your browser: Kubernetes manifests, CI workflows and config files read by the YAML 1.2 rules, anchors and merge keys expanded, several documents kept in order, and the line named when the file is broken. Nothing is uploaded.",
+    category: "data",
+    icon: "listtree",
+    accepts: "YAML and JSON files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "decode-jwt",
+    name: "Decode a JWT",
+    tagline: "What a JSON Web Token carries, when it expires, and whether its signature holds.",
+    description:
+      "Decode a JSON Web Token entirely in your browser: the header and every claim with dates as dates, whether it has expired, warnings about unsafe tokens, and the signature verified against a secret, a PEM public key, a certificate or a JWK set. Nothing is uploaded.",
+    category: "files",
+    icon: "ticket",
+    accepts: "Pasted tokens",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "create-qr-code",
+    name: "QR code generator",
+    tagline: "QR codes for links, text and Wi-Fi, one or hundreds at once, as PNG or SVG.",
+    description:
+      "Make QR codes entirely in your browser: a link, any text or a Wi-Fi network phones join by scanning, with the error correction level, colours and quiet zone chosen, saved as a sharp PNG or scalable SVG, or hundreds from a list at once as a ZIP. Nothing is uploaded and the codes never expire.",
+    category: "images",
+    icon: "qrcode",
+    accepts: "Typed text",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "read-qr-code",
+    name: "Read a QR code",
+    tagline: "What a QR code in a screenshot or photo says, before you open it.",
+    description:
+      "Read QR codes from screenshots and photos entirely in your browser: links shown with their real destination and warnings about disguised ones, Wi-Fi passwords, contact cards and two-factor secrets spelled out, several codes in one picture, codes at an angle or light on dark. Nothing is uploaded.",
+    category: "images",
+    icon: "scanqr",
+    accepts: "Screenshots and photos",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "search-files",
+    name: "Search in files",
+    tagline: "A word or pattern found across many files and ZIPs, grep style, with line numbers.",
+    description:
+      "Search many files at once entirely in your browser: code, logs and exports, and the files inside ZIPs, for a word, a phrase or a regular expression, with every matching line, its line number and the lines around it, as grep output or a CSV. Nothing is uploaded.",
+    category: "files",
+    icon: "textsearch",
+    accepts: "Any text files and ZIPs",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "analyze-log",
+    name: "Analyze a log file",
+    tagline: "A log summarised: errors by count, time span, top messages, status codes and paths.",
+    description:
+      "Analyze log files entirely in your browser: application logs, nginx and Apache access logs, syslog and JSON lines, even gzipped, summarised into levels, the time they cover, the messages that repeat most, and for web logs the status codes, top paths, 404s and bots. Nothing is uploaded.",
+    category: "files",
+    icon: "scrolltext",
+    accepts: "Log files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "decode-protobuf",
+    name: "Decode protobuf",
+    tagline: "A binary protobuf message taken apart field by field, with names if you have the .proto.",
+    description:
+      "Decode Protocol Buffers messages entirely in your browser: binary, base64 or hex, gRPC frames included, taken apart field by field the way protoc --decode_raw shows them, or with field names, enums and types from the message's .proto file, as JSON. Nothing is uploaded.",
+    category: "files",
+    icon: "binary",
+    accepts: "Protobuf messages",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "inspect-wasm",
+    name: "Inspect WebAssembly",
+    tagline: "What a .wasm imports and exports, which toolchain built it and where its size goes.",
+    description:
+      "Inspect a WebAssembly module entirely in your browser: its imports and exports with signatures, its memory and tables, its size section by section, its largest functions by name, and the toolchain that built it, Rust, Go, Emscripten or more, without running it. Nothing is uploaded.",
+    category: "files",
+    icon: "cpu",
+    accepts: "WebAssembly modules",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "inspect-git-bundle",
+    name: "Open a git bundle",
+    tagline: "A git bundle's branches, commits and files, without git, with the files as a ZIP.",
+    description:
+      "Open a git bundle or packfile entirely in your browser: its branches and tags, every commit with its author, date and message, and the files at the tip saved as a ZIP, every delta applied and every object id checked, with no git installed. Nothing is uploaded.",
+    category: "files",
+    icon: "gitbranch",
+    accepts: "Git bundles and packfiles",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "inspect-font",
+    name: "Inspect a font",
+    tagline: "A font's name, licence, glyphs, languages and features, with a specimen.",
+    description:
+      "Inspect a font file entirely in your browser: its names and version, its licence and embedding permission, its glyph count, which languages it can set and which letters are missing, its Unicode blocks, OpenType features and variable axes, with a specimen drawn in it. Nothing is uploaded.",
+    category: "files",
+    icon: "type",
+    accepts: "Font files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "convert-3d-model",
+    name: "Convert a 3D model",
+    tagline: "STL, OBJ, PLY, glTF and 3MF turned into each other, units and orientation kept right.",
+    description:
+      "Convert 3D models entirely in your browser: STL, OBJ, PLY, glTF (.glb) and 3MF into each other, with node and build transforms applied, units changed if asked, and the model kept upright between Y-up and Z-up formats, plus a preview. Nothing is uploaded.",
+    category: "files",
+    icon: "rotate3d",
+    accepts: "3D models",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "repair-3d-model",
+    name: "Check and repair a 3D model",
+    tagline: "Whether a model will print: watertight, holes, inside-out faces, volume and weight.",
+    description:
+      "Check a 3D model for printing entirely in your browser: its size, volume and weight in PLA, whether it is watertight, and where it has holes, inside-out faces, broken or duplicate triangles, repaired into a new STL or 3MF with a preview. Nothing is uploaded.",
+    category: "files",
+    icon: "wrench",
+    accepts: "3D models",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "redact-pdf",
+    name: "Redact a PDF",
+    tagline: "Names, e-mails and numbers blacked out of a PDF and taken out of it, not just covered.",
+    description:
+      "Redact PDFs entirely in your browser: the words and names you type, and e-mail addresses, phone, card, ID and bank numbers found by their shape, blacked out with the text underneath removed rather than covered, and the document's properties stripped. Nothing is uploaded.",
+    category: "documents",
+    icon: "eyeoff",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "check-pdf-redaction",
+    name: "Check a PDF's redaction",
+    tagline: "Whether a redacted PDF still has the text under its black boxes.",
+    description:
+      "Check a redacted PDF entirely in your browser: every black box and redaction mark on every page compared with the page's text, so text still sitting underneath, one copy and paste away, is found and shown before the file is sent. Nothing is uploaded.",
+    category: "documents",
+    icon: "scaneye",
+    accepts: "PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "compare-pdfs-visually",
+    name: "Compare PDFs visually",
+    tagline: "Two versions of a PDF compared as they look, removals in red and additions in green.",
+    description:
+      "Compare two PDFs visually entirely in your browser: every page of both drawn and compared pixel by pixel, so changes to words, pictures, drawings and layout all show, with what was removed in red and what was added in green, in a PDF of the changed pages. Nothing is uploaded.",
+    category: "documents",
+    icon: "columns",
+    accepts: "Two PDF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "edit-epub-metadata",
+    name: "Edit EPUB details",
+    tagline: "An e-book's title, authors, series, description and cover changed, nothing else touched.",
+    description:
+      "Edit an EPUB's details entirely in your browser: the title, authors, series and number, language, publisher, date, description, subjects and cover picture, written the way calibre, Apple Books and Kobo read them, with the rest of the book left byte for byte. Nothing is uploaded.",
+    category: "documents",
+    icon: "bookmarked",
+    accepts: "EPUB files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "redact-image",
+    name: "Redact a screenshot",
+    tagline: "Black out, pixelate or blur parts of a screenshot or photo, burned in for good.",
+    description:
+      "Redact screenshots and photos entirely in your browser: drag boxes over names, account numbers, faces or messages, cover them with black, pixelation or blur burned into the pixels, and save a copy without the original's metadata. Nothing is uploaded.",
+    category: "images",
+    icon: "imageoff",
+    accepts: "JPEG, PNG, WebP and GIF pictures, or a pasted screenshot",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "optimize-gif",
+    name: "Optimize GIF",
+    tagline: "Shrink animated GIFs without changing a frame, or further with fewer colours.",
+    description:
+      "Optimize animated GIFs entirely in your browser: each frame rewritten as only the part that changed, repeated frames merged and padding dropped, losslessly, or with fewer colours for smaller files still. Nothing is uploaded.",
+    category: "images",
+    icon: "imageminus",
+    accepts: "GIF files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "create-sprite-sheet",
+    name: "Create a sprite sheet",
+    tagline: "Pack icons or game frames onto one sprite sheet, with its CSS and JSON.",
+    description:
+      "Make a sprite sheet entirely in your browser: many small pictures packed onto one PNG or WebP, with a CSS class for each and the JSON map Phaser, PixiJS and other game engines read. Nothing is uploaded.",
+    category: "images",
+    icon: "spritesheet",
+    accepts: "PNG, JPEG, WebP and GIF pictures",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "merge-gps",
+    name: "Merge GPS tracks",
+    tagline: "Join the GPX, KML or GeoJSON legs of a trip into one track, in time order.",
+    description:
+      "Merge GPS files entirely in your browser: the GPX, KML, GeoJSON, TCX or CSV legs of a trip joined into one track in time order, or gathered as separate tracks in one file, with waypoints kept. Nothing is uploaded.",
+    category: "data",
+    icon: "waypoints",
+    accepts: "GPX, KML, GeoJSON, TCX and CSV files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "password-strength",
+    name: "Password strength checker",
+    tagline: "See how long a password takes to crack and why, or make a strong passphrase.",
+    description:
+      "Check a password's strength entirely in your browser: the guesses it would take, crack times online and offline, the common words, names, keyboard walks and dates it is made of, and a generator for strong passphrases. Nothing is sent or saved.",
+    category: "files",
+    icon: "passwordfield",
+    accepts: "A password typed or pasted",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "secure-package",
+    name: "Send files securely",
+    tagline: "Lock files into one page that opens with a passphrase in any browser, no app needed.",
+    description:
+      "Lock files for sending entirely in your browser: packed into one HTML page, sealed with AES-256 under a passphrase, that the recipient opens in any browser, offline, with no app or account. Nothing is uploaded.",
+    category: "files",
+    icon: "securepackage",
+    accepts: "Any files, up to 200 MB in all",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "encrypt-note",
+    name: "Encrypted note",
+    tagline: "Lock a note with a passphrase and send it as a link, text or a page that opens itself.",
+    description:
+      "Encrypt a note entirely in your browser: sealed with AES-256 under a passphrase and shared as a link whose secret part never reaches a server, a block of text to paste anywhere, or a self-opening page. Nothing is uploaded or stored.",
+    category: "files",
+    icon: "notelock",
+    accepts: "A note typed or pasted",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "preview-site",
+    name: "Preview a website",
+    tagline: "Click through a site from a ZIP or folder, sandboxed and offline, and find broken links.",
+    description:
+      "Preview a static website entirely in your browser: open a ZIP or folder of its files and click through its pages, with its scripts running in a sandbox that reaches nothing, then see broken links, missing files and errors. Nothing is uploaded.",
+    category: "files",
+    icon: "sitepreview",
+    accepts: "A ZIP or folder of HTML, CSS, JavaScript and pictures",
     status: "live",
     engine: "browser",
   },
