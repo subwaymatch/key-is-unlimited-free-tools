@@ -5,7 +5,12 @@
  * bundles and fonts, the 3D model converter and repairer, PDF redaction
  * and its check, visual PDF comparison and the EPUB details editor, then
  * pictures resized to an exact size, GPS legs merged, a sprite sheet
- * packed, an animated GIF optimised and a pasted screenshot redacted.
+ * packed, an animated GIF optimised and a pasted screenshot redacted; and
+ * the security tools: a password's strength and a generated passphrase, a
+ * note locked to a link and to a page, files locked into a page that opens
+ * itself from disk, and a site previewed in its sandbox. The server sends
+ * the site's own Content-Security-Policy from public/_headers, as the
+ * deployed site does, since the preview has to work inside it.
  *
  * Builds nothing itself: run `npm run build` first. Serves the static
  * export, makes its own fixtures in Node - a README, a notebook with a
@@ -312,7 +317,25 @@ async function ensureFixtures() {
   gif.push(0x3b);
   const halves = new Uint8Array(300 * 200);
   for (let y = 0; y < 200; y += 1) for (let x = 0; x < 300; x += 1) halves[y * 300 + x] = x < 150 ? 40 : 200;
+  const site = {
+    "my-site/index.html": `<!DOCTYPE html><html><head><title>Home page</title>
+<link rel="stylesheet" href="/css/site.css"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter">
+<script defer src="js/late.js"></script><script type="module" src="js/app.js"></script></head>
+<body><h1 id="title">Welcome</h1><img id="logo" src="img/logo.png" alt="Logo"><p id="module">waiting</p><p id="data">waiting</p><p id="late">waiting</p><p id="storage">waiting</p>
+<a id="about" href="about">About us</a> <a href="gone.html">Gone</a></body></html>`,
+    "my-site/about.html": '<!DOCTYPE html><html><head><title>About</title><link rel="stylesheet" href="css/site.css"></head><body><h1>About us</h1><a href="./">Home</a></body></html>',
+    "my-site/css/site.css": "@font-face { font-family: 'Site Sans'; src: url(../fonts/site.ttf) format('truetype'); }\nbody { font-family: 'Site Sans', serif; } h1 { color: rgb(200, 30, 30); } body { background: url(../img/logo.png) no-repeat -100px -100px; }",
+    "my-site/js/app.js": 'import { greet } from "./util.js";\ndocument.getElementById("module").textContent = greet("module");\nfetch("data/info.json").then((r) => r.json()).then((j) => { document.getElementById("data").textContent = j.message; });\ntry { localStorage.setItem("x", "1"); document.getElementById("storage").textContent = "open"; } catch (error) { document.getElementById("storage").textContent = "blocked"; }',
+    "my-site/js/util.js": "export const greet = (who) => `hello from the ${who}`;",
+    "my-site/js/late.js": 'document.getElementById("late").textContent = document.getElementById("title") ? "after the body" : "too early";',
+    "my-site/data/info.json": JSON.stringify({ message: "data from fetch" }),
+    "my-site/img/logo.png": grayPng(40, 20, new Uint8Array(800).fill(90)),
+    "my-site/fonts/site.ttf": readFileSync(join(root, "public", "fonts", "DejaVuSans.ttf")),
+  };
   return {
+    siteZip: write("my-site.zip", Buffer.from(zipSync(Object.fromEntries(Object.entries(site).map(([path, content]) => [path, typeof content === "string" ? strToU8(content) : new Uint8Array(content)]))))),
+    contract: write("contract.pdf", await personalPdf("signed")),
+    photo: write("id-scan.png", grayPng(64, 48, gradient(64, 48))),
     wide: write("wide.png", grayPng(300, 200, halves)),
     screenshot: write("screen.png", grayPng(200, 120, gradient(200, 120))),
     animation: write("recording.gif", Buffer.from(gif)),
@@ -342,14 +365,19 @@ async function ensureFixtures() {
   };
 }
 
+/** The deployed site's policy, less the upgrade to https a local server cannot answer. */
+const POLICY = /^\s*Content-Security-Policy: (.*)$/m.exec(readFileSync(join(root, "public", "_headers"), "utf8"))[1].replace(/;\s*upgrade-insecure-requests/, "");
+const virtualRequests = [];
+
 function startServer() {
   const server = createServer((request, response) => {
     const url = new URL(request.url, `http://localhost:${PORT}`);
+    if (url.pathname.startsWith("/__site__/")) virtualRequests.push(url.pathname);
     let filePath = join(OUT, decodeURIComponent(url.pathname));
     if (existsSync(filePath) && statSync(filePath).isDirectory()) filePath = join(filePath, "index.html");
     if (!existsSync(filePath) && existsSync(`${filePath}.html`)) filePath = `${filePath}.html`;
     if (!existsSync(filePath)) filePath = join(OUT, "index.html");
-    response.writeHead(200, { "Content-Type": MIME[extname(filePath)] ?? "application/octet-stream", "Content-Length": statSync(filePath).size });
+    response.writeHead(200, { "Content-Type": MIME[extname(filePath)] ?? "application/octet-stream", "Content-Length": statSync(filePath).size, ...(extname(filePath) === ".html" ? { "Content-Security-Policy": POLICY } : {}) });
     createReadStream(filePath).pipe(response);
   });
   return new Promise((resolveServer) => server.listen(PORT, "127.0.0.1", () => resolveServer(server)));
@@ -422,7 +450,7 @@ async function main() {
     log("\nIndex:");
     await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "networkidle" });
     const links = await page.locator("main a[href^='/']").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("href")));
-    for (const slug of ["markdown-to-html", "notebook-to-html", "yaml-to-json", "decode-jwt", "create-qr-code", "read-qr-code", "search-files", "analyze-log", "decode-protobuf", "inspect-wasm", "inspect-git-bundle", "inspect-font", "convert-3d-model", "repair-3d-model", "redact-pdf", "check-pdf-redaction", "compare-pdfs-visually", "edit-epub-metadata", "merge-gps", "create-sprite-sheet", "optimize-gif", "redact-image"]) check(`index links to /${slug}`, links.includes(`/${slug}`));
+    for (const slug of ["markdown-to-html", "notebook-to-html", "yaml-to-json", "decode-jwt", "create-qr-code", "read-qr-code", "search-files", "analyze-log", "decode-protobuf", "inspect-wasm", "inspect-git-bundle", "inspect-font", "convert-3d-model", "repair-3d-model", "redact-pdf", "check-pdf-redaction", "compare-pdfs-visually", "edit-epub-metadata", "merge-gps", "create-sprite-sheet", "optimize-gif", "redact-image", "password-strength", "encrypt-note", "secure-package", "preview-site"]) check(`index links to /${slug}`, links.includes(`/${slug}`));
 
     // ---- Markdown --------------------------------------------------------
     log("\nMarkdown to HTML - a README as a page, then with a table of contents:");
@@ -833,6 +861,108 @@ async function main() {
     check("picked and changed to pixelated: a few flat blocks, not the gradient", blockValues.size > 1 && blockValues.size <= 20 && !blockValues.has(0), `${blockValues.size} values`);
     check("still untouched outside", pixelOutside);
     await shot("redact-image");
+
+    // ---- Security ----------------------------------------------------------
+    log("\nPassword strength - a common password, a famous one, and a generated passphrase:");
+    await open("password-strength");
+    await page.locator("#password").fill("password1");
+    await page.getByText("Too guessable (0 of 4)").waitFor({ timeout: 20_000 });
+    const weakText = await page.locator("main").innerText();
+    check("password1: too guessable, a very common password, 2 hours online", weakText.includes("This is a very common password.") && weakText.includes("Online, rate-limited: 2 hours"), weakText.replace(/\s+/g, " ").slice(0, 300));
+    await page.locator("#password").fill("Tr0ub4dor&3");
+    await page.getByText("Very unguessable (4 of 4)").waitFor();
+    check("Tr0ub4dor&3: very unguessable, 10 seconds to a fast offline attack, as zxcvbn says", (await page.locator("main").innerText()).includes("Offline, fast hash: 10 seconds"));
+    const generated = (await page.getByLabel("Generated").innerText()).trim();
+    check("a five-word passphrase from the EFF list", /^[a-z-]+(-[a-z-]+){4}$/.test(generated) && generated.split("-").length >= 5, generated);
+    check("counted at 65 bits", (await page.locator("main").innerText()).includes("65 bits, strong"));
+    await page.getByRole("button", { name: "Check it above" }).click();
+    check("which checks as very unguessable", (await page.locator("#password").inputValue()) === generated && (await page.getByText("Very unguessable (4 of 4)").count()) === 1);
+    await shot("password-strength");
+
+    log("\nEncrypted note - locked to a link and opened from it, then as a page opened from disk:");
+    await open("encrypt-note");
+    const secretNote = "The Wi-Fi password is correct-horse.\nDo not share.";
+    await page.getByLabel("Note", { exact: true }).fill(secretNote);
+    await page.getByRole("button", { name: "Make a passphrase" }).click();
+    await page.getByText("five random words", { exact: false }).waitFor();
+    const notePassphrase = await page.getByLabel("Passphrase", { exact: true }).inputValue();
+    check("a passphrase made and typed into both boxes", /^[a-z-]+(-[a-z-]+){4}$/.test(notePassphrase) && (await page.getByLabel("Again").inputValue()) === notePassphrase);
+    await page.getByRole("button", { name: "Lock the note" }).click();
+    const noteLink = await page.getByLabel("Link to the note").inputValue({ timeout: 20_000 });
+    check("a link on this site whose fragment holds the sealed note, not the passphrase", noteLink.startsWith(`http://127.0.0.1:${PORT}/encrypt-note#note=`) && !noteLink.includes(notePassphrase), noteLink.slice(0, 80));
+    const notePage = await download(page.getByRole("button", { name: "Save as a page that opens itself" }));
+    await page.goto(noteLink, { waitUntil: "networkidle" });
+    await page.getByLabel("Passphrase", { exact: true }).fill("wrong passphrase");
+    await page.getByRole("button", { name: "Open the note" }).click();
+    await page.getByRole("alert").filter({ hasText: "Wrong passphrase" }).waitFor({ timeout: 20_000 });
+    check("a wrong passphrase is refused", true);
+    await page.getByLabel("Passphrase", { exact: true }).fill(notePassphrase);
+    await page.getByRole("button", { name: "Open the note" }).click();
+    check("opened from the link, the note is back", (await page.getByLabel("The note").inputValue({ timeout: 20_000 })) === secretNote);
+    await page.goto(pathToFileURL(notePage.path).href);
+    await page.getByLabel("Passphrase").fill(notePassphrase);
+    await page.getByRole("button", { name: "Open" }).click();
+    check("the saved page opens itself from disk, offline", (await page.locator("textarea").inputValue({ timeout: 20_000 })) === secretNote);
+
+    log("\nSend files securely - two files locked into a page, opened from disk and on the site:");
+    await open("secure-package");
+    await page.getByLabel("Passphrase", { exact: true }).fill("a long enough passphrase");
+    await page.getByLabel("Again, to lock files").fill("a long enough passphrase");
+    await page.locator("textarea").fill("Here are the papers. The passphrase comes by text.");
+    await drop([fixtures.contract, fixtures.photo]);
+    await page.getByRole("button", { name: "Lock into one page" }).click();
+    const locked = await download(page.getByRole("link", { name: "Download files-locked.html" }));
+    const lockedHtml = locked.bytes.toString("utf8");
+    check("one self-contained page that names neither file", !lockedHtml.includes("contract.pdf") && !lockedHtml.includes("id-scan") && lockedHtml.includes("Here are the papers."));
+    await page.goto(pathToFileURL(locked.path).href);
+    await page.getByLabel("Passphrase").fill("not it");
+    await page.getByRole("button", { name: "Open" }).click();
+    await page.getByText("That passphrase does not open it").waitFor({ timeout: 20_000 });
+    await page.getByLabel("Passphrase").fill("a long enough passphrase");
+    await page.getByRole("button", { name: "Open" }).click();
+    await page.getByText("contract.pdf").waitFor({ timeout: 20_000 });
+    const [savedEvent] = await Promise.all([page.waitForEvent("download"), page.getByRole("link", { name: "Save" }).first().click()]);
+    const savedPath = join(downloadDir, `from-page-${savedEvent.suggestedFilename()}`);
+    await savedEvent.saveAs(savedPath);
+    check("opened from disk, the first file comes out byte for byte", savedEvent.suggestedFilename() === "contract.pdf" && readFileSync(savedPath).equals(readFileSync(fixtures.contract)));
+    await open("secure-package");
+    await page.getByLabel("Passphrase", { exact: true }).fill("a long enough passphrase");
+    await drop([locked.path]);
+    await page.getByRole("button", { name: "Open the package" }).click();
+    const reopened = await download(page.getByRole("link", { name: "Download id-scan.png" }));
+    check("dropped on the site, the package opens too", reopened.bytes.equals(readFileSync(fixtures.photo)));
+    await shot("secure-package");
+
+    log("\nPreview a website - a ZIP of a small site, clicked through in its sandbox:");
+    await open("preview-site");
+    await page.getByLabel("Choose files").setInputFiles([fixtures.siteZip]);
+    const preview = page.frameLocator('iframe[title="Preview of my-site.zip"]');
+    await preview.locator("#data").filter({ hasText: "data from fetch" }).waitFor({ timeout: 30_000 });
+    const inFrame = async (script) => (await (await page.locator('iframe[title="Preview of my-site.zip"]').elementHandle()).contentFrame()).evaluate(script);
+    const sandboxed = await inFrame(() => ({
+      origin: self.origin,
+      colour: getComputedStyle(document.querySelector("h1")).color,
+      logo: document.getElementById("logo").naturalWidth,
+      module: document.getElementById("module").textContent,
+      late: document.getElementById("late").textContent,
+      storage: document.getElementById("storage").textContent,
+      font: document.fonts.check("12px 'Site Sans'"),
+    }));
+    check("the page runs in a sandbox with no origin, its storage out of reach", sandboxed.origin === "null" && sandboxed.storage === "blocked", JSON.stringify(sandboxed));
+    check("its stylesheet, picture and font come from the ZIP", sandboxed.colour === "rgb(200, 30, 30)" && sandboxed.logo === 40 && sandboxed.font === true, JSON.stringify(sandboxed));
+    check("its module imports its neighbour, and fetch() reads its data", sandboxed.module === "hello from the module");
+    check("its deferred script runs after the body", sandboxed.late === "after the body");
+    await preview.locator("#about").click();
+    await preview.getByRole("heading", { name: "About us" }).waitFor({ timeout: 20_000 });
+    check("a link to /about opens about.html", (await page.getByLabel("Address in the site").inputValue()) === "/about");
+    await page.getByRole("button", { name: "Back" }).click();
+    await preview.locator("#title").waitFor();
+    check("and Back returns", (await page.getByLabel("Address in the site").inputValue()) === "/index.html");
+    await page.getByText(/^Broken links 1, missing files 0, addresses elsewhere 1$/).waitFor({ timeout: 20_000 });
+    const reportText = await page.locator("main").innerText();
+    check("the report finds the broken link and the font from Google, not fetched", reportText.includes("gone.html") && reportText.includes("https://fonts.googleapis.com/css2?family=Inter"));
+    check("and the site asked nothing of the network", virtualRequests.length === 0, virtualRequests.slice(0, 3).join(", "));
+    await shot("preview-site");
 
     log("\nPage:");
     check("no uncaught page errors", pageErrors.length === 0, pageErrors.slice(0, 3).join(" | "));

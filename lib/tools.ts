@@ -163,7 +163,11 @@ export type ToolIconName =
   | "imageoff"
   | "imageminus"
   | "spritesheet"
-  | "waypoints";
+  | "waypoints"
+  | "passwordfield"
+  | "securepackage"
+  | "notelock"
+  | "sitepreview";
 
 export interface ToolMeta {
   /** URL segment. Verb-object, lowercase, hyphenated, and permanent once shipped. */
@@ -2035,6 +2039,54 @@ export const TOOLS: readonly ToolMeta[] = [
     category: "data",
     icon: "waypoints",
     accepts: "GPX, KML, GeoJSON, TCX and CSV files",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "password-strength",
+    name: "Password strength checker",
+    tagline: "See how long a password takes to crack and why, or make a strong passphrase.",
+    description:
+      "Check a password's strength entirely in your browser: the guesses it would take, crack times online and offline, the common words, names, keyboard walks and dates it is made of, and a generator for strong passphrases. Nothing is sent or saved.",
+    category: "files",
+    icon: "passwordfield",
+    accepts: "A password typed or pasted",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "secure-package",
+    name: "Send files securely",
+    tagline: "Lock files into one page that opens with a passphrase in any browser, no app needed.",
+    description:
+      "Lock files for sending entirely in your browser: packed into one HTML page, sealed with AES-256 under a passphrase, that the recipient opens in any browser, offline, with no app or account. Nothing is uploaded.",
+    category: "files",
+    icon: "securepackage",
+    accepts: "Any files, up to 200 MB in all",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "encrypt-note",
+    name: "Encrypted note",
+    tagline: "Lock a note with a passphrase and send it as a link, text or a page that opens itself.",
+    description:
+      "Encrypt a note entirely in your browser: sealed with AES-256 under a passphrase and shared as a link whose secret part never reaches a server, a block of text to paste anywhere, or a self-opening page. Nothing is uploaded or stored.",
+    category: "files",
+    icon: "notelock",
+    accepts: "A note typed or pasted",
+    status: "live",
+    engine: "browser",
+  },
+  {
+    slug: "preview-site",
+    name: "Preview a website",
+    tagline: "Click through a site from a ZIP or folder, sandboxed and offline, and find broken links.",
+    description:
+      "Preview a static website entirely in your browser: open a ZIP or folder of its files and click through its pages, with its scripts running in a sandbox that reaches nothing, then see broken links, missing files and errors. Nothing is uploaded.",
+    category: "files",
+    icon: "sitepreview",
+    accepts: "A ZIP or folder of HTML, CSS, JavaScript and pictures",
     status: "live",
     engine: "browser",
   },

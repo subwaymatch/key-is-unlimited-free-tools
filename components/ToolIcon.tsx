@@ -136,6 +136,10 @@ import {
   ImageMinus,
   LayoutDashboard,
   Waypoints,
+  RectangleEllipsis,
+  PackageCheck,
+  MessageSquareLock,
+  AppWindowMac,
 } from "lucide-react";
 
 import type { ToolIconName } from "@/lib/tools";
@@ -288,6 +292,10 @@ export const TOOL_ICONS = {
   imageminus: ImageMinus,
   spritesheet: LayoutDashboard,
   waypoints: Waypoints,
+  passwordfield: RectangleEllipsis,
+  securepackage: PackageCheck,
+  notelock: MessageSquareLock,
+  sitepreview: AppWindowMac,
 } as const satisfies Record<ToolIconName, unknown>;
 
 interface ToolIconProps {

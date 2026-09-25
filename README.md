@@ -163,6 +163,10 @@ The live tools, each on its own route:
 | `/optimize-gif` | An animated GIF made smaller without changing a frame, or with fewer colours | Every frame composed, then written as the rectangle that changed with unchanged pixels transparent; LZW written here |
 | `/create-sprite-sheet` | Many small pictures packed onto one sheet, with CSS and game-engine JSON | Shelf packing, tallest first, about as wide as the square the pictures fill; or a grid, a row or a column |
 | `/merge-gps` | The legs of a trip joined into one track in time order, or gathered side by side | Each file read into the shared GPS model, legs kept as segments so no line crosses a gap |
+| `/password-strength` | How many guesses a password takes and why, and strong passphrases made | zxcvbn's pattern matching and minimum-guesses search, ported; EFF's word list for passphrases |
+| `/encrypt-note` | A note locked with a passphrase, sent as a link, pasteable text or a page | The passphrase format below; a link keeps the sealed note after the #, which no server sees |
+| `/secure-package` | Files locked into one HTML page that opens itself with a passphrase, offline | A stored ZIP sealed with PBKDF2 and AES-256-GCM, base64 in the page beside a few lines of Web Crypto |
+| `/preview-site` | A static site from a ZIP or folder, clicked through in a sandbox, with its broken links | Pages rewritten to run from their own bytes in an opaque-origin frame that can load nothing from the network |
 
 Every media tool is one configuration of the same machinery: a catalogue of formats in
 `lib/engine/`, a page shell in `components/ToolApp.tsx`, and an entry in the registry in
@@ -1087,6 +1091,43 @@ would fill, and writes CSS classes and TexturePacker's JSON hash, which game eng
 load. The exact resize crops to cover, fits with bands, or stretches, and the GPS merge puts
 timed legs in time order as segments of one track, so no straight line is drawn across a gap.
 
+The password checker is a port of zxcvbn 4.4.2 (MIT, Dropbox): the same frequency lists - 30,000
+common passwords, English words from Wikipedia and from film and television, first names and
+surnames - the same keyboard graphs, built here from drawings of the layouts and checked equal to
+zxcvbn's, the same matchers for reversed and l33t words, keyboard walks, repeats, sequences, years
+and dates, and the same search for the cheapest run of patterns. On 3,210 generated passwords it
+gives exactly zxcvbn's guesses, score, pattern sequence and feedback; the one change is that years
+up to 2099 count as recent, where zxcvbn stops at 2019. The lists, about 750 KB, load only with
+that page. Its generator draws from the browser's cryptographic random numbers with rejection
+sampling, so no choice is favoured by a remainder, and passphrases come from EFF's long word list
+(CC BY 3.0 US); their strength is counted exactly rather than estimated.
+
+The encrypted note and the secure package reuse the passphrase format of the file encrypter:
+PBKDF2-SHA-256 at 600,000 rounds, then AES-256-GCM a megabyte at a time with the header bound to
+every chunk. A note travels as a link whose fragment - the part after the #, which a browser never
+sends to a server - holds the sealed bytes as base64url, as an armoured block of text, or as a page.
+The package packs files into a stored ZIP, seals it, and writes it as base64 into an HTML page
+beside a few dozen lines of script that open it with Web Crypto and list each file to save. The
+page's own policy allows it no network access, it opens offline from disk, and the same code the
+page carries is what the tests run in Node, so a package made here is known to open.
+
+The site preview shows a static site without a service worker and without the site's scripts
+ever sharing this site's origin. Each page is rebuilt and handed to a frame as `srcdoc`, sandboxed
+without `allow-same-origin`, so its origin is opaque: the site's code cannot read this site's
+storage or reach its pages. A `srcdoc` frame inherits the page's CSP, which allows scripts only
+inline or from `blob:` and fonts only from this site, so the rebuild works within it: stylesheets
+are inlined with their `@import`s followed and pictures as `data:` URLs, fonts are taken out of
+`@font-face` and loaded from bytes with `FontFace`, classic scripts are inlined with deferred ones
+moved to the end of the body, and module code has its specifiers made absolute and is found
+through an import map of `blob:` URLs the frame's runtime writes. The runtime also answers `fetch`
+and `XMLHttpRequest` for the site's files, points pictures at their bytes however a script sets
+them, and passes clicks on the site's links back to the tool, which shows the next page. Each page
+carries its own policy on top forbidding anything but `blob:` and `data:`, so a reference the
+rewrite misses fails instead of going out; references to other sites are listed, not fetched.
+Folders with an `index.html`, root-relative links and addresses without `.html` resolve as static
+hosts resolve them. Single-page apps that route by the path show their first page, since a
+`srcdoc` document has no path to route by.
+
 ### Cancelling one format
 
 Each output is a format *and* a range, and each can be cancelled on its own. Cancelling one that is
@@ -1252,6 +1293,10 @@ because the App Router emits inline bootstrap scripts and a static export has no
 per-response nonce into them. `connect-src` has to allow `cdn.jsdelivr.net`, which is where the
 core is fetched from - a policy that omits it looks tighter and breaks every conversion.
 
+The site preview's frames are `srcdoc` documents and inherit this policy, which is why the preview
+rebuilds pages rather than serving them; see [the site preview](#tools-with-no-engine-at-all).
+Loosening the policy for it would loosen it for every page.
+
 `public/_redirects` catches the short aliases people type (`/compress`, `/gif`, `/mp4`) and sends
 them to the canonical verb-object routes.
 
@@ -1300,7 +1345,7 @@ node scripts/verify-e2e.mjs                                 # the audio extracto
 node scripts/verify-video-tools.mjs                         # the video tools and the subtitle converter in a browser
 node scripts/verify-plain-tools.mjs                         # the PDF, data, file and image tools of the fourth, fifth and sixth batches, no ffmpeg needed
 node scripts/verify-plain-tools-2.mjs                       # the seventh batch: PDF passwords and forms, e-mail, e-books, SQLite, CSV, XML, GPS, HAR, certificates, secrets, SVG, passport photos
-node scripts/verify-plain-tools-3.mjs                       # the eighth batch: text formats, QR codes, developer inspectors, 3D, redaction, pictures and GPS merging
+node scripts/verify-plain-tools-3.mjs                       # the eighth batch: text formats, QR codes, developer inspectors, 3D, redaction, pictures, GPS merging, passwords, encryption and site preview
 node scripts/verify-large-file.mjs                          # >2 GiB input
 ```
 
@@ -1359,7 +1404,9 @@ the constructs GitHub renders, notebooks, YAML against PyYAML, JWTs signed by No
 QR codes module for module against segno, logs, protobuf against protoc, WebAssembly, the DEFLATE
 decoder against zlib, bundles written by git, fonts against fontTools, meshes against trimesh,
 redaction on pages PDF.js reads, the EPUB editor, GIFs written by Pillow decoded frame for frame
-and written again losslessly, redaction boxes, sprite layouts, exact resizes and merged GPS legs.
+and written again losslessly, redaction boxes, sprite layouts, exact resizes and merged GPS legs,
+password estimates against zxcvbn's own, the generators' counting and uniformity, locked pages
+opened by the script they carry, notes as links and text, and site pages rebuilt under jsdom.
 The canvas and PDF.js's renderer
 only exist in a browser, and the pages built on them are driven through Chromium by hand-run
 scripts before a release.
@@ -1450,7 +1497,16 @@ exact 100 x 100 from its middle; two GPS legs added out of order and merged in t
 icons packed with each where the JSON says; a GIF written whole, frame after frame, optimised to
 under 60% and decoded again to identical frames, with Chromium drawing its first frame pixel for
 pixel; and a screenshot pasted, a box dragged over it and saved black, then picked and pixelated,
-with every pixel outside the box untouched. It needs git on the PATH for the bundle.
+with every pixel outside the box untouched; a common password, Tr0ub4dor&3 and a generated
+passphrase scored as zxcvbn scores them; a note locked to a link, refused with the wrong
+passphrase, opened from the link and from its page saved to disk; two files locked into a page
+that opens from disk and gives them back byte for byte, and opens again when dropped on the site;
+and a small site from a ZIP clicked through in its sandbox - no origin, storage blocked, its
+stylesheet, picture and font from the ZIP, its module import and fetch answered, its deferred
+script after the body, /about found as about.html, the broken link and the font from Google in the
+report, and no request made to the network. The server sends the CSP from `public/_headers`, as
+the deployed site does, since every page has to work inside it. It needs git on the PATH for the
+bundle.
 
 `verify-e2e.mjs` drives a real Chromium through the audio extractor's seven cases - an MP4 with AAC, a video with no
 audio track, an MKV with 5.1 FLAC, a hand-set 1s-3s clip, an 8s file padded with two seconds of
